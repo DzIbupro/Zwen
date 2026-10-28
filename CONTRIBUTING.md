@@ -1,5 +1,7 @@
 # 开发说明
 
+> 当前Python环境用于验证基线。最终语言／UI框架按[选型验证](docs/decisions/technology-evaluation.md)决定；下文不代表技术已经锁定。
+
 ## 环境
 
 优先在 Fedora 45 + Niri 26.04 真实 Wayland 会话验收。Python 最低 3.11；本机实测为 Python 3.15。
@@ -23,12 +25,12 @@ python3 -m compileall -q src scripts
 PYTHONPATH=src python3 -c 'import study_assistant; print(study_assistant.__version__)'
 ```
 
-当前尚无产品行为单元测试。首个业务任务必须建立测试，随后使用 `python3 -m unittest discover -s tests -v`。
+当前尚无产品行为单元测试。在技术方案确定后，首个业务任务必须建立测试，随后使用 `python3 -m unittest discover -s tests -v`。
 GUI、PRIMARY、焦点、截图、输入法和缩放必须另做真实桌面验收，不能把无显示环境的测试称为兼容性通过。
 
 ## 约定
 
-- UI 操作在 GTK 主线程；网络使用异步 API；SQLite 工作线程独占其连接。
+- UI 操作遵循选定框架的主线程约束；网络使用异步 API；SQLite 连接不在多个线程间无序共享。
 - 草稿先保存；失败不丢内容；停止后拒绝迟到流片段。
 - 截图先监听事件再发请求，单请求独立路径；命令返回0不是完成证据。
 - 不将截图、聊天数据库、密钥、原始机器日志提交到 Git。

@@ -1,5 +1,7 @@
 # 输入链路与草稿基础 Implementation Plan
 
+> **状态：被v2设计取代，暂停执行。** 本计划按旧Python／纯文本UI范围编写。先完成[技术选型验证](../../decisions/technology-evaluation.md)，再重写实施计划。可复用的存储、选区和截图测试思路保留为参考。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 交付可恢复草稿窗口，让选区和 Niri 截图可靠进入草稿。
