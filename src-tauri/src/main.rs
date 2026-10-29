@@ -1,0 +1,103 @@
+use serde::Serialize;
+use std::{path::PathBuf, sync::{Arc, Mutex}};
+use study_assistant_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
+use tauri::{Emitter, Manager};
+
+#[derive(Debug, Clone, Serialize)]
+struct ClientError { code: &'static str, message: String }
+impl ClientError {
+    fn storage() -> Self { Self { code: "storage_unavailable", message: "本地存储暂不可用；原有文件与当前输入已保留".into() } }
+    fn window() -> Self { Self { code: "window_unavailable", message: "窗口操作未完成，请重试".into() } }
+}
+impl From<CoreError> for ClientError {
+    fn from(error: CoreError) -> Self {
+        let code = match error { CoreError::Conflict=>"conflict", CoreError::TooLarge=>"too_large", CoreError::UnsupportedSchema=>"unsupported_schema", CoreError::Database(_) | CoreError::Io(_)=>"storage_unavailable" };
+        Self { code, message: error.to_string() }
+    }
+}
+struct Storage { directory: Result<PathBuf, ClientError>, connection: Mutex<Option<Store>> }
+type SharedStorage = Arc<Storage>;
+async fn database<T: Send+'static>(storage: SharedStorage, work: impl FnOnce(&mut Store)->Result<T,CoreError> + Send+'static) -> Result<T,ClientError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = storage.directory.as_ref().map_err(Clone::clone)?;
+        let mut connection = storage.connection.lock().map_err(|_|ClientError::storage())?;
+        if connection.is_none() {
+            let mut directory=std::fs::DirBuilder::new();directory.recursive(true);
+            #[cfg(unix)] {
+                use std::os::unix::fs::DirBuilderExt;
+                directory.mode(0o700);
+            }
+            directory.create(dir).map_err(|_|ClientError::storage())?;
+            *connection = Some(Store::open(&dir.join("state.sqlite3"))?);
+        }
+        work(connection.as_mut().ok_or_else(ClientError::storage)?).map_err(Into::into)
+    }).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+async fn load_draft(storage: tauri::State<'_,SharedStorage>) -> Result<Draft,ClientError> {
+    database(Arc::clone(storage.inner()), |store|store.load()).await
+}
+#[tauri::command]
+async fn save_draft(storage: tauri::State<'_,SharedStorage>, expected_revision:u64, text:String) -> Result<Draft,ClientError> {
+    database(Arc::clone(storage.inner()), move |store|store.save(expected_revision,&text)).await
+}
+#[tauri::command]
+fn hide_window(window: tauri::WebviewWindow) -> Result<(),ClientError> { window.hide().map_err(|_|ClientError::window()) }
+#[tauri::command]
+fn quit_app(app:tauri::AppHandle) { app.exit(0); }
+fn launch(app:&tauri::AppHandle, action:LaunchAction) {
+    if action == LaunchAction::Quit {
+        if let Some(window)=app.get_webview_window("main") {
+            let _=window.show();
+            let _=window.emit("request-quit",());
+        } else { app.exit(0); }
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        if action == LaunchAction::Recover { let _=window.reload(); }
+        let _=window.show(); let _=window.set_focus();
+    }
+}
+
+#[cfg(feature="desktop-smoke")]
+mod smoke;
+
+fn main() {
+    let args:Vec<String>=std::env::args().skip(1).collect();
+    let action=match parse_action(&args.iter().map(String::as_str).collect::<Vec<_>>()) {
+        Ok(action)=>action, Err(message)=>{eprintln!("{message}");std::process::exit(2);}
+    };
+    let builder=tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app,args,_| {
+            let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
+            if let Ok(action)=parse_action(&refs) { launch(app,action); }
+        }))
+        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app])
+        .on_window_event(|window,event| {
+            if let tauri::WindowEvent::CloseRequested{api,..}=event {
+                api.prevent_close(); let _=window.emit("request-hide",());
+            }
+        })
+        .setup(move |app| {
+            let directory=std::env::var_os("STUDY_ASSISTANT_DATA_DIR").map(PathBuf::from)
+                .map(Ok).unwrap_or_else(|| app.path().app_data_dir().map_err(|_|ClientError::storage()));
+            app.manage(Arc::new(Storage { directory, connection:Mutex::new(None) }));
+            #[cfg(feature="desktop-smoke")]
+            smoke::setup(app);
+            if action != LaunchAction::Quit {
+                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                    .title("Study Assistant · 学习助手").inner_size(900.0,850.0)
+                    .min_inner_size(480.0,560.0).visible(false)
+                    .on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
+                    .build()?;
+            }
+            launch(app.handle(), action);
+            Ok(())
+        });
+    #[cfg(feature="desktop-smoke")]
+    let builder=builder.on_page_load(smoke::page_loaded);
+    if builder.run(tauri::generate_context!()).is_err() {
+        eprintln!("学习助手启动失败；本地数据未被删除。请检查显示会话及系统依赖。");
+        std::process::exit(1);
+    }
+}

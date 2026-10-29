@@ -1,43 +1,46 @@
 # 开发说明
 
-> 正式技术选择为 Rust + Tauri 2 + TypeScript/Svelte，见[技术决策](docs/decisions/2026-10-29-technology-selection.md)。正式产品工程尚未创建，下文 Python 命令仅用于历史基线；复现选型请使用[技术样例说明](tools/technology-probes/2026-10-29/README.md)。
+正式工程：Rust/Cargo workspace（crates/core、src-tauri），Svelte + TypeScript 静态前端。默认 cargo test 只测试 core，避免不必要的 GUI 编译。
 
-正式开发保留 rust/cargo、WebKit2GTK4.1 与对应开发库；前端 Node 工具只用于开发构建，不进入常驻运行架构。不要重新安装已清理的 GTK4/WebKit6 对照依赖，除非明确复现该候选。
+## 依赖与构建
 
-## 环境
-
-优先在 Fedora 45 + Niri 26.04 真实 Wayland 会话验收。Python 最低 3.11；本机实测为 Python 3.15。
-PyGObject、GTK4、libsoup 3 使用发行版系统包，不将 GTK 本身写成 pip 依赖。
-原型环境已有 python3-gobject-base、gtk4 和 libsoup 3 typelib；layer-shell 非首版必需。
+本机已验证 Rust/Cargo 1.98.1、Node 24.22.1、pnpm 11.25.0，Fedora 的 WebKit2GTK4.1 构建依赖。前端 Node 仅用于开发/构建，不随桌面程序常驻。不要为此工程重新安装 GTK4/WebKit6 对照依赖。
 
 ```bash
-python3 scripts/check_environment.py
-python3 -m venv --system-site-packages .venv
-.venv/bin/python -m pip install -e .
+pnpm install --frozen-lockfile --store-dir .cache/pnpm-store
+pnpm test
+pnpm check
+pnpm build
+CARGO_HOME="$PWD/.cache/cargo" cargo test
+CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p study-assistant-desktop -j 2
+./target/release/study-assistant show
 ```
 
-虚拟环境需要 `--system-site-packages` 才能读取发行版提供的 GI 绑定。
-如果系统尚未提供 venv/pip/setuptools，先通过 Fedora 软件包管理器补齐；不要使用 sudo pip。
-可直接通过 `PYTHONPATH=src` 导入源码，不必先完成打包安装。
+开发模式：`scripts/dev-desktop.sh`。它需要 PATH 内有 Node、pnpm 和 Cargo，运行 Vite 与不带 custom-protocol 的调试壳。正式构建默认启用 custom-protocol 并内嵌 dist，运行时无需开发服务器。
 
-## 基础检查
+浏览器预览：`pnpm dev`，仅监听127.0.0.1:1420。浏览器草稿使用 localStorage，有明确提示；不能据此宣称桌面 SQLite 验证通过。
+
+## 数据与桌面验证
+
+默认数据目录由 Tauri app_data_dir 决定，Linux 通常为 `$XDG_DATA_HOME/io.github.dzibupro.studyassistant`（未设置时 `~/.local/share/...`）。`STUDY_ASSISTANT_DATA_DIR` 可显式覆盖，主要用于隔离测试。请不要指向现有笔记库或其他应用数据库。
+
+Linux 新建目录权限0700，数据库及已有 sidecar0600；数据库损坏或版本更新时不自动覆盖/重建。SQLite 草稿是当前唯一业务持久化；Markdown 知识库将在后续实现。
 
 ```bash
-python3 -m compileall -q src scripts
-PYTHONPATH=src python3 -c 'import study_assistant; print(study_assistant.__version__)'
+CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p study-assistant-desktop --features desktop-smoke -j 2
+python3 scripts/validate_desktop.py "$PWD/target/release/study-assistant"
 ```
 
-当前尚无产品行为单元测试。正式 Rust 业务任务使用 cargo test，前端按业务行为建立相应测试；不要继续按旧 Python 计划扩写。
-GUI、PRIMARY、焦点、截图、输入法和缩放必须另做真实桌面验收，不能把无显示环境的测试称为兼容性通过。
+合成验证仅作用于自己启动的窗口与临时数据库；验证自动保存、关闭前追加内容、重载/重启及第二实例 quit。结果写入 git-ignored artifacts/validation。测试特性不会进入普通构建；交付前必须重新构建不带 desktop-smoke 的版本。不要将合成测试二进制作为正式发布版本。
+
+输入法、双屏焦点、长期运行、网络与磁盘故障需分别验收，不能从短测推断通过。未自动修改 Niri 配置或安装全局快捷键。
 
 ## 约定
 
-- UI 操作遵循选定框架的主线程约束；网络使用异步 API；SQLite 连接不在多个线程间无序共享。
-- 草稿先保存；失败不丢内容；停止后拒绝迟到流片段。
-- 截图先监听事件再发请求，单请求独立路径；命令返回0不是完成证据。
-- 不将截图、聊天数据库、密钥、原始机器日志提交到 Git。
-- 不自动改 Niri 配置；快捷键安装先检查主文件和 include，保留退出快捷键。
-- 低内存目标须与刷新性能、图片尺寸和历史规模一起验收。
-- 添加模型 Provider 前确认服务协议和图片能力，只使用用户明确配置的密钥。
+- 所有数据库操作离开 UI 线程，通过受控互斥访问；revision CAS 拒绝过期保存。
+- 收起/退出必须先保存，失败保持输入可见；recover 仅保证最后成功保存的数据。
+- 预览内容不允许原始HTML、远程图片/脚本；公式错误局部回退。
+- 不提交草稿、截图、密钥、数据库、缓存或原始机器日志。
+- Provider 只使用用户明确配置的服务与密钥；尚未实现时不伪装生成回答。
 
-暂不选择开源许可证；需要发布或接受贡献时由仓库所有者确定。
+项目暂未选择开源许可证；发布或接受外部贡献前由所有者决定。

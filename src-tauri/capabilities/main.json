@@ -1,0 +1,6 @@
+{
+  "identifier": "main-panel",
+  "description": "Only the local main panel may access the draft and explicit window actions.",
+  "windows": ["main"],
+  "permissions": ["core:event:default", "allow-load-draft", "allow-save-draft", "allow-hide-window", "allow-quit-app"]
+}
