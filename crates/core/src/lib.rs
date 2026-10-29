@@ -17,6 +17,12 @@ pub enum Error {
     Conflict,
     TooLarge,
     UnsupportedSchema,
+    InvalidProvider,
+    ProviderConflict,
+    InvalidChat,
+    ChatConflict,
+    ConversationChanged,
+    ContextTooLarge,
 }
 impl From<rusqlite::Error> for Error {
     fn from(value: rusqlite::Error) -> Self { Self::Database(value) }
@@ -27,7 +33,13 @@ impl fmt::Display for Error {
             Self::Database(_) | Self::Io(_) => "本地数据库无法读取或写入；原有文件已保留",
             Self::Conflict => "草稿已在别处更新；当前输入已保留，请复制后重新打开",
             Self::TooLarge => "草稿超过 256 KiB，请拆分内容后保存",
-            Self::UnsupportedSchema => "数据库来自更新版本；请使用对应版本打开",
+            Self::ConversationChanged => "模型配置已改变，请新建对话；旧内容不会发送到新服务",
+            Self::ContextTooLarge => "最近一轮内容过长，请新建对话并带入需要的片段",
+            Self::InvalidChat => "对话内容无效或超过大小限制；本机记录已保留",
+            Self::ChatConflict => "对话已被更新或结束；原有回答已保留",
+            Self::InvalidProvider => "模型配置无效或密钥不可用；请检查设置，原内容已保留",
+            Self::ProviderConflict => "模型配置已被更新，请重新读取后再保存",
+            Self::UnsupportedSchema => "数据库版本不受支持；请使用对应版本打开",
         })
     }
 }
@@ -36,16 +48,7 @@ impl std::error::Error for Error {}
 pub struct Store { connection: Connection }
 impl Store {
     pub fn open(path: &Path) -> Result<Self, Error> {
-        #[cfg(unix)] {
-            use std::os::unix::fs::OpenOptionsExt;
-            match std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path) {
-                Ok(_) => (),
-                Err(error) if error.kind()==std::io::ErrorKind::AlreadyExists => (),
-                Err(error) => return Err(Error::Io(error)),
-            }
-        }
-        let mut connection = Connection::open(path)?;
-        connection.busy_timeout(Duration::from_secs(2))?;
+        let connection=open_private_database(path,|connection| {
         let version: i64 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version != 0 && version != 1 { return Err(Error::UnsupportedSchema); }
         if version == 0 {
@@ -58,30 +61,13 @@ impl Store {
             PRAGMA user_version = 1;")?;
             tx.commit()?;
         }
-        let store = Self { connection };
-        store.load()?; // Fail closed on an incompatible/damaged schema, without repairing it.
-        #[cfg(unix)] {
-            use std::os::unix::fs::PermissionsExt;
-            for suffix in ["", "-wal", "-shm"] {
-                let mut name=path.as_os_str().to_os_string();name.push(suffix);
-                let candidate=std::path::PathBuf::from(name);
-                match std::fs::metadata(&candidate) {
-                    Ok(_) => std::fs::set_permissions(candidate,std::fs::Permissions::from_mode(0o600)).map_err(Error::Io)?,
-                    Err(error) if error.kind()==std::io::ErrorKind::NotFound => (),
-                    Err(error) => return Err(Error::Io(error)),
-                }
-            }
-        }
-        store.connection.pragma_update(None, "journal_mode", "WAL")?;
-        store.connection.pragma_update(None, "synchronous", "FULL")?;
-        Ok(store)
+            read_draft(connection)?;
+            Ok(())
+        })?;
+        Ok(Self {connection})
     }
     pub fn load(&self) -> Result<Draft, Error> {
-        Ok(self.connection.query_row("SELECT text, revision FROM drafts WHERE id = 1", [], |r| {
-            let revision: i64 = r.get(1)?;
-            let revision = u64::try_from(revision).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, revision))?;
-            Ok(Draft { text: r.get(0)?, revision })
-        })?)
+        read_draft(&self.connection)
     }
     pub fn save(&mut self, expected_revision: u64, text: &str) -> Result<Draft, Error> {
         if text.len() > MAX_DRAFT_BYTES { return Err(Error::TooLarge); }
@@ -102,3 +88,48 @@ pub mod surface;
 pub mod paths;
 
 pub mod stream;
+
+pub mod provider;
+
+fn read_draft(connection:&Connection)->Result<Draft,Error> {
+        Ok(connection.query_row("SELECT text, revision FROM drafts WHERE id = 1", [], |r| {
+            let revision: i64 = r.get(1)?;
+            let revision = u64::try_from(revision).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, revision))?;
+            Ok(Draft { text: r.get(0)?, revision })
+        })?)
+    }
+
+fn open_private_database(path:&Path,initialize:impl FnOnce(&mut Connection)->Result<(),Error>)->Result<Connection,Error> {
+        #[cfg(unix)] {
+            use std::os::unix::fs::OpenOptionsExt;
+            match std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path) {
+                Ok(_) => (),
+                Err(error) if error.kind()==std::io::ErrorKind::AlreadyExists => (),
+                Err(error) => return Err(Error::Io(error)),
+            }
+        }
+        let mut connection = Connection::open(path)?;
+        connection.busy_timeout(Duration::from_secs(2))?;
+        connection.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH, 1024*1024)?;
+
+        initialize(&mut connection)?;
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            for suffix in ["", "-wal", "-shm"] {
+                let mut name=path.as_os_str().to_os_string();name.push(suffix);
+                let candidate=std::path::PathBuf::from(name);
+                match std::fs::metadata(&candidate) {
+                    Ok(_) => std::fs::set_permissions(candidate,std::fs::Permissions::from_mode(0o600)).map_err(Error::Io)?,
+                    Err(error) if error.kind()==std::io::ErrorKind::NotFound => (),
+                    Err(error) => return Err(Error::Io(error)),
+                }
+            }
+        }
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+        connection.pragma_update(None, "synchronous", "FULL")?;
+        Ok(connection)
+}
+
+pub mod completion;
+
+pub mod journal;

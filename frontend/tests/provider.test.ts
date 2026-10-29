@@ -1,0 +1,5 @@
+import {it,expect} from 'vitest';
+import {ProviderController,type ProviderView,type ProviderConfig} from '../lib/provider';
+const config:ProviderConfig={baseUrl:'https://models.example/v1',model:'a',keyEnv:'KEY'};
+it('preserves user input after a failed save',async()=>{const c=new ProviderController({load:async()=>({config:null,revision:0,keyAvailable:false}),save:async()=>{throw Error('磁盘满');}},()=>{});await c.load();c.edit('model','typed');await c.save();expect(c.state.fields.model).toBe('typed');expect(c.state.error).toBe('磁盘满');expect(c.state.revision).toBe(0);});
+it('a late save acknowledgement does not erase newer edits',async()=>{let resolve!:(s:ProviderView)=>void;const pending=new Promise<ProviderView>(r=>resolve=r);const c=new ProviderController({load:async()=>({config,revision:3,keyAvailable:false}),save:()=>pending},()=>{});await c.load();c.edit('model','b');const saved=c.save();c.edit('model','c');resolve({config:{...config,model:'b'},revision:4,keyAvailable:true});await saved;expect(c.state.fields.model).toBe('c');expect(c.state.config?.model).toBe('b');expect(c.state.revision).toBe(4);expect(c.state.status).toBe('dirty');});

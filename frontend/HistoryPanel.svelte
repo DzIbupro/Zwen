@@ -1,0 +1,22 @@
+<script lang="ts">
+ import {onMount,untrack} from 'svelte';import {renderMarkdown} from './lib/render';import {HistoryController,type HistoryPort,type HistoryState} from './lib/history';import type {ChatReply} from './lib/chat';
+ let {port,canContinue,onContinue}:{port:HistoryPort;canContinue:boolean;onContinue:(reply:ChatReply)=>void}=$props();
+ let state=$state<HistoryState>({items:[],selected:null,page:0,hasMore:false,loading:false,error:null});
+ const history=new HistoryController(untrack(()=>port),s=>state=s);
+ const answer=$derived(state.selected?renderMarkdown(state.selected.answer):'');
+ const labels:Record<ChatReply['state'],string>={streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'};
+ onMount(()=>{void history.load(0);return()=>history.dispose();});
+</script>
+<section class="history" aria-label="问答历史">
+ <div class="history-head"><div><div class="eyebrow">PICK UP A THREAD</div><h1>回到一个问题<span>。</span></h1></div><button disabled={state.loading} onclick={()=>void history.load(0)}>刷新记录</button></div>
+ <p class="description">问答保存在本机。按需查看，或继续同一服务配置下的会话。</p>
+ {#if state.error}<div class="history-error" role="alert">{state.error}</div>{/if}
+ <div class="history-grid">
+  <div><div class="records" aria-label="问答记录列表">{#each state.items as item (item.requestId)}<button class:selected={state.selected?.requestId===item.requestId} disabled={state.loading} onclick={()=>void history.open(item.requestId)}><strong>{item.title}</strong><small>{labels[item.state]} · {item.model}</small></button>{/each}{#if !state.items.length&&!state.loading}<p>还没有问答记录。</p>{/if}</div>
+  <div class="pagination"><button disabled={state.page===0||state.loading} onclick={()=>void history.load(state.page-1)}>上一页</button><span>{state.page+1}</span><button disabled={!state.hasMore||state.loading} onclick={()=>void history.load(state.page+1)}>下一页</button></div></div>
+  <div class="record-detail">{#if state.selected}<div class="record-meta"><span>{labels[state.selected.state]} · {new Date(state.selected.createdAt*1000).toLocaleString()}</span><button disabled={!canContinue||state.selected.state==='streaming'} onclick={()=>onContinue(state.selected!)}>继续此对话</button></div><h2>你问过</h2><p class="original-question">{state.selected.prompt}</p><div class="prose">{@html answer}</div>{#if state.selected.error}<p class="history-error">{state.selected.error}</p>{/if}{:else}<div class="empty-detail">{state.loading?'正在读取…':'选择左侧的一个问题。'}</div>{/if}</div>
+ </div>
+</section>
+<style>
+ .history{padding:24px 0}.history-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.eyebrow{font-size:9px;letter-spacing:.16em;color:#839279}h1{font-size:26px;font-weight:550;margin:10px 0}h1 span{color:#67946d}.description{font-size:12px;color:#73806b}.history-grid{display:grid;grid-template-columns:220px minmax(0,1fr);gap:25px;margin-top:25px}.records{display:flex;flex-direction:column;gap:5px;max-height:520px;overflow:auto}.records button{text-align:left;border:1px solid transparent;background:transparent;padding:12px;border-radius:8px;display:flex;flex-direction:column;gap:8px;min-width:0}.records button.selected{background:#e7eddf;border-color:#d3ddc7}.records strong{font-size:12px;font-weight:500;line-height:1.6;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}.records small,.record-meta,.pagination{font-size:10px;color:#7a8473}.record-detail{min-width:0}.record-meta{display:flex;align-items:center;justify-content:space-between;gap:8px}button{border:1px solid #d6decc;border-radius:7px;padding:7px 10px;color:#506346;background:transparent;font:inherit;font-size:11px}.pagination{display:flex;align-items:center;justify-content:space-between;margin-top:15px}h2{font-size:12px;color:#6c7b62;font-weight:500;margin-top:22px}.original-question{white-space:pre-wrap;max-height:160px;overflow:auto;font-size:12px;line-height:1.8;border-bottom:1px solid #dce3d3;padding-bottom:16px}.history-error{font-size:12px;color:#a44134;line-height:1.7}.empty-detail{padding:40px 15px;color:#88917f;font-size:12px;text-align:center}@media(max-width:720px){.history-grid{grid-template-columns:1fr}.records{max-height:220px}}
+</style>

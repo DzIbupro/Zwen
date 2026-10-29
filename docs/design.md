@@ -88,4 +88,13 @@ WebView回收要先保存草稿；不得销毁唯一的会话状态。渲染进�
 
 ### Provider 流式边界（开发中）
 
-Rust core 已增加有界 SSE 帧解码：输入块不大于64KiB、行与data事件缓冲不大于256KiB；超限终止解码，由后续网络层显示可恢复错误。只解析event/data，忽略id/retry，不承担浏览器自动重连；EOF丢弃未由空行结束的事件。具体Provider负责JSON、完成标记、断流报错与取消。依据：[WHATWG SSE](https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation)。当前没有真实网络请求或密钥入口。
+Rust core 已增加有界 SSE 帧解码：输入块不大于64KiB、行与data事件缓冲不大于256KiB；超限终止解码，由后续网络层显示可恢复错误。只解析event/data，忽略id/retry，不承担浏览器自动重连；EOF丢弃未由空行结束的事件。具体Provider负责JSON、完成标记、断流报错与取消。依据：[WHATWG SSE](https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation)。现已接入Rust HTTP与环境变量密钥通路，见本轮Provider计划和验证；真实服务仍须单独验证。
+
+
+## 2026-10-30 问答阶段落实
+
+已实现配置、文本流式、多轮上下文、停止、分页历史和进程/渲染器恢复。草稿库不迁移，配置与聊天用独立私有SQLite；首次交付聊天schema2。会话绑定规范化服务地址、模型及密钥变量名，配置不同拒绝附带旧上下文，需新会话。至多8轮，合计正文256KiB；超长最近一轮不静默遗漏。
+
+请求先落盘问题，一个受控后台请求线程拥有SQLite及当前线程异步runtime；首片段、收到内容时的500ms检查点、终态保存。帧带requestId/revision，迟到帧失效；停止pending调用也能撤销后到的start。保存故障保留NativeRAM快照，重建WebView仍可见；这不代表已经持久化。退出先停止并等待保存，失败留窗。显示层区分完成/停止/失败/中断，不让演示伪装模型输出。
+
+用户选择智谱：API根https://open.bigmodel.cn/api/paas/v4，文本glm-4.7-flash；视觉glm-4.6v-flash在截图附件阶段路由，当前未实现图片输入。密钥暂由用户本机启动环境提供；Secret Service界面后续完善。当前没有自动划词、截图附件、知识整理或图谱实现。详细证据见[本轮验证](validation/2026-10-30-provider-chat.md)。

@@ -1,4 +1,6 @@
 mod niri;
+mod chat;
+mod provider;
 mod windows;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
@@ -13,11 +15,11 @@ impl ClientError {
 }
 impl From<CoreError> for ClientError {
     fn from(error: CoreError) -> Self {
-        let code = match error { CoreError::Conflict=>"conflict", CoreError::TooLarge=>"too_large", CoreError::UnsupportedSchema=>"unsupported_schema", CoreError::Database(_) | CoreError::Io(_)=>"storage_unavailable" };
+        let code = match error { CoreError::ConversationChanged=>"conversation_changed",CoreError::ContextTooLarge=>"context_too_large",CoreError::InvalidChat=>"invalid_chat",CoreError::ChatConflict=>"chat_conflict",CoreError::InvalidProvider=>"invalid_provider",CoreError::ProviderConflict=>"provider_conflict",CoreError::Conflict=>"conflict", CoreError::TooLarge=>"too_large", CoreError::UnsupportedSchema=>"unsupported_schema", CoreError::Database(_) | CoreError::Io(_)=>"storage_unavailable" };
         Self { code, message: error.to_string() }
     }
 }
-struct Storage { directory: Result<PathBuf, ClientError>, connection: Mutex<Option<Store>> }
+struct Storage { directory: Result<PathBuf, ClientError>, connection: Mutex<Option<Store>>, provider:Mutex<Option<zwen_core::provider::ProviderStore>> }
 type SharedStorage = Arc<Storage>;
 async fn database<T: Send+'static>(storage: SharedStorage, work: impl FnOnce(&mut Store)->Result<T,CoreError> + Send+'static) -> Result<T,ClientError> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -83,7 +85,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action); }
         }))
-        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule])
+        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -96,7 +98,8 @@ fn main() {
                     let legacy=preferred.parent().unwrap_or(&preferred).join("io.github.dzibupro.studyassistant");
                     zwen_core::paths::choose_data_directory(&preferred,&legacy,preferred.join("state.sqlite3").exists(),legacy.join("state.sqlite3").exists())
                 }).map_err(|_|ClientError::storage()));
-            app.manage(Arc::new(Storage { directory, connection:Mutex::new(None) }));
+            app.manage(chat::Shared::default());
+            app.manage(Arc::new(Storage { directory, connection:Mutex::new(None),provider:Mutex::new(None) }));
             app.manage(Arc::new(Mutex::new(windows::Controller::new(action==LaunchAction::Capsule))));
             #[cfg(feature="desktop-smoke")]
             smoke::setup(app);

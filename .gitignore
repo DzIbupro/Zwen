@@ -37,3 +37,9 @@ node_modules/
 .superpowers/
 src-tauri/icons/icon.png
 src-tauri/gen/
+
+# SQLite sidecars may contain user materials
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite-wal
+*.sqlite-shm

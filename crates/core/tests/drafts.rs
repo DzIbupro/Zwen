@@ -38,3 +38,4 @@ impl Drop for Scratch { fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0
  let t=Scratch::new();let mut s=Store::open(&t.db()).unwrap();s.save(0,"private").unwrap();
  assert_eq!(std::fs::metadata(t.db()).unwrap().permissions().mode() & 0o077,0);
 }
+#[test] fn oversized_external_record_is_rejected_without_repair(){let t=Scratch::new();drop(Store::open(&t.db()).unwrap());let c=rusqlite::Connection::open(t.db()).unwrap();c.execute("UPDATE drafts SET text=?1",["x".repeat(2*1024*1024)]).unwrap();drop(c);assert!(Store::open(&t.db()).is_err());let c=rusqlite::Connection::open(t.db()).unwrap();assert_eq!(c.query_row("SELECT length(text) FROM drafts",[],|r|r.get::<_,i64>(0)).unwrap(),2*1024*1024);}

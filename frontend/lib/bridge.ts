@@ -32,3 +32,20 @@ export const setSurface=(mode:'full'|'capsule'):Promise<SurfaceInfo>=>{
   browserSurface={...browserSurface,mode,generation:browserSurface.generation+1};return Promise.resolve(browserSurface);
 };
 export const resizeCapsule=(height:number,generation:number):Promise<void>=>isDesktop?command('resize_capsule',{height,generation}):Promise.resolve();
+
+import type {ProviderPort,ProviderView} from './provider';
+export const providerPort:ProviderPort=isDesktop?{
+ load:()=>command<ProviderView>('load_provider'),
+ save:(revision,config)=>command<ProviderView>('save_provider',{expectedRevision:revision,config}),
+}:{load:async()=>({config:null,revision:0,keyAvailable:false}),save:async()=>{throw Error('浏览器仅预览设置，请在桌面应用中保存');}};
+
+import {listen} from '@tauri-apps/api/event';
+import type {ChatPort,ChatReply,Overview} from './chat';
+export const chatPort:ChatPort=isDesktop?{
+ listen:cb=>listen<ChatReply>('chat-update',e=>cb(e.payload)),
+ load:()=>command<Overview>('get_chat'),start:(requestId,prompt,conversationId)=>command<ChatReply>('start_chat',{requestId,prompt,conversationId:conversationId??null}),
+ stop:requestId=>command<ChatReply|null>('stop_chat',{requestId}),settle:()=>command<ChatReply|null>('settle_chat'),
+}:{listen:async()=>()=>{},load:async()=>({reply:null,activeRequestId:null}),start:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中发送');},stop:async()=>null,settle:async()=>null};
+
+import type {HistoryPort,Summary} from './history';
+export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId})}:{list:async()=>[],get:async()=>null};
