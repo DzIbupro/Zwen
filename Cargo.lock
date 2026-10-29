@@ -3249,26 +3249,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
-name = "study-assistant-core"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "serde",
-]
-
-[[package]]
-name = "study-assistant-desktop"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "study-assistant-core",
- "tauri",
- "tauri-build",
- "tauri-plugin-single-instance",
-]
-
-[[package]]
 name = "swift-rs"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4838,4 +4818,24 @@ dependencies = [
  "serde",
  "syn 3.0.9",
  "winnow 1.0.4",
+]
+
+[[package]]
+name = "zwen-core"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+]
+
+[[package]]
+name = "zwen-desktop"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
+ "zwen-core",
 ]

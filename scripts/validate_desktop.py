@@ -31,7 +31,7 @@ def sample(root_pid):
 with tempfile.TemporaryDirectory(prefix='study-desktop-smoke-') as folder:
     summaries=[]
     for mode in ['edit','restore','quit']:
-        env=os.environ.copy();env['STUDY_ASSISTANT_DATA_DIR']=str(Path(folder)/('quit' if mode=='quit' else 'close'));env['STUDY_ASSISTANT_SMOKE']=mode
+        env=os.environ.copy();env['ZWEN_DATA_DIR']=str(Path(folder)/('quit' if mode=='quit' else 'close'));env['ZWEN_SMOKE']=mode
         start=time.monotonic();buffer=b'';events=[];samples=[]
         with (output/f'{mode}-stderr.txt').open('wb') as errors:
             p=subprocess.Popen([str(binary)],env=env,stdout=subprocess.PIPE,stderr=errors,bufsize=0)
@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix='study-desktop-smoke-') as folder:
             if d.get('ok'):good.append(d)
         success=p.returncode==0 and any(d.get('mode')=='restore' for d in good)
         if mode=='quit':
-            with sqlite3.connect(Path(env['STUDY_ASSISTANT_DATA_DIR'])/'state.sqlite3') as db:
+            with sqlite3.connect(Path(env['ZWEN_DATA_DIR'])/'state.sqlite3') as db:
                 saved=db.execute('SELECT text FROM drafts WHERE id=1').fetchone()[0]
             success=p.returncode==0 and saved.endswith('关闭前追加')
         if mode=='edit':success=success and any(d.get('mode')=='edit' for d in good) and any(e['value'].startswith('hidden:') for e in events)

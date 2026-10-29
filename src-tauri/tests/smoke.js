@@ -5,7 +5,7 @@
  const text=base+'\n\n关闭前追加';
  try {
   await wait(()=>document.querySelector('textarea') && !document.querySelector('textarea').disabled);
-  if(['edit','quit'].includes(window.__STUDY_SMOKE_MODE__)) {
+  if(['edit','quit'].includes(window.__ZWEN_SMOKE_MODE__)) {
    const input=document.querySelector('textarea');input.value=base;input.dispatchEvent(new Event('input',{bubbles:true}));
    await wait(async()=>{const d=await api.core.invoke('load_draft');return d.text===base&&d.revision>0;});
   } else if(document.querySelector('textarea').value!==text) throw Error('Saved draft was not restored into textarea');
@@ -13,7 +13,7 @@
   await wait(()=>document.querySelector('td')?.textContent==='1' && document.querySelector('.katex'));
   await document.fonts.ready;
   const d=await api.core.invoke('load_draft');
-  if(['edit','quit'].includes(window.__STUDY_SMOKE_MODE__)){const input=document.querySelector('textarea');input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));}
-  await api.event.emit('foundation-smoke',{ok:true,mode:window.__STUDY_SMOKE_MODE__,revision:d.revision,table:true,formula:true,width:innerWidth,height:innerHeight,dpr:devicePixelRatio});
+  if(['edit','quit'].includes(window.__ZWEN_SMOKE_MODE__)){const input=document.querySelector('textarea');input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));}
+  await api.event.emit('foundation-smoke',{ok:true,mode:window.__ZWEN_SMOKE_MODE__,revision:d.revision,table:true,formula:true,width:innerWidth,height:innerHeight,dpr:devicePixelRatio});
  } catch(e) { await api.event.emit('foundation-smoke',{ok:false,error:String(e)}); }
 })();

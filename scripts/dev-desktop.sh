@@ -6,4 +6,4 @@ pnpm dev &
 STUDY_VITE_PID=$!
 trap 'kill "$STUDY_VITE_PID" 2>/dev/null || true' EXIT
 export CARGO_HOME="${STUDY_CARGO_HOME:-$PWD/.cache/cargo}"
-cargo run -p study-assistant-desktop --no-default-features -- "$@"
+cargo run -p zwen-desktop --no-default-features -- "$@"

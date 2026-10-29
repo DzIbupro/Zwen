@@ -98,3 +98,7 @@ impl Store {
 pub mod cli;
 
 pub mod surface;
+
+pub mod paths;
+
+pub mod stream;

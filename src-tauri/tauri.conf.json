@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Study Assistant",
+  "productName": "Zwen",
   "version": "0.1.0",
-  "identifier": "io.github.dzibupro.studyassistant",
+  "identifier": "io.github.dzibupro.zwen",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:1420"

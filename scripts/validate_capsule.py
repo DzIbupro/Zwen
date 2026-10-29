@@ -3,7 +3,7 @@ import os,json,selectors,subprocess,tempfile,time,sys
 from pathlib import Path
 binary=Path(sys.argv[1]).resolve();out=Path('artifacts/validation');out.mkdir(parents=True,exist_ok=True)
 with tempfile.TemporaryDirectory(prefix='study-capsule-') as folder:
- env=os.environ.copy();env['STUDY_ASSISTANT_DATA_DIR']=folder;env['STUDY_ASSISTANT_SMOKE']='capsule'
+ env=os.environ.copy();env['ZWEN_DATA_DIR']=folder;env['ZWEN_SMOKE']='capsule'
  with (out/'capsule-stderr.txt').open('wb') as err:
   p=subprocess.Popen([str(binary),'capsule'],env=env,stdout=subprocess.PIPE,stderr=err,bufsize=0)
   sel=selectors.DefaultSelector();sel.register(p.stdout,selectors.EVENT_READ);buffer=b'';events=[];windows=[];start=time.monotonic()

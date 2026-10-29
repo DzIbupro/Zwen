@@ -6,6 +6,6 @@ pub fn parse_action(args: &[&str]) -> Result<LaunchAction, &'static str> {
         ["capsule" | "--capsule"] => Ok(LaunchAction::Capsule),
         ["recover" | "--recover"] => Ok(LaunchAction::Recover),
         ["quit" | "--quit"] => Ok(LaunchAction::Quit),
-        _ => Err("用法：study-assistant [show|capsule|recover|quit]"),
+        _ => Err("用法：zwen [show|capsule|recover|quit]"),
     }
 }

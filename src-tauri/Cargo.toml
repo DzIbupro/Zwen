@@ -1,10 +1,10 @@
 [package]
-name = "study-assistant-desktop"
+name = "zwen-desktop"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "study-assistant"
+name = "zwen"
 path = "src/main.rs"
 
 [features]
@@ -16,7 +16,7 @@ desktop-smoke = []
 tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
-study-assistant-core = { path = "../crates/core" }
+zwen-core = { path = "../crates/core" }
 tauri = { version = "=2.12.5", features = [] }
 tauri-plugin-single-instance = "=2.5.5"
 serde = { version = "1", features = ["derive"] }

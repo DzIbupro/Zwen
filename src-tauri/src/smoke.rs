@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::{Listener, Manager};
 static LOADS:AtomicUsize=AtomicUsize::new(0);
 pub fn setup(app:&tauri::App) {
-    if std::env::var("STUDY_ASSISTANT_SMOKE").is_err() {return;}
+    if std::env::var("ZWEN_SMOKE").is_err() {return;}
     app.listen("capsule-progress",move|e|println!("CAPSULE_PROGRESS:{}",e.payload()));
     let handle=app.handle().clone();
     app.listen("foundation-smoke", move |event| {
@@ -28,7 +28,7 @@ pub fn setup(app:&tauri::App) {
                 }
             } else if payload["mode"]=="quit" {
                 let exe=std::env::current_exe().unwrap();
-                let _=std::process::Command::new(exe).arg("quit").env_remove("STUDY_ASSISTANT_SMOKE").status();
+                let _=std::process::Command::new(exe).arg("quit").env_remove("ZWEN_SMOKE").status();
             } else {
                 std::thread::sleep(std::time::Duration::from_millis(500));h.exit(0);
             }
@@ -38,10 +38,10 @@ pub fn setup(app:&tauri::App) {
     std::thread::spawn(move||{std::thread::sleep(std::time::Duration::from_secs(30));h.exit(3);});
 }
 pub fn page_loaded(webview:&tauri::Webview, payload:&tauri::webview::PageLoadPayload<'_>) {
-    if std::env::var("STUDY_ASSISTANT_SMOKE").is_err() || payload.event()!=tauri::webview::PageLoadEvent::Finished {return;}
+    if std::env::var("ZWEN_SMOKE").is_err() || payload.event()!=tauri::webview::PageLoadEvent::Finished {return;}
     let first=LOADS.fetch_add(1,Ordering::SeqCst)==0;
-    let mode=if !first {"restore"} else {match std::env::var("STUDY_ASSISTANT_SMOKE").as_deref(){Ok("capsule")=>"capsule",Ok("quit")=>"quit",Ok("restore")=>"restore",_=>"edit"}};
+    let mode=if !first {"restore"} else {match std::env::var("ZWEN_SMOKE").as_deref(){Ok("capsule")=>"capsule",Ok("quit")=>"quit",Ok("restore")=>"restore",_=>"edit"}};
     let source=if mode=="capsule"{include_str!("../tests/capsule.js")}else{include_str!("../tests/smoke.js")};
-    let script=format!("window.__STUDY_SMOKE_MODE__={};{}",serde_json::to_string(mode).unwrap(),source);
+    let script=format!("window.__ZWEN_SMOKE_MODE__={};{}",serde_json::to_string(mode).unwrap(),source);
     let _=webview.eval(&script);
 }

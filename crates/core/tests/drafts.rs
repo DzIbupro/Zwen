@@ -1,5 +1,5 @@
 use std::{path::PathBuf, sync::atomic::{AtomicU64, Ordering}};
-use study_assistant_core::{Store, Error};
+use zwen_core::{Store, Error};
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Scratch(PathBuf);
 impl Scratch {

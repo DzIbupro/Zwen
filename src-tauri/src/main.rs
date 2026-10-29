@@ -2,7 +2,7 @@ mod niri;
 mod windows;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
-use study_assistant_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
+use zwen_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
 use tauri::{Emitter, Manager};
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,15 +91,18 @@ fn main() {
             }
         })
         .setup(move |app| {
-            let directory=std::env::var_os("STUDY_ASSISTANT_DATA_DIR").map(PathBuf::from)
-                .map(Ok).unwrap_or_else(|| app.path().app_data_dir().map_err(|_|ClientError::storage()));
+            let directory=std::env::var_os("ZWEN_DATA_DIR").or_else(||std::env::var_os("STUDY_ASSISTANT_DATA_DIR")).map(PathBuf::from)
+                .map(Ok).unwrap_or_else(|| app.path().app_data_dir().map(|preferred|{
+                    let legacy=preferred.parent().unwrap_or(&preferred).join("io.github.dzibupro.studyassistant");
+                    zwen_core::paths::choose_data_directory(&preferred,&legacy,preferred.join("state.sqlite3").exists(),legacy.join("state.sqlite3").exists())
+                }).map_err(|_|ClientError::storage()));
             app.manage(Arc::new(Storage { directory, connection:Mutex::new(None) }));
             app.manage(Arc::new(Mutex::new(windows::Controller::new(action==LaunchAction::Capsule))));
             #[cfg(feature="desktop-smoke")]
             smoke::setup(app);
             if action != LaunchAction::Quit {
                 let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                    .title("Study Assistant · 学习助手").transparent(true)
+                    .title("Zwen · 学习助手").transparent(true)
                     .inner_size(if action==LaunchAction::Capsule{480.0}else{900.0},if action==LaunchAction::Capsule{96.0}else{850.0})
                     .resizable(true).min_inner_size(480.0,if action==LaunchAction::Capsule{96.0}else{560.0}).decorations(action!=LaunchAction::Capsule).visible(false);
                 let window=if action==LaunchAction::Capsule{window.max_inner_size(480.0,96.0)}else{window};
@@ -112,7 +115,7 @@ fn main() {
     #[cfg(feature="desktop-smoke")]
     let builder=builder.on_page_load(smoke::page_loaded);
     if builder.run(tauri::generate_context!()).is_err() {
-        eprintln!("学习助手启动失败；本地数据未被删除。请检查显示会话及系统依赖。");
+        eprintln!("Zwen 启动失败；本地数据未被删除。请检查显示会话及系统依赖。");
         std::process::exit(1);
     }
 }

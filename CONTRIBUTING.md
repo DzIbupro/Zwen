@@ -12,8 +12,8 @@ pnpm test
 pnpm check
 pnpm build
 CARGO_HOME="$PWD/.cache/cargo" cargo test
-CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p study-assistant-desktop -j 2
-./target/release/study-assistant show
+CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p zwen-desktop -j 2
+./target/release/zwen show
 ```
 
 开发模式：`scripts/dev-desktop.sh`。它需要 PATH 内有 Node、pnpm 和 Cargo，运行 Vite 与不带 custom-protocol 的调试壳。正式构建默认启用 custom-protocol 并内嵌 dist，运行时无需开发服务器。
@@ -22,19 +22,19 @@ CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p study-assistant-desktop 
 
 ## 胶囊验证
 
-`python3 scripts/validate_capsule.py "$PWD/target/release/study-assistant"` 用 smoke 特性构建验证真实窗口尺寸、增长上限、Niri浮动/锚点、模式转移和旧generation失效。只操作该进程拥有的窗口与临时数据库。演示流不是模型集成。
+`python3 scripts/validate_capsule.py "$PWD/target/release/zwen"` 用 smoke 特性构建验证真实窗口尺寸、增长上限、Niri浮动/锚点、模式转移和旧generation失效。只操作该进程拥有的窗口与临时数据库。演示流不是模型集成。
 
 Linux避免设置resizable=false（上游存在200像素最小高度问题）；用相同的min/max约束锁定每次目标尺寸。CSS高度与Tauri逻辑尺寸须按devicePixelRatio/原生scaleFactor换算，不能混用。
 
 ## 数据与桌面验证
 
-默认数据目录由 Tauri app_data_dir 决定，Linux 通常为 `$XDG_DATA_HOME/io.github.dzibupro.studyassistant`（未设置时 `~/.local/share/...`）。`STUDY_ASSISTANT_DATA_DIR` 可显式覆盖，主要用于隔离测试。请不要指向现有笔记库或其他应用数据库。
+默认数据目录由 Tauri app_data_dir 决定，Linux 通常为 `$XDG_DATA_HOME/io.github.dzibupro.zwen`（未设置时 `~/.local/share/...`）。`ZWEN_DATA_DIR` 可显式覆盖，主要用于隔离测试。请不要指向现有笔记库或其他应用数据库。
 
 Linux 新建目录权限0700，数据库及已有 sidecar0600；数据库损坏或版本更新时不自动覆盖/重建。SQLite 草稿是当前唯一业务持久化；Markdown 知识库将在后续实现。
 
 ```bash
-CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p study-assistant-desktop --features desktop-smoke -j 2
-python3 scripts/validate_desktop.py "$PWD/target/release/study-assistant"
+CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p zwen-desktop --features desktop-smoke -j 2
+python3 scripts/validate_desktop.py "$PWD/target/release/zwen"
 ```
 
 合成验证仅作用于自己启动的窗口与临时数据库；验证自动保存、关闭前追加内容、重载/重启及第二实例 quit。结果写入 git-ignored artifacts/validation。测试特性不会进入普通构建；交付前必须重新构建不带 desktop-smoke 的版本。不要将合成测试二进制作为正式发布版本。

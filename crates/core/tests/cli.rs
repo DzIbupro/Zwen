@@ -1,4 +1,4 @@
-use study_assistant_core::cli::{parse_action, LaunchAction};
+use zwen_core::cli::{parse_action, LaunchAction};
 #[test] fn empty_command_only_shows_panel(){assert_eq!(parse_action(&[]).unwrap(),LaunchAction::Show);}
 #[test] fn explicit_actions_are_distinct(){
  for (arg,action) in [("show",LaunchAction::Show),("recover",LaunchAction::Recover),("quit",LaunchAction::Quit)] {

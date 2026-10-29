@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::sync::{Arc,Mutex};
-use study_assistant_core::surface::{CapsuleBounds,SurfaceState};
+use zwen_core::surface::{CapsuleBounds,SurfaceState};
 use tauri::{Emitter,Manager,LogicalSize};
 use crate::{ClientError,niri};
 #[derive(Clone,Serialize)]

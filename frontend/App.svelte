@@ -60,7 +60,7 @@
 {:else}
 <div class="shell">
   <header class="titlebar">
-    <div class="brand"><span class="brandmark" aria-hidden="true">s<span>·</span></span><span>Study Assistant</span><span class="edition">开发预览</span></div>
+    <div class="brand"><span class="brandmark" aria-hidden="true">z<span>·</span></span><span>Zwen</span><span class="edition">开发预览</span></div>
     <div class="window-actions"><button class="capsule-launch" disabled={switching} onclick={()=>switchSurface('capsule')}>快捷胶囊</button><span class="keyhint">Esc 收起</span><button class="icon-button" aria-label="收起面板" title="保存草稿并收起" onclick={()=>leave()}>−</button><details><summary aria-label="更多操作">···</summary><div class="menu"><button onclick={()=>leave(true)}>保存并退出</button></div></details></div>
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器交互预览 · 草稿仅保存在此浏览器；桌面版使用本机数据库</div>{/if}

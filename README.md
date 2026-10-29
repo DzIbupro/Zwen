@@ -1,4 +1,6 @@
-# Study Assistant · 轻量级研究助手
+# Zwen · 轻量级研究助手
+
+仓库：[DzIbupro/Zwen](https://github.com/DzIbupro/Zwen)；改名保留旧草稿与数据路径兼容，详见[进度与续接](docs/development-progress.md)。
 
 面向 Fedora + Niri / Wayland 的桌面学习助手，采用 Rust + Tauri 2 + Svelte/TypeScript。
 
@@ -23,10 +25,10 @@
 本机编译后的入口（构建产物不提交 Git）：
 
 ```bash
-./artifacts/study-assistant show
-./artifacts/study-assistant capsule
-./artifacts/study-assistant recover
-./artifacts/study-assistant quit
+./artifacts/zwen show
+./artifacts/zwen capsule
+./artifacts/zwen recover
+./artifacts/zwen quit
 ```
 
 `recover` 重新加载并恢复最后成功保存的内容，可能丢弃尚未保存的输入，供界面失效时使用。`quit` 请求现有界面先保存再退出；保存失败时保留窗口。渲染进程失效时先用 recover，不能保证强制终止前尚未提交的文字。
