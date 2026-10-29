@@ -1,4 +1,4 @@
-# Study Assistant · 轻量级研究助手
+# Zwen · 轻量级研究助手
 
 为 Linux 阅读与研究工作流设计的桌面助手，优先支持 Fedora + Niri。
 
