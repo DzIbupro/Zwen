@@ -1,0 +1,16 @@
+{
+  "label": "python-formal-2",
+  "exit": 0,
+  "duration": 35.294,
+  "peak_pss_mib": 381.7,
+  "peak_rss_mib": 659.2,
+  "done": true,
+  "ready": true,
+  "cycles": true,
+  "ready_pss_mib": 379.9,
+  "ready_processes": 8,
+  "hidden_pss_mib": 348.6,
+  "hidden_processes": 8,
+  "restored_pss_mib": 367.4,
+  "restored_processes": 8
+}

@@ -1,6 +1,8 @@
 # 开发说明
 
-> 当前Python环境用于验证基线。最终语言／UI框架按[选型验证](docs/decisions/technology-evaluation.md)决定；下文不代表技术已经锁定。
+> 正式技术选择为 Rust + Tauri 2 + TypeScript/Svelte，见[技术决策](docs/decisions/2026-10-29-technology-selection.md)。正式产品工程尚未创建，下文 Python 命令仅用于历史基线；复现选型请使用[技术样例说明](tools/technology-probes/2026-10-29/README.md)。
+
+正式开发保留 rust/cargo、WebKit2GTK4.1 与对应开发库；前端 Node 工具只用于开发构建，不进入常驻运行架构。不要重新安装已清理的 GTK4/WebKit6 对照依赖，除非明确复现该候选。
 
 ## 环境
 
@@ -25,7 +27,7 @@ python3 -m compileall -q src scripts
 PYTHONPATH=src python3 -c 'import study_assistant; print(study_assistant.__version__)'
 ```
 
-当前尚无产品行为单元测试。在技术方案确定后，首个业务任务必须建立测试，随后使用 `python3 -m unittest discover -s tests -v`。
+当前尚无产品行为单元测试。正式 Rust 业务任务使用 cargo test，前端按业务行为建立相应测试；不要继续按旧 Python 计划扩写。
 GUI、PRIMARY、焦点、截图、输入法和缩放必须另做真实桌面验收，不能把无显示环境的测试称为兼容性通过。
 
 ## 约定

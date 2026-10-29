@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Study Assistant · 技术验证</title>
+<link rel="stylesheet" href="vendor/katex/dist/katex.min.css">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#efeee9;color:#292d2c;font:15px/1.65 system-ui,sans-serif}button,textarea{font:inherit}header{position:sticky;top:0;padding:16px 28px;background:#efeee9eF;backdrop-filter:blur(12px);border-bottom:1px solid #dcddd6;display:flex;justify-content:space-between;align-items:center;z-index:2}.brand{font-weight:650;letter-spacing:-.5px}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#3c7266;margin-right:9px}.badge{font-size:12px;color:#67746d;border:1px solid #ccd2c8;padding:3px 9px;border-radius:20px}main{max-width:880px;margin:28px auto;padding:0 24px 28px}.eyebrow{font-size:11px;color:#7b817c;text-transform:uppercase;letter-spacing:2px}.question{margin:14px 0 24px;background:#e2e7df;border-radius:16px 16px 4px 16px;padding:16px 20px}.answer{background:#fffefa;border:1px solid #e2e2d8;border-radius:18px;padding:22px 26px;box-shadow:0 8px 28px #273c3010}h2{font-size:23px;letter-spacing:-.7px}h3{font-size:17px}.table-wrap,pre,.katex-display{overflow-x:auto}table{border-collapse:collapse;min-width:100%;font-size:13px}th,td{text-align:left;border-bottom:1px solid #e0e4dc;padding:10px 13px;white-space:nowrap}th{background:#eef2eb;color:#3d5c4d}pre{padding:15px;background:#f0f2ed;border-radius:9px}blockquote{border-left:3px solid #7c9d8d;margin-left:0;padding-left:15px;color:#62736b}.katex-display{padding:10px 0}img{max-width:100%;border-radius:10px}#graph{height:280px;background:#f4f5ef;border-radius:12px}textarea{width:100%;height:65px;background:#fffefa;border:1px solid #cbd3c7;border-radius:12px;padding:12px;resize:vertical;margin-top:20px;outline-color:#5c8271}.footer{font-size:11px;color:#8b9189;margin-top:8px;display:flex;justify-content:space-between}button{border:0;border-radius:7px;background:#335f50;color:white;padding:5px 12px}.muted{color:#78837c;font-size:12px}#errors{white-space:pre-wrap;color:#9b3b35;font-size:12px}
+</style></head><body><header><div class="brand"><span class="dot"></span>Study Assistant</div><span class="badge">离线技术样例 · 非最终 UI</span></header><main><div class="eyebrow">READ · UNDERSTAND · CONNECT</div><div class="question">请用表格和公式解释正则化，并展示关联的知识点。</div><section class="answer"><div class="eyebrow">ASSISTANT</div><article id="answer"></article><h3>关联知识 · 50 个节点</h3><div id="graph"></div><p class="muted">点击节点高亮其邻居。布局完成后停止计算，隐藏期间不运行布局。</p><div id="errors"></div></section><textarea placeholder="继续追问，或选择一段材料……" aria-label="问题输入框"></textarea><div class="footer"><span>材料只在你发送后用于模型请求</span><span id="status">正在初始化</span><button id="refresh">重绘图谱</button></div></main>
+<script src="vendor/marked/lib/marked.umd.js"></script><script src="vendor/dompurify/dist/purify.min.js"></script><script src="vendor/katex/dist/katex.min.js"></script><script src="vendor/katex/dist/contrib/auto-render.min.js"></script><script src="vendor/cytoscape/dist/cytoscape.min.js"></script>
+<script>
+'use strict';
+function notify(payload){document.title=payload;if(window.__TAURI__?.core)window.__TAURI__.core.invoke('probe_event',{payload}).catch(e=>console.error(e));}
+const initial=String.raw`## 把复杂度控制在合适的范围
+正则化为优化目标加入约束，帮助模型在拟合与泛化之间取得平衡。
+
+| 方法 | 惩罚项 | 参数影响 | 典型用途 |
+| --- | --- | --- | --- |
+| L1 | 绝对值之和 | 可产生稀疏解 | 特征选择 |
+| L2 | 平方和 | 平滑地缩小参数 | 改善泛化 |
+| Early stopping | 以验证集表现决定停止 | 限制拟合过程 | 迭代模型 |
+
+行内公式：$E=mc^2$。目标函数为：
+
+$$\mathcal{L}(w)=\frac{1}{n}\sum_{i=1}^{n}(y_i-w^Tx_i)^2+\lambda\lVert w\rVert_2^2$$
+
+> 关系网络应保留来源，模型提出的联系仍需能回到证据。
+
+\`\`\`python
+loss = data_loss + strength * penalty
+\`\`\`
+
+![离线图片样本](fixture.png)
+
+### 模拟逐段回答
+`;
+let cy;let ticks=0;let completed=false;let faultCount=0;
+window.addEventListener('error',e=>{document.getElementById('errors').textContent+=e.message+'\n';document.title='SPIKE_ERROR:'+e.message});
+function render(text){const node=document.getElementById('answer');node.innerHTML=DOMPurify.sanitize(marked.parse(text.replace(/\\`/g,'`')));node.querySelectorAll('table').forEach(t=>{const wrap=document.createElement('div');wrap.className='table-wrap';t.replaceWith(wrap);wrap.appendChild(t)});renderMathInElement(node,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});}
+function graph(){if(cy)cy.destroy();const names=['正则化','过拟合','泛化','L1','L2','验证集','损失函数','参数','模型选择','概率统计'];const elements=[];for(let i=0;i<50;i++)elements.push({data:{id:'n'+i,label:names[i%10]+(i>=10?' '+i:'')}});for(let i=0;i<75;i++){const a=i%50,b=(i*7+3)%50;if(a!==b)elements.push({data:{id:'e'+i,source:'n'+a,target:'n'+b}})}cy=cytoscape({container:document.getElementById('graph'),elements,style:[{selector:'node',style:{label:'data(label)',width:15,height:15,'background-color':'#6f9681',color:'#455a4d','font-size':10,'text-margin-y':5,'text-valign':'bottom'}},{selector:'edge',style:{width:1,'line-color':'#ccd8cd','curve-style':'bezier'}}],layout:{name:'circle',animate:false},wheelSensitivity:.2});cy.on('tap','node',e=>{cy.elements().style('opacity',.2);e.target.closedNeighborhood().style('opacity',1)});}
+function report(){const checks={table:!!document.querySelector('table'),formula:document.querySelectorAll('.katex').length>=2,image:document.querySelector('article img')?.naturalWidth===1280,graph:cy.nodes().length===50,code:!!document.querySelector('pre code'),ticks};window.spikeChecks=checks;document.getElementById('status').textContent='本地样例 · 更新 '+ticks+'/50';notify('SPIKE_READY:'+JSON.stringify(checks));completed=true;}
+render(initial);graph();let text=initial;const timer=setInterval(()=>{ticks++;text+='第 '+ticks+' 段：新材料会增量整理，原笔记可以回溯。\n\n';render(text);if(ticks>=50){clearInterval(timer);setTimeout(report,200)}},100);
+document.getElementById('refresh').onclick=()=>{graph();report()};
+window.runFaultSuite=()=>{let xss=false;window.__spikeXss=()=>{xss=true};render(text+'\n$$\\notACommand{broken}$$\n<script>window.__spikeXss()<'+ '/script>');const recovered=document.querySelectorAll('.katex').length>=2&&!document.querySelector('article script')&&!xss;for(let i=0;i<20;i++)graph();render(text);faultCount++;notify('SPIKE_FAULT:'+JSON.stringify({recovered,graphs:20,nodes:cy.nodes().length,round:faultCount}));return recovered;};
+window.runLongText=()=>{render(text+'\n'+('超长输入边界验证 '.repeat(20000)));document.title='SPIKE_LONG_READY';};
+</script></body></html>

@@ -1,0 +1,46 @@
+[
+  {
+    "stage": "started",
+    "seconds": 0.265
+  },
+  {
+    "stage": "page",
+    "title": "SPIKE_READY:{\"table\":true,\"formula\":true,\"image\":true,\"graph\":true,\"code\":true,\"ticks\":50}",
+    "seconds": 6.021
+  },
+  {
+    "stage": "fault_requested",
+    "seconds": 7.021
+  },
+  {
+    "stage": "page",
+    "title": "SPIKE_FAULT:{\"recovered\":true,\"graphs\":20,\"nodes\":50,\"round\":1}",
+    "seconds": 7.172
+  },
+  {
+    "stage": "hidden",
+    "seconds": 10.021
+  },
+  {
+    "stage": "restored",
+    "seconds": 26.022
+  },
+  {
+    "count": 100,
+    "stage": "cycles",
+    "seconds": 32.032
+  },
+  {
+    "stage": "recovery_armed",
+    "seconds": 34.032
+  },
+  {
+    "stage": "recovery_reload",
+    "seconds": 34.046
+  },
+  {
+    "ready_count": 1,
+    "stage": "recovery_complete",
+    "seconds": 43.032
+  }
+]

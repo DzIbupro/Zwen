@@ -1,0 +1,38 @@
+[
+  {
+    "stage": "started",
+    "observed_seconds": 0.221
+  },
+  {
+    "stage": "page",
+    "title": "SPIKE_READY:{\"table\":true,\"formula\":true,\"image\":true,\"graph\":true,\"code\":true,\"ticks\":50}",
+    "observed_seconds": 5.989
+  },
+  {
+    "stage": "fault_requested",
+    "observed_seconds": 6.99
+  },
+  {
+    "stage": "page",
+    "title": "SPIKE_FAULT:{\"recovered\":true,\"graphs\":20,\"nodes\":50,\"round\":1}",
+    "observed_seconds": 7.142
+  },
+  {
+    "stage": "hidden",
+    "observed_seconds": 9.99
+  },
+  {
+    "stage": "restored",
+    "observed_seconds": 25.99
+  },
+  {
+    "count": 100,
+    "stage": "cycles",
+    "observed_seconds": 32.001
+  },
+  {
+    "ready": true,
+    "stage": "done",
+    "observed_seconds": 35.001
+  }
+]

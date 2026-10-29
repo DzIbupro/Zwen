@@ -23,3 +23,10 @@ artifacts/
 attachments/
 screenshots/
 .worktrees/
+
+# Reproducible technology probes: retain sources and locks, not regenerated assets
+**/target/
+**/cargo-cache/
+**/web/vendor/
+tools/technology-probes/**/web/fixture.png
+tools/technology-probes/**/tauri-probe/icons/icon.png

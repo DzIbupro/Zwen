@@ -1,0 +1,16 @@
+{
+  "label": "tauri-formal-1",
+  "exit": 0,
+  "duration": 35.358,
+  "peak_pss_mib": 414.2,
+  "peak_rss_mib": 664.9,
+  "done": true,
+  "ready": true,
+  "cycles": true,
+  "ready_pss_mib": 414.0,
+  "ready_processes": 6,
+  "hidden_pss_mib": 377.0,
+  "hidden_processes": 6,
+  "restored_pss_mib": 383.3,
+  "restored_processes": 6
+}

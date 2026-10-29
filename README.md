@@ -2,7 +2,7 @@
 
 为 Linux 阅读与研究工作流设计的桌面助手，优先支持 Fedora + Niri。
 
-**状态：开发准备阶段。当前仓库包含设计、验证结论和 Python 项目基础，尚无可用聊天界面。**
+**状态：开发准备阶段。技术选型已完成；当前仓库包含设计、可复现技术样例与历史 Python 基础，尚无可用聊天产品。**
 
 ## 目标体验
 
@@ -16,16 +16,16 @@
 
 ## 技术选择
 
-最终语言与界面框架待对照验证：Python + GTK4、Rust + GTK4、Rust + 系统 WebView。
-现有 Python 包仅作基础与验证基线。数据采用 Markdown 笔记与 SQLite 元数据。
-截图使用 Niri IPC 完成事件与唯一文件路径。首版须正常展示 Markdown、表格与数学公式。
-不在后台常驻本地大模型、OCR 引擎或向量服务。
+采用 **Rust + Tauri 2 + TypeScript/Svelte**，SQLite 元数据与 Markdown 笔记。
+本机三候选各三轮，Tauri 样例峰值 PSS 中位数约368MiB；RSS合计约616MiB，二者口径不同，尚不代表成品500MB目标达成。[选型证据与限制](docs/decisions/2026-10-29-technology-selection.md)。
+截图使用 Niri IPC 完成事件与唯一文件路径；快捷唤出不采集应用内容。
+首版正常展示 Markdown、表格和公式；不常驻本地大模型、OCR 或向量服务。
 
 ## 开发入口
 
 - [已确认需求 v2](docs/requirements.md)
-- [完整设计 v2](docs/design.md)
-- [技术选型验证计划](docs/decisions/technology-evaluation.md)
+- [完整设计 v3](docs/design.md)
+- [技术选型验证完成情况](docs/decisions/technology-evaluation.md)
 - [本机验证记录](docs/validation/2026-10-29-fedora-niri.md)
 - [旧实施计划（被 v2 取代）](docs/superpowers/plans/2026-10-29-foundation.md)
 - [开发环境与验证](CONTRIBUTING.md)
@@ -40,10 +40,10 @@ PYTHONPATH=src python3 -c 'import study_assistant; print(study_assistant.__versi
 
 ## 里程碑
 
-0. 同等功能的语言／框架对照，确认低资源与故障恢复，以及UI交互样例。
+0. 已完成语言／框架对照；下一步建立正式工程并确认交互样例。
 1. 正常格式的问答闭环：选区／截图、表格公式、流式、多轮、停止、草稿与历史。
 2. Markdown 知识库：保存、搜索、附件、来源与人工修改。
 3. AI 自动栏目与关联整理：证据、撤销、增量处理与人工修正保护。
 4. 知识网络可视化与自动划词浮条。
 
-隐藏 PSS ≤100 MiB、普通聊天 ≤180 MiB 是待验收目标，须包含渲染子进程；原型数据不代表成品指标。稳定性必须经过故障注入和持续运行验收，不能承诺绝对零崩溃。
+整套应用正常工作约500MB为当前内存目标，须包含渲染子进程，并分别报告PSS/RSS；原型数据不代表成品指标。稳定性必须经过故障注入和持续运行验收，不能承诺绝对零崩溃。

@@ -1,0 +1,16 @@
+{
+  "label": "rust-gtk-formal-3",
+  "exit": 0,
+  "duration": 35.288,
+  "peak_pss_mib": 374.6,
+  "peak_rss_mib": 644.8,
+  "done": true,
+  "ready": true,
+  "cycles": true,
+  "ready_pss_mib": 365.8,
+  "ready_processes": 8,
+  "hidden_pss_mib": 344.1,
+  "hidden_processes": 8,
+  "restored_pss_mib": 345.5,
+  "restored_processes": 8
+}
