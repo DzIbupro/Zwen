@@ -1,3 +1,5 @@
+mod niri;
+mod windows;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 use study_assistant_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
@@ -45,6 +47,14 @@ async fn save_draft(storage: tauri::State<'_,SharedStorage>, expected_revision:u
 fn hide_window(window: tauri::WebviewWindow) -> Result<(),ClientError> { window.hide().map_err(|_|ClientError::window()) }
 #[tauri::command]
 fn quit_app(app:tauri::AppHandle) { app.exit(0); }
+#[tauri::command]
+async fn get_surface(app:tauri::AppHandle)->Result<windows::Snapshot,ClientError>{tauri::async_runtime::spawn_blocking(move||windows::snapshot(&app)).await.map_err(|_|ClientError::window())?}
+#[tauri::command]
+async fn set_surface(app:tauri::AppHandle,mode:String)->Result<windows::Snapshot,ClientError>{
+    match mode.as_str(){"full"=>windows::activate(app,false).await,"capsule"=>windows::activate(app,true).await,_=>Err(ClientError::window())}
+}
+#[tauri::command]
+async fn resize_capsule(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{windows::resize(app,height,generation).await}
 fn launch(app:&tauri::AppHandle, action:LaunchAction) {
     if action == LaunchAction::Quit {
         if let Some(window)=app.get_webview_window("main") {
@@ -53,9 +63,10 @@ fn launch(app:&tauri::AppHandle, action:LaunchAction) {
         } else { app.exit(0); }
         return;
     }
-    if let Some(window) = app.get_webview_window("main") {
-        if action == LaunchAction::Recover { let _=window.reload(); }
-        let _=window.show(); let _=window.set_focus();
+    if action==LaunchAction::Recover {
+        if let Some(window)=app.get_webview_window("main"){let _=window.reload();let _=window.show();let _=window.set_focus();}
+    } else {
+        let app=app.clone();tauri::async_runtime::spawn(async move{let _=windows::activate(app,action==LaunchAction::Capsule).await;});
     }
 }
 
@@ -72,8 +83,9 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action); }
         }))
-        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app])
+        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule])
         .on_window_event(|window,event| {
+            if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
                 api.prevent_close(); let _=window.emit("request-hide",());
             }
@@ -82,13 +94,16 @@ fn main() {
             let directory=std::env::var_os("STUDY_ASSISTANT_DATA_DIR").map(PathBuf::from)
                 .map(Ok).unwrap_or_else(|| app.path().app_data_dir().map_err(|_|ClientError::storage()));
             app.manage(Arc::new(Storage { directory, connection:Mutex::new(None) }));
+            app.manage(Arc::new(Mutex::new(windows::Controller::new(action==LaunchAction::Capsule))));
             #[cfg(feature="desktop-smoke")]
             smoke::setup(app);
             if action != LaunchAction::Quit {
-                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                    .title("Study Assistant · 学习助手").inner_size(900.0,850.0)
-                    .min_inner_size(480.0,560.0).visible(false)
-                    .on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
+                let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                    .title("Study Assistant · 学习助手").transparent(true)
+                    .inner_size(if action==LaunchAction::Capsule{480.0}else{900.0},if action==LaunchAction::Capsule{96.0}else{850.0})
+                    .resizable(true).min_inner_size(480.0,if action==LaunchAction::Capsule{96.0}else{560.0}).decorations(action!=LaunchAction::Capsule).visible(false);
+                let window=if action==LaunchAction::Capsule{window.max_inner_size(480.0,96.0)}else{window};
+                window.on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
                     .build()?;
             }
             launch(app.handle(), action);

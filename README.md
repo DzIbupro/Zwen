@@ -2,7 +2,15 @@
 
 面向 Fedora + Niri / Wayland 的桌面学习助手，采用 Rust + Tauri 2 + Svelte/TypeScript。
 
-**当前已可运行桌面基础预览：草稿编辑、自动保存、重启恢复，以及 Markdown/表格/数学公式预览。尚未接入 AI，不是完整聊天产品。**
+**当前已可运行桌面基础预览：完整窗口/快捷胶囊切换、草稿编辑、自动保存、重启恢复，以及 Markdown/表格/数学公式预览。尚未接入 AI，不是完整聊天产品。**
+
+## 两种窗口
+
+- 直接打开/`show`：完整窗口，用于主动问答与后续知识管理。
+- `capsule` 或界面上的“快捷胶囊”：真正的小浮窗，默认480×96逻辑像素、顶部居中。宽度固定，内容向下展开到屏幕约55%的高度后，回答区域内部滚动。
+- “展开完整窗口”保留当前草稿和已显示的回复；同一WebView复用，避免两套界面争抢草稿。
+- 当前“演示”按钮只验证逐步展开与停止，明确标注非AI回复。模型未连接，选区/截图功能仍需后续集成；这些入口届时只能打开胶囊。
+- Niri只调整本进程窗口的浮动与位置，不修改系统配置。屏幕中心/底部锚点和位置设置尚未加入。
 
 ## 现在可以使用
 
@@ -16,6 +24,7 @@
 
 ```bash
 ./artifacts/study-assistant show
+./artifacts/study-assistant capsule
 ./artifacts/study-assistant recover
 ./artifacts/study-assistant quit
 ```
@@ -30,7 +39,8 @@
 
 ## 开发与证据
 
-- [需求基线](docs/requirements.md) · [整体设计](docs/design.md)
+- [需求基线v3](docs/requirements.md) · [整体设计v4](docs/design.md)
+- [胶囊实施计划](docs/superpowers/plans/2026-10-29-capsule-surface.md) · [胶囊验证记录](docs/validation/2026-10-29-capsule.md)
 - [桌面基础实施计划](docs/superpowers/plans/2026-10-29-desktop-foundation.md)
 - [桌面基础验证](docs/validation/2026-10-29-desktop-foundation.md)
 - [技术选型](docs/decisions/2026-10-29-technology-selection.md)

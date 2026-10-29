@@ -20,6 +20,12 @@ CARGO_HOME="$PWD/.cache/cargo" cargo build --release -p study-assistant-desktop 
 
 浏览器预览：`pnpm dev`，仅监听127.0.0.1:1420。浏览器草稿使用 localStorage，有明确提示；不能据此宣称桌面 SQLite 验证通过。
 
+## 胶囊验证
+
+`python3 scripts/validate_capsule.py "$PWD/target/release/study-assistant"` 用 smoke 特性构建验证真实窗口尺寸、增长上限、Niri浮动/锚点、模式转移和旧generation失效。只操作该进程拥有的窗口与临时数据库。演示流不是模型集成。
+
+Linux避免设置resizable=false（上游存在200像素最小高度问题）；用相同的min/max约束锁定每次目标尺寸。CSS高度与Tauri逻辑尺寸须按devicePixelRatio/原生scaleFactor换算，不能混用。
+
 ## 数据与桌面验证
 
 默认数据目录由 Tauri app_data_dir 决定，Linux 通常为 `$XDG_DATA_HOME/io.github.dzibupro.studyassistant`（未设置时 `~/.local/share/...`）。`STUDY_ASSISTANT_DATA_DIR` 可显式覆盖，主要用于隔离测试。请不要指向现有笔记库或其他应用数据库。

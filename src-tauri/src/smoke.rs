@@ -4,6 +4,7 @@ use tauri::{Listener, Manager};
 static LOADS:AtomicUsize=AtomicUsize::new(0);
 pub fn setup(app:&tauri::App) {
     if std::env::var("STUDY_ASSISTANT_SMOKE").is_err() {return;}
+    app.listen("capsule-progress",move|e|println!("CAPSULE_PROGRESS:{}",e.payload()));
     let handle=app.handle().clone();
     app.listen("foundation-smoke", move |event| {
         let payload:serde_json::Value=serde_json::from_str(event.payload()).unwrap_or_default();
@@ -39,7 +40,8 @@ pub fn setup(app:&tauri::App) {
 pub fn page_loaded(webview:&tauri::Webview, payload:&tauri::webview::PageLoadPayload<'_>) {
     if std::env::var("STUDY_ASSISTANT_SMOKE").is_err() || payload.event()!=tauri::webview::PageLoadEvent::Finished {return;}
     let first=LOADS.fetch_add(1,Ordering::SeqCst)==0;
-    let mode=if !first {"restore"} else {match std::env::var("STUDY_ASSISTANT_SMOKE").as_deref(){Ok("quit")=>"quit",Ok("restore")=>"restore",_=>"edit"}};
-    let script=format!("window.__STUDY_SMOKE_MODE__={};{}",serde_json::to_string(mode).unwrap(),include_str!("../tests/smoke.js"));
+    let mode=if !first {"restore"} else {match std::env::var("STUDY_ASSISTANT_SMOKE").as_deref(){Ok("capsule")=>"capsule",Ok("quit")=>"quit",Ok("restore")=>"restore",_=>"edit"}};
+    let source=if mode=="capsule"{include_str!("../tests/capsule.js")}else{include_str!("../tests/smoke.js")};
+    let script=format!("window.__STUDY_SMOKE_MODE__={};{}",serde_json::to_string(mode).unwrap(),source);
     let _=webview.eval(&script);
 }

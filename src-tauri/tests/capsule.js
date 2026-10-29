@@ -1,0 +1,38 @@
+(async()=>{
+ const api=window.__TAURI__;
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+ const wait=async(check)=>{for(let i=0;i<200;i++){if(await check())return;await sleep(80);}throw Error('Capsule check timed out');};
+ const logical=(s)=>({width:innerWidth*devicePixelRatio/s.scaleFactor,height:innerHeight*devicePixelRatio/s.scaleFactor});
+ const progress=async(stage,s)=>{const d=logical(s);await api.event.emit('capsule-progress',{stage,...d,generation:s.generation,max:s.bounds.maxHeight});return d;};
+ let phase='dom';
+ try {
+  await wait(()=>document.querySelector('[data-capsule]')&&!document.querySelector('textarea').disabled);
+  let s=await api.core.invoke('get_surface');phase='initial-size';await progress('observed',s);
+  await wait(()=>Math.abs(logical(s).width-s.bounds.width)<3&&logical(s).height<=s.bounds.initialHeight+3);
+  const initial=await progress('initial',s);
+  const input=document.querySelector('textarea');input.value='胶囊测试草稿';input.dispatchEvent(new Event('input',{bubbles:true}));
+  document.querySelector('[data-demo]').click();
+  phase='growing';await wait(()=>logical(s).height>initial.height+70);
+  await progress('growing',s);
+  phase='capped';await wait(()=>{const a=document.querySelector('[data-capsule-answer]');return a&&a.scrollHeight>a.clientHeight+30&&logical(s).height>=s.bounds.maxHeight-3;});
+  const capped=await progress('capped',s);
+  if(Math.abs(capped.width-initial.width)>3||capped.height>s.bounds.maxHeight+3)throw Error('Capsule width/height bounds failed');
+  const a=document.querySelector('[data-capsule-answer]');a.scrollTop=0;if(a.scrollTop!==0)throw Error('Answer cannot scroll');
+  phase='reactivation';
+  await api.core.invoke('set_surface',{mode:'capsule'});s=await api.core.invoke('get_surface');
+  await wait(()=>logical(s).height>=s.bounds.maxHeight-3);
+  await progress('reactivated',s);
+  const received=document.querySelector('[data-capsule-answer]').textContent;
+  const old=s.generation;
+  document.querySelector('[aria-label="展开完整窗口"]').click();
+  await wait(async()=>document.querySelector('.shell')&&(await api.core.invoke('get_surface')).mode==='full');
+  await wait(()=>innerHeight*devicePixelRatio/s.scaleFactor>500);
+  if(document.querySelector('textarea').value!=='胶囊测试草稿')throw Error('Draft lost when expanding');
+  if(!document.querySelector('.prose')?.textContent.includes(received.slice(0,60)))throw Error('Response lost when expanding');
+  await sleep(150);const fullHeight=innerHeight;
+  await api.core.invoke('resize_capsule',{height:96,generation:old});await sleep(150);
+  if(Math.abs(innerHeight-fullHeight)>3)throw Error('Stale resize affected full view');
+  await progress('full',await api.core.invoke('get_surface'));
+  await api.event.emit('foundation-smoke',{ok:true,mode:'capsule',initial,capped,draftPreserved:true,responseTransferred:true,staleResizeIgnored:true});
+ } catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'capsule',error:String(e),phase,width:innerWidth,height:innerHeight,dpr:devicePixelRatio,capsule:!!document.querySelector('[data-capsule]'),surface:await api.core.invoke('get_surface').catch(()=>null)});}
+})();

@@ -2,7 +2,7 @@ fn main() {
     // Generated from a fixed code-native color mark, not a downloaded asset.
     std::fs::create_dir_all("icons").expect("create icon directory");
     std::fs::write("icons/icon.png", &ICON).expect("write application icon");
-    const COMMANDS: &[&str] = &["load_draft", "save_draft", "hide_window", "quit_app"];
+    const COMMANDS: &[&str] = &["load_draft", "save_draft", "hide_window", "quit_app", "get_surface", "set_surface", "resize_capsule"];
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(COMMANDS)
     )).expect("build application manifest");

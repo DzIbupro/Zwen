@@ -1,0 +1,75 @@
+use serde::Serialize;
+use std::sync::{Arc,Mutex};
+use study_assistant_core::surface::{CapsuleBounds,SurfaceState};
+use tauri::{Emitter,Manager,LogicalSize};
+use crate::{ClientError,niri};
+#[derive(Clone,Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct Snapshot {pub mode:&'static str,pub generation:u64,pub bounds:CapsuleBounds,pub scale_factor:f64}
+pub struct Controller {state:SurfaceState,bounds:CapsuleBounds,placement:Option<niri::Placement>}
+pub type Shared=Arc<Mutex<Controller>>;
+impl Controller {
+    pub fn new(capsule:bool)->Self{let mut state=SurfaceState::new();state.set_mode(capsule);Self{state,bounds:CapsuleBounds::new(1920.0,1080.0),placement:None}}
+    fn snapshot(&self,window:&tauri::WebviewWindow)->Snapshot{Snapshot{mode:if self.state.is_capsule(){"capsule"}else{"full"},generation:self.state.generation(),bounds:self.bounds,scale_factor:window.scale_factor().unwrap_or(1.0)}}
+}
+pub fn snapshot(app:&tauri::AppHandle)->Result<Snapshot,ClientError>{
+ let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
+ let shared=app.state::<Shared>();let guard=shared.lock().map_err(|_|ClientError::window())?;Ok(guard.snapshot(&window))
+}
+pub async fn activate(app:tauri::AppHandle,capsule:bool)->Result<Snapshot,ClientError>{
+ tauri::async_runtime::spawn_blocking(move||{
+    // Query the reading display before showing/focusing our own surface.
+    let placement=if capsule{niri::focused()}else{None};
+    let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
+    let shared=app.state::<Shared>();let mut c=shared.lock().map_err(|_|ClientError::window())?;
+    window.hide().map_err(|_|ClientError::window())?;
+    window.set_resizable(true).map_err(|_|ClientError::window())?;
+    window.set_max_size(None::<tauri::Size>).map_err(|_|ClientError::window())?;
+    window.set_min_size(None::<tauri::Size>).map_err(|_|ClientError::window())?;
+    if capsule {
+      let fallback=window.current_monitor().ok().flatten().map(|m|(m.size().width as f64/m.scale_factor(),m.size().height as f64/m.scale_factor())).unwrap_or((1920.0,1080.0));
+      let (w,h)=placement.as_ref().map(|p|(p.width,p.height)).unwrap_or(fallback);
+      c.bounds=CapsuleBounds::new(w,h);c.placement=placement;
+      window.set_decorations(false).map_err(|_|ClientError::window())?;
+      window.as_ref().set_size(LogicalSize::new(c.bounds.width,c.bounds.initial_height)).and_then(|_|window.set_size(LogicalSize::new(c.bounds.width,c.bounds.initial_height))).map_err(|_|ClientError::window())?;
+      window.set_min_size(Some(LogicalSize::new(c.bounds.width,c.bounds.initial_height))).map_err(|_|ClientError::window())?;
+      window.set_max_size(Some(LogicalSize::new(c.bounds.width,c.bounds.initial_height))).map_err(|_|ClientError::window())?;
+      window.set_resizable(true).map_err(|_|ClientError::window())?;
+    } else {
+      window.set_decorations(true).map_err(|_|ClientError::window())?;
+      window.set_min_size(Some(LogicalSize::new(480,560))).map_err(|_|ClientError::window())?;
+      window.as_ref().set_size(LogicalSize::new(900,850)).and_then(|_|window.set_size(LogicalSize::new(900,850))).map_err(|_|ClientError::window())?;
+      if let Some(p)=&c.placement {p.tile();}
+    }
+    c.state.set_mode(capsule);
+    window.show().map_err(|_|ClientError::window())?;
+    if capsule {let width=c.bounds.width;if let Some(p)=&mut c.placement {p.place(width,true);}else{let _=window.center();}}
+    let _=window.set_focus();let snapshot=c.snapshot(&window);let _=window.emit("surface-changed",&snapshot);Ok(snapshot)
+ }).await.map_err(|_|ClientError::window())?
+}
+pub async fn resize(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{
+ tauri::async_runtime::spawn_blocking(move||{
+    let shared=app.state::<Shared>();let mut c=shared.lock().map_err(|_|ClientError::window())?;
+    if !c.state.accept_resize(generation){return Ok(());}
+    let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
+    let height=c.bounds.height(height);let width=c.bounds.width;
+    window.set_resizable(true).map_err(|_|ClientError::window())?;
+    window.set_min_size(None::<tauri::Size>).map_err(|_|ClientError::window())?;
+    window.set_max_size(None::<tauri::Size>).map_err(|_|ClientError::window())?;
+    window.as_ref().set_size(LogicalSize::new(width,height)).and_then(|_|window.set_size(LogicalSize::new(width,height))).map_err(|_|ClientError::window())?;
+    window.set_min_size(Some(LogicalSize::new(width,height))).map_err(|_|ClientError::window())?;
+    window.set_max_size(Some(LogicalSize::new(width,height))).map_err(|_|ClientError::window())?;
+    if let Some(p)=&mut c.placement {p.place(width,false);}
+    Ok(())
+ }).await.map_err(|_|ClientError::window())?
+}
+
+// Scale events must never take this mutex on the GTK event thread.
+pub fn refresh_scale(app:tauri::AppHandle){
+ tauri::async_runtime::spawn_blocking(move||{
+  let Some(window)=app.get_webview_window("main") else{return;};
+  let shared=app.state::<Shared>();let Ok(mut c)=shared.lock() else{return;};
+  let capsule=c.state.is_capsule();c.state.set_mode(capsule);
+  let snapshot=c.snapshot(&window);let _=window.emit("surface-changed",snapshot);
+ });
+}

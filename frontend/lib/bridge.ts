@@ -29,3 +29,12 @@ export const draftPort: DraftPort = isDesktop ? {
 };
 export const hideWindow = ()=>command<void>('hide_window');
 export const quitApp = ()=>command<void>('quit_app');
+
+import type { SurfaceInfo } from './surface';
+let browserSurface:SurfaceInfo={scaleFactor:1,mode:new URLSearchParams(location.search).get('surface')==='capsule'?'capsule':'full',generation:0,bounds:{width:Math.min(480,Math.max(1,innerWidth-32)),initialHeight:96,maxHeight:Math.max(96,Math.floor(innerHeight*.55))}};
+export const getSurface=():Promise<SurfaceInfo>=>isDesktop?command('get_surface'):Promise.resolve(browserSurface);
+export const setSurface=(mode:'full'|'capsule'):Promise<SurfaceInfo>=>{
+  if(isDesktop)return command('set_surface',{mode});
+  browserSurface={...browserSurface,mode,generation:browserSurface.generation+1};return Promise.resolve(browserSurface);
+};
+export const resizeCapsule=(height:number,generation:number):Promise<void>=>isDesktop?command('resize_capsule',{height,generation}):Promise.resolve();

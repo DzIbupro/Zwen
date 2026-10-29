@@ -96,3 +96,5 @@ impl Store {
 }
 
 pub mod cli;
+
+pub mod surface;
