@@ -49,3 +49,6 @@ export const chatPort:ChatPort=isDesktop?{
 
 import type {HistoryPort,Summary} from './history';
 export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId})}:{list:async()=>[],get:async()=>null};
+
+import type {SelectionPort,SelectionItem} from './selection';
+export const selectionPort:SelectionPort=isDesktop?{claim:()=>command<{reading:boolean;item:SelectionItem|null}>('claim_selection'),acknowledge:id=>command<void>('acknowledge_selection',{id})}:{claim:async()=>({reading:false,item:null}),acknowledge:async()=>{}};

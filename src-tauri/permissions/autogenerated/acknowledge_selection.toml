@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acknowledge-selection"
+description = "Enables the acknowledge_selection command without any pre-configured scope."
+commands.allow = ["acknowledge_selection"]
+
+[[permission]]
+identifier = "deny-acknowledge-selection"
+description = "Denies the acknowledge_selection command without any pre-configured scope."
+commands.deny = ["acknowledge_selection"]

@@ -1,4 +1,5 @@
 mod niri;
+mod selection;
 mod chat;
 mod provider;
 mod windows;
@@ -46,9 +47,14 @@ async fn save_draft(storage: tauri::State<'_,SharedStorage>, expected_revision:u
     database(Arc::clone(storage.inner()), move |store|store.save(expected_revision,&text)).await
 }
 #[tauri::command]
-fn hide_window(window: tauri::WebviewWindow) -> Result<(),ClientError> { window.hide().map_err(|_|ClientError::window()) }
+async fn hide_window(app:tauri::AppHandle) -> Result<(),ClientError> { windows::hide(app).await }
 #[tauri::command]
-fn quit_app(app:tauri::AppHandle) { app.exit(0); }
+fn quit_app(app:tauri::AppHandle) -> Result<(),ClientError> {
+    if app.state::<selection::Shared>().lock().map_err(|_|ClientError::window())?.is_pending() {
+        return Err(ClientError{code:"selection_pending",message:"有待处理选区；请先检查草稿并确认或丢弃，再退出".into()});
+    }
+    app.exit(0);Ok(())
+}
 #[tauri::command]
 async fn get_surface(app:tauri::AppHandle)->Result<windows::Snapshot,ClientError>{tauri::async_runtime::spawn_blocking(move||windows::snapshot(&app)).await.map_err(|_|ClientError::window())?}
 #[tauri::command]
@@ -58,6 +64,7 @@ async fn set_surface(app:tauri::AppHandle,mode:String)->Result<windows::Snapshot
 #[tauri::command]
 async fn resize_capsule(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{windows::resize(app,height,generation).await}
 fn launch(app:&tauri::AppHandle, action:LaunchAction) {
+    if let LaunchAction::Selection(mode)=action {selection::capture(app.clone(),mode);return;}
     if action == LaunchAction::Quit {
         if let Some(window)=app.get_webview_window("main") {
             let _=window.show();
@@ -66,9 +73,9 @@ fn launch(app:&tauri::AppHandle, action:LaunchAction) {
         return;
     }
     if action==LaunchAction::Recover {
-        if let Some(window)=app.get_webview_window("main"){let _=window.reload();let _=window.show();let _=window.set_focus();}
+        let recover=windows::recover(app.clone());tauri::async_runtime::spawn(async move{let _=recover.await;});
     } else {
-        let app=app.clone();tauri::async_runtime::spawn(async move{let _=windows::activate(app,action==LaunchAction::Capsule).await;});
+        let activate=windows::activate(app.clone(),matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)));tauri::async_runtime::spawn(async move{let _=activate.await;});
     }
 }
 
@@ -85,7 +92,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action); }
         }))
-        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn])
+        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -99,16 +106,17 @@ fn main() {
                     zwen_core::paths::choose_data_directory(&preferred,&legacy,preferred.join("state.sqlite3").exists(),legacy.join("state.sqlite3").exists())
                 }).map_err(|_|ClientError::storage()));
             app.manage(chat::Shared::default());
+            app.manage(selection::Shared::default());
             app.manage(Arc::new(Storage { directory, connection:Mutex::new(None),provider:Mutex::new(None) }));
-            app.manage(Arc::new(Mutex::new(windows::Controller::new(action==LaunchAction::Capsule))));
+            app.manage(Arc::new(Mutex::new(windows::Controller::new(matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_))))));
             #[cfg(feature="desktop-smoke")]
             smoke::setup(app);
             if action != LaunchAction::Quit {
                 let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                     .title("Zwen · 学习助手").transparent(true)
-                    .inner_size(if action==LaunchAction::Capsule{480.0}else{900.0},if action==LaunchAction::Capsule{96.0}else{850.0})
-                    .resizable(true).min_inner_size(480.0,if action==LaunchAction::Capsule{96.0}else{560.0}).decorations(action!=LaunchAction::Capsule).visible(false);
-                let window=if action==LaunchAction::Capsule{window.max_inner_size(480.0,96.0)}else{window};
+                    .inner_size(if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){480.0}else{900.0},if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){96.0}else{850.0})
+                    .resizable(true).min_inner_size(480.0,if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){96.0}else{560.0}).decorations(action!=LaunchAction::Capsule).visible(false);
+                let window=if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){window.max_inner_size(480.0,96.0)}else{window};
                 window.on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
                     .build()?;
             }

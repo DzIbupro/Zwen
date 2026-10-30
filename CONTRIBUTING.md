@@ -71,3 +71,7 @@ python3 scripts/validate_chat.py "$PWD/target/release/zwen" --stress 90
 HTTP客户端禁重定向、自动重试与隐式代理，连接/单次读取/总超时为10/30/120秒。文本响应限256KiB、SSE线路限8MiB。请求工作线程拥有SQLite和局部异步runtime，不在GTK线程做I/O；停止会等待终态保存。环境密钥只进入Rust，不通过IPC返回。
 
 首次非敏感配置工具（已有配置保留）：`cargo run -p zwen-core --example configure_provider -- DATA_DIR API_ROOT MODEL KEY_ENV`。不要将密钥值传给这个工具。
+
+## 选区验证
+
+`python3 scripts/validate_selection.py "$PWD/target/release/zwen"`需要desktop-smoke构建，先保存退出现有Zwen。测试私有PATH提供合成wl-paste并严格验证参数，只使用临时SQLite；不读取或覆盖真实PRIMARY/CLIPBOARD、不连接模型。覆盖冷/热单实例、失败保留、重复触发读完再聚焦、未确认退出保护、重载显式恢复和读取中收起/展开的迟到完成失效。普通程序必须重新构建去掉测试特性。libc复用已锁定缓存版本，未增加系统包。

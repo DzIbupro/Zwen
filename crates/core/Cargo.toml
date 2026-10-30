@@ -9,3 +9,6 @@ rusqlite = { version = "=0.41.1", features = ["limits"] }
 
 serde_json = "1"
 url = "=2.5.8"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"

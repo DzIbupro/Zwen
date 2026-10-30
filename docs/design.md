@@ -98,3 +98,7 @@ Rust core 已增加有界 SSE 帧解码：输入块不大于64KiB、行与data�
 请求先落盘问题，一个受控后台请求线程拥有SQLite及当前线程异步runtime；首片段、收到内容时的500ms检查点、终态保存。帧带requestId/revision，迟到帧失效；停止pending调用也能撤销后到的start。保存故障保留NativeRAM快照，重建WebView仍可见；这不代表已经持久化。退出先停止并等待保存，失败留窗。显示层区分完成/停止/失败/中断，不让演示伪装模型输出。
 
 用户选择智谱：API根https://open.bigmodel.cn/api/paas/v4，文本glm-4.7-flash；视觉glm-4.6v-flash在截图附件阶段路由，当前未实现图片输入。密钥暂由用户本机启动环境提供；Secret Service界面后续完善。当前没有自动划词、截图附件、知识整理或图谱实现。详细证据见[本轮验证](validation/2026-10-30-provider-chat.md)。
+
+## 2026-10-30 显式选区入口落实
+
+select / explain-selection / translate-selection读取PRIMARY后才请求胶囊聚焦；不读普通CLIPBOARD、不模拟复制、不自动发送。读取64KiB/750ms目标、非阻塞管道、退出状态及UTF-8验证；原生单槽RAM收件箱拒绝覆盖未确认材料。前端在当前草稿上附加并保存后确认；保存/确认失败保留材料，重载后人工检查避免自动重复。未入草稿材料的进程崩溃恢复不作承诺。窗口意图序号独立于材料确认生命周期，迟到的完成不能盖过用户后来的收起/展开/恢复动作。详见选区设计、实施计划和验证记录。

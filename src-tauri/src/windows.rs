@@ -1,5 +1,8 @@
 use serde::Serialize;
-use std::sync::{Arc,Mutex};
+use std::sync::{Arc,Mutex,atomic::{AtomicU64,Ordering}};
+static WINDOW_INTENT:AtomicU64=AtomicU64::new(0);
+pub fn new_intent()->u64{WINDOW_INTENT.fetch_add(1,Ordering::SeqCst).wrapping_add(1)}
+fn current(intent:u64)->bool{WINDOW_INTENT.load(Ordering::SeqCst)==intent}
 use zwen_core::surface::{CapsuleBounds,SurfaceState};
 use tauri::{Emitter,Manager,LogicalSize};
 use crate::{ClientError,niri};
@@ -16,12 +19,16 @@ pub fn snapshot(app:&tauri::AppHandle)->Result<Snapshot,ClientError>{
  let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
  let shared=app.state::<Shared>();let guard=shared.lock().map_err(|_|ClientError::window())?;Ok(guard.snapshot(&window))
 }
-pub async fn activate(app:tauri::AppHandle,capsule:bool)->Result<Snapshot,ClientError>{
+pub fn activate(app:tauri::AppHandle,capsule:bool)->impl std::future::Future<Output=Result<Snapshot,ClientError>>{
+ let intent=new_intent();activate_if_current(app,capsule,intent)
+}
+pub async fn activate_if_current(app:tauri::AppHandle,capsule:bool,intent:u64)->Result<Snapshot,ClientError>{
  tauri::async_runtime::spawn_blocking(move||{
     // Query the reading display before showing/focusing our own surface.
     let placement=if capsule{niri::focused()}else{None};
     let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
     let shared=app.state::<Shared>();let mut c=shared.lock().map_err(|_|ClientError::window())?;
+    if !current(intent){return Ok(c.snapshot(&window));}
     window.hide().map_err(|_|ClientError::window())?;
     window.set_resizable(true).map_err(|_|ClientError::window())?;
     window.set_max_size(None::<tauri::Size>).map_err(|_|ClientError::window())?;
@@ -72,4 +79,20 @@ pub fn refresh_scale(app:tauri::AppHandle){
   let capsule=c.state.is_capsule();c.state.set_mode(capsule);
   let snapshot=c.snapshot(&window);let _=window.emit("surface-changed",snapshot);
  });
+}
+
+// Hide/recover share the geometry lock with activation. New intent is reserved at
+// request time, so a late capture cannot win even if its worker queues afterward.
+pub fn hide(app:tauri::AppHandle)->impl std::future::Future<Output=Result<(),ClientError>>{present(app,false)}
+pub fn recover(app:tauri::AppHandle)->impl std::future::Future<Output=Result<(),ClientError>>{present(app,true)}
+fn present(app:tauri::AppHandle,reload:bool)->impl std::future::Future<Output=Result<(),ClientError>>{
+ let intent=new_intent();
+ async move{tauri::async_runtime::spawn_blocking(move||{
+  let shared=app.state::<Shared>();let _guard=shared.lock().map_err(|_|ClientError::window())?;
+  if !current(intent){return Ok(());}
+  let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
+  if reload{window.reload().map_err(|_|ClientError::window())?;window.show().map_err(|_|ClientError::window())?;let _=window.set_focus();}
+  else{window.hide().map_err(|_|ClientError::window())?;}
+  Ok(())
+ }).await.map_err(|_|ClientError::window())?}
 }

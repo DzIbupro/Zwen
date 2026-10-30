@@ -10,6 +10,11 @@ pub fn setup(app:&tauri::App) {
         std::thread::spawn(move||{if let Some(path)=std::env::var_os("ZWEN_FIXTURE_ACK"){for _ in 0..100{if std::path::Path::new(&path).exists(){let _=h.emit("fault-ready",());return;}std::thread::sleep(std::time::Duration::from_millis(50));}}});
     });
     app.listen("capsule-progress",move|e|println!("CAPSULE_PROGRESS:{}",e.payload()));
+    app.listen("selection-progress",move|e|println!("SELECTION_PROGRESS:{}",e.payload()));
+    if std::env::var("ZWEN_SMOKE").as_deref()==Ok("selection-recovery") {
+        let h=app.handle().clone();
+        app.listen("selection-ready",move|_|{if let Ok(mut inbox)=h.state::<crate::selection::Shared>().lock(){let _=inbox.claim();}});
+    }
     let handle=app.handle().clone();
     app.listen("foundation-smoke", move |event| {
         let payload:serde_json::Value=serde_json::from_str(event.payload()).unwrap_or_default();
@@ -47,8 +52,8 @@ pub fn setup(app:&tauri::App) {
 pub fn page_loaded(webview:&tauri::Webview, payload:&tauri::webview::PageLoadPayload<'_>) {
     if std::env::var("ZWEN_SMOKE").is_err() || payload.event()!=tauri::webview::PageLoadEvent::Finished {return;}
     let first=LOADS.fetch_add(1,Ordering::SeqCst)==0;
-    let mode=if std::env::var("ZWEN_SMOKE").as_deref()==Ok("stress"){"stress"}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("chat-fault"){if first{"chat-fault"}else{"chat-fault-reload"}}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("chat-recover"){"chat-recover"}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("chat"){if first{"chat"}else{"chat-restore"}}else if !first {"restore"} else {match std::env::var("ZWEN_SMOKE").as_deref(){Ok("provider")=>"provider",Ok("capsule")=>"capsule",Ok("quit")=>"quit",Ok("restore")=>"restore",_=>"edit"}};
-    let source=if mode=="stress"{include_str!("../tests/stress.js")}else if mode.starts_with("chat-fault"){include_str!("../tests/chat-fault.js")}else if mode.starts_with("chat"){include_str!("../tests/chat.js")}else if mode=="provider"{include_str!("../tests/provider.js")}else if mode=="capsule"{include_str!("../tests/capsule.js")}else{include_str!("../tests/smoke.js")};
+    let mode=if std::env::var("ZWEN_SMOKE").as_deref()==Ok("selection-lifecycle"){"selection-lifecycle"}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("selection-recovery"){if first{"selection-recovery"}else{"selection-recovery-restored"}}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("selection"){"selection"}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("stress"){"stress"}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("chat-fault"){if first{"chat-fault"}else{"chat-fault-reload"}}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("chat-recover"){"chat-recover"}else if std::env::var("ZWEN_SMOKE").as_deref()==Ok("chat"){if first{"chat"}else{"chat-restore"}}else if !first {"restore"} else {match std::env::var("ZWEN_SMOKE").as_deref(){Ok("provider")=>"provider",Ok("capsule")=>"capsule",Ok("quit")=>"quit",Ok("restore")=>"restore",_=>"edit"}};
+    let source=if mode.starts_with("selection"){include_str!("../tests/selection.js")}else if mode=="stress"{include_str!("../tests/stress.js")}else if mode.starts_with("chat-fault"){include_str!("../tests/chat-fault.js")}else if mode.starts_with("chat"){include_str!("../tests/chat.js")}else if mode=="provider"{include_str!("../tests/provider.js")}else if mode=="capsule"{include_str!("../tests/capsule.js")}else{include_str!("../tests/smoke.js")};
     let base=std::env::var("ZWEN_PROVIDER_TEST_BASE").unwrap_or_default();
     let script=format!("window.__ZWEN_SMOKE_MODE__={};window.__ZWEN_FIXTURE_BASE__={};{}",serde_json::to_string(mode).unwrap(),serde_json::to_string(&base).unwrap(),source);
     let _=webview.eval(&script);
