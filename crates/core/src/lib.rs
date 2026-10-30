@@ -23,9 +23,15 @@ pub enum Error {
     ChatConflict,
     ConversationChanged,
     ContextTooLarge,
+    AttachmentLimit,
+    InvalidImage,
+    AttachmentMissing,
 }
 impl From<rusqlite::Error> for Error {
     fn from(value: rusqlite::Error) -> Self { Self::Database(value) }
+}
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self { Self::Io(value) }
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -40,6 +46,9 @@ impl fmt::Display for Error {
             Self::InvalidProvider => "模型配置无效或密钥不可用；请检查设置，原内容已保留",
             Self::ProviderConflict => "模型配置已被更新，请重新读取后再保存",
             Self::UnsupportedSchema => "数据库版本不受支持；请使用对应版本打开",
+            Self::AttachmentLimit => "截图附件已达上限（最多 3 张、合计 48 MiB）；请先删除旧截图",
+            Self::InvalidImage => "截图不是有效图片，或尺寸/大小超出限制；未附加，原草稿已保留",
+            Self::AttachmentMissing => "截图文件不可读；可删除后重新截图",
         })
     }
 }
@@ -135,3 +144,7 @@ pub mod completion;
 pub mod journal;
 
 pub mod selection;
+
+pub mod screenshot;
+
+pub mod attachment;

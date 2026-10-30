@@ -3,6 +3,7 @@ mod selection;
 mod chat;
 mod provider;
 mod windows;
+mod attachment;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 use zwen_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
@@ -16,7 +17,7 @@ impl ClientError {
 }
 impl From<CoreError> for ClientError {
     fn from(error: CoreError) -> Self {
-        let code = match error { CoreError::ConversationChanged=>"conversation_changed",CoreError::ContextTooLarge=>"context_too_large",CoreError::InvalidChat=>"invalid_chat",CoreError::ChatConflict=>"chat_conflict",CoreError::InvalidProvider=>"invalid_provider",CoreError::ProviderConflict=>"provider_conflict",CoreError::Conflict=>"conflict", CoreError::TooLarge=>"too_large", CoreError::UnsupportedSchema=>"unsupported_schema", CoreError::Database(_) | CoreError::Io(_)=>"storage_unavailable" };
+        let code = match error { CoreError::ConversationChanged=>"conversation_changed",CoreError::ContextTooLarge=>"context_too_large",CoreError::InvalidChat=>"invalid_chat",CoreError::ChatConflict=>"chat_conflict",CoreError::InvalidProvider=>"invalid_provider",CoreError::ProviderConflict=>"provider_conflict",CoreError::Conflict=>"conflict", CoreError::TooLarge=>"too_large", CoreError::UnsupportedSchema=>"unsupported_schema", CoreError::AttachmentLimit=>"attachment_limit", CoreError::InvalidImage=>"invalid_image", CoreError::AttachmentMissing=>"attachment_missing", CoreError::Database(_) | CoreError::Io(_)=>"storage_unavailable" };
         Self { code, message: error.to_string() }
     }
 }
@@ -65,6 +66,7 @@ async fn set_surface(app:tauri::AppHandle,mode:String)->Result<windows::Snapshot
 async fn resize_capsule(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{windows::resize(app,height,generation).await}
 fn launch(app:&tauri::AppHandle, action:LaunchAction) {
     if let LaunchAction::Selection(mode)=action {selection::capture(app.clone(),mode);return;}
+    if action==LaunchAction::Screenshot {attachment::start_from_app(app,None);return;}
     if action == LaunchAction::Quit {
         if let Some(window)=app.get_webview_window("main") {
             let _=window.show();
@@ -75,9 +77,11 @@ fn launch(app:&tauri::AppHandle, action:LaunchAction) {
     if action==LaunchAction::Recover {
         let recover=windows::recover(app.clone());tauri::async_runtime::spawn(async move{let _=recover.await;});
     } else {
-        let activate=windows::activate(app.clone(),matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)));tauri::async_runtime::spawn(async move{let _=activate.await;});
+        let activate=windows::activate(app.clone(),capsule_surface(action));tauri::async_runtime::spawn(async move{let _=activate.await;});
     }
 }
+
+fn capsule_surface(action:LaunchAction)->bool{matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)|LaunchAction::Screenshot)}
 
 #[cfg(feature="desktop-smoke")]
 mod smoke;
@@ -92,7 +96,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action); }
         }))
-        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection])
+        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -107,16 +111,17 @@ fn main() {
                 }).map_err(|_|ClientError::storage()));
             app.manage(chat::Shared::default());
             app.manage(selection::Shared::default());
+            app.manage(attachment::Shared::default());
             app.manage(Arc::new(Storage { directory, connection:Mutex::new(None),provider:Mutex::new(None) }));
-            app.manage(Arc::new(Mutex::new(windows::Controller::new(matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_))))));
+            app.manage(Arc::new(Mutex::new(windows::Controller::new(capsule_surface(action)))));
             #[cfg(feature="desktop-smoke")]
             smoke::setup(app);
             if action != LaunchAction::Quit {
                 let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                     .title("Zwen · 学习助手").transparent(true)
-                    .inner_size(if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){480.0}else{900.0},if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){96.0}else{850.0})
-                    .resizable(true).min_inner_size(480.0,if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){96.0}else{560.0}).decorations(action!=LaunchAction::Capsule).visible(false);
-                let window=if matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)){window.max_inner_size(480.0,96.0)}else{window};
+                    .inner_size(if capsule_surface(action){480.0}else{900.0},if capsule_surface(action){96.0}else{850.0})
+                    .resizable(true).min_inner_size(480.0,if capsule_surface(action){96.0}else{560.0}).decorations(action!=LaunchAction::Capsule).visible(false);
+                let window=if capsule_surface(action){window.max_inner_size(480.0,96.0)}else{window};
                 window.on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
                     .build()?;
             }

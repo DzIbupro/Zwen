@@ -52,3 +52,12 @@ export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('g
 
 import type {SelectionPort,SelectionItem} from './selection';
 export const selectionPort:SelectionPort=isDesktop?{claim:()=>command<{reading:boolean;item:SelectionItem|null}>('claim_selection'),acknowledge:id=>command<void>('acknowledge_selection',{id})}:{claim:async()=>({reading:false,item:null}),acknowledge:async()=>{}};
+
+import type {AttachmentPort,AttachmentView} from './attachments';
+export const attachmentPort:AttachmentPort=isDesktop?{
+ list:()=>command<AttachmentView>('get_attachments'),
+ capture:replaceId=>command<void>('capture_screenshot',{replaceId:replaceId??null}),
+ cancel:()=>command<void>('cancel_screenshot'),
+ remove:id=>command<void>('remove_attachment',{id}),
+ listen:cb=>listen('attachments-changed',()=>cb()),
+}:{list:async()=>({items:[],capture:{state:'idle',requestId:null,replaceId:null},notice:null,max:3}),capture:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中截图');},cancel:async()=>{},remove:async()=>{},listen:async()=>()=>{}};

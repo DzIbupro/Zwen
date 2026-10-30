@@ -4989,6 +4989,7 @@ name = "zwen-core"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "png",
  "rusqlite",
  "serde",
  "serde_json",
@@ -4999,6 +5000,7 @@ dependencies = [
 name = "zwen-desktop"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "serde",
  "serde_json",
  "tauri",

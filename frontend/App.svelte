@@ -19,6 +19,9 @@
   import ProviderSettings from './ProviderSettings.svelte';
   import {ProviderController,type SettingsState} from './lib/provider';
   import {providerPort} from './lib/bridge';
+  import Attachments from './Attachments.svelte';
+  import {AttachmentController,type AttachmentState} from './lib/attachments';
+  import {attachmentPort} from './lib/bridge';
   let notice=$state('');
   let view=$state<'ask'|'preview'|'reply'|'settings'|'history'>('ask');
   let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY'},status:'loading',loaded:false,error:null});
@@ -36,6 +39,8 @@
   function startDemo(){if(chatState.running||chatState.stopping)return;responseKind='demo';demo.start();}
   async function send(){
     if(selectionState.busy){notice='请等待选区处理完成';return;}
+    if(attachmentState.pending){attachmentController.note('请等待截图完成');return;}
+    if(attachmentState.items.length>0){attachmentController.note('截图附件尚未接入视觉模型；请先删除图片或等待后续版本');return;}
     if(!isDesktop){notice='浏览器仅预览，请在桌面应用中发送';return;}
     if(settings.status==='loading'||!chatState.loaded){notice='正在读取本机配置，请稍后发送';return;}
     if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥';await switchSurface('full');view='settings';return;}
@@ -45,6 +50,7 @@
   function continueHistory(reply:ChatReply){if(chat.adopt(reply)){responseKind='model';view='reply';notice='继续此会话将附带近期问答';}}
   function stopReply(){if(responseKind==='demo')demo.stop();else void chat.stop().catch(()=>{});}
   async function retryReplySave(){try{await chat.settle();}catch(e){notice=e instanceof Error?e.message:'回答保存未完成';}}
+  function captureScreenshot(replaceId?:string|null){if(!isDesktop){notice='浏览器仅预览，请在桌面应用中截图';return;}void attachmentController.capture(replaceId??null);}
 
   function applySurface(next:SurfaceInfo){if(canApplySurface(surface.generation,next.generation)){surface=next;document.documentElement.dataset.surface=next.mode;}}
   async function switchSurface(mode:'full'|'capsule'){
@@ -60,6 +66,8 @@
   const controller = new DraftController(draftPort, s=>draft=s);
   let selectionState=$state<SelectionState>({busy:false,pending:null,inserted:false,notice:''});
   const selection=new SelectionController(selectionPort,controller,s=>selectionState=s);
+  let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
+  const attachmentController=new AttachmentController(attachmentPort,s=>attachmentState=s);
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
   const example = `## 把复杂，拆成可以理解的部分\n\n正则化让模型在拟合数据与控制复杂度之间取得平衡。\n\n| 方法 | 思路 | 适用场景 |\n| --- | --- | --- |\n| L1 | 让部分参数变为零 | 特征选择 |\n| L2 | 限制参数的幅度 | 改善泛化 |\n\n行内公式 $E=mc^2$，也可以清楚地展示：\n\n$$\nL(w)=\\frac{1}{n}\\sum_{i=1}^{n}(y_i-w^Tx_i)^2+\\lambda\\lVert w\\rVert_2^2\n$$\n\n> 先理解一个概念，再把它与已有知识连起来。\n\n\`\`\`python\nloss = data_loss + strength * penalty\n\`\`\``;
@@ -70,6 +78,7 @@
   async function leave(quit=false) {
     if (!isDesktop) { notice='这是浏览器预览，草稿保存在此浏览器；桌面收起功能请在应用中使用';return; }
     if(quit&&(selectionState.busy||selectionState.pending)){notice='请先处理待导入选区，再退出';return;}
+    if(quit&&attachmentState.pending){notice='请先取消等待截图，再退出';return;}
     if(closing)return;closing=true;try {if(quit)await chat.settle();await controller.leave(quit ? quitApp : hideWindow);} catch(e){notice=e instanceof Error?e.message:'退出未完成，当前内容已保留';}finally{closing=false;}
   }
   function keydown(e:KeyboardEvent) {
@@ -82,6 +91,7 @@
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
     void provider.load();void chat.load();
     void controller.start().then(()=>{input?.focus();void selection.refresh();}).catch(()=>{});
+    void attachmentController.start();
     void getSurface().then(applySurface).catch(()=>{notice='窗口模式读取失败';});
     let disposed=false;const unlisteners:(()=>void)[]=[];
     if(isDesktop) void listen('selection-ready',()=>void selection.refresh()).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{notice='选区事件暂不可用，可重新读取状态';});
@@ -89,13 +99,13 @@
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>void leave(quit)).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{notice='关闭事件暂不可用，请使用面板按钮';});
     }
-    return ()=>{disposed=true;for(const fn of unlisteners)fn();controller.dispose();selection.dispose();chat.dispose();demo.stop();resizeQueue.clear();};
+    return ()=>{disposed=true;for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();chat.dispose();demo.stop();resizeQueue.clear();};
   });
 </script>
 
 <svelte:window onkeydown={keydown}/>
 {#if surface.mode==='capsule'}
-<Capsule {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} notice={combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+<Capsule {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&attachmentState.items.length===0&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
 {:else}
 <div class="shell">
   <header class="titlebar">
@@ -122,8 +132,9 @@
     {#if responseKind==='model'&&chatState.error}<div class="error" role="alert"><strong>{chatState.error}</strong>{#if !chatState.loaded}<button onclick={()=>void chat.load()}>重新读取对话</button>{/if}{#if chatState.reply&&!chatState.reply.saved&&!chatState.running}<button onclick={()=>void retryReplySave()}>重试保存回答</button>{/if}</div>{/if}
     {#if draft.error}<div class="error" role="alert"><strong>{draft.error}</strong><span>原有文件不会被自动替换。</span><button onclick={()=>draft.loaded ? save() : controller.start().then(()=>selection.refresh()).catch(()=>{})}>{draft.loaded ? '重试保存' : '重新读取'}</button></div>{/if}
     {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">
+      <Attachments state={attachmentState} onCancel={()=>void attachmentController.cancel()} onRemove={id=>void attachmentController.remove(id)} onRetake={id=>captureScreenshot(id)}/>
       <label class="sr-only" for="question">问题草稿</label><textarea bind:this={input} id="question" disabled={!draft.loaded} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder="写下问题，或粘贴一段想理解的内容……" spellcheck="false" rows="4"></textarea>
-      <div class="composer-tools"><div><span class="local-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/></svg> 本地草稿</span>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="text-button" aria-label="保存草稿" title="Ctrl S 保存草稿" disabled={!draft.loaded} onclick={save}>保存</button><button class="primary-button" data-send disabled={selectionState.busy||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}>{chatState.stopping?'正在保存…':'发送'} <kbd>Ctrl ↵</kbd></button></div>
+      <div class="composer-tools"><div><span class="local-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/></svg> 本地草稿</span>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="text-button" data-capture disabled={!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}>截图</button><button class="text-button" aria-label="保存草稿" title="Ctrl S 保存草稿" disabled={!draft.loaded} onclick={save}>保存</button><button class="primary-button" data-send disabled={selectionState.busy||attachmentState.pending||attachmentState.items.length>0||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}>{chatState.stopping?'正在保存…':'发送'} <kbd>Ctrl ↵</kbd></button></div>
     </section>
     {/if}
     <footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{statusText}</span><span>{notice || '不采集当前应用内容 · 不自动上传'}</span></footer>

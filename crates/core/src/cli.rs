@@ -1,6 +1,6 @@
 use crate::selection::Mode;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LaunchAction { Show, Capsule, Recover, Quit, Selection(Mode) }
+pub enum LaunchAction { Show, Capsule, Recover, Quit, Selection(Mode), Screenshot }
 pub fn parse_action(args: &[&str]) -> Result<LaunchAction, &'static str> {
     match args {
         [] | ["show" | "--show"] => Ok(LaunchAction::Show),
@@ -8,8 +8,9 @@ pub fn parse_action(args: &[&str]) -> Result<LaunchAction, &'static str> {
         ["select"] => Ok(LaunchAction::Selection(Mode::Raw)),
         ["explain-selection"] => Ok(LaunchAction::Selection(Mode::Explain)),
         ["translate-selection"] => Ok(LaunchAction::Selection(Mode::Translate)),
+        ["screenshot" | "capture-screenshot"] => Ok(LaunchAction::Screenshot),
         ["recover" | "--recover"] => Ok(LaunchAction::Recover),
         ["quit" | "--quit"] => Ok(LaunchAction::Quit),
-        _ => Err("用法：zwen [show|capsule|select|explain-selection|translate-selection|recover|quit]"),
+        _ => Err("用法：zwen [show|capsule|select|explain-selection|translate-selection|screenshot|recover|quit]"),
     }
 }
