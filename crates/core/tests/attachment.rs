@@ -1,5 +1,5 @@
 use std::{path::{Path,PathBuf},sync::atomic::{AtomicU64,Ordering}};
-use zwen_core::attachment::{AttachmentStore,MAX_ATTACHMENTS,MAX_IMAGE_DIM};
+use zwen_core::attachment::{AttachmentStore,MAX_ATTACHMENTS,MAX_IMAGE_DIM,MAX_REQUEST_IMAGE_BYTES,MAX_REQUEST_IMAGE_DIM};
 use zwen_core::Error;
 
 static NEXT:AtomicU64=AtomicU64::new(0);
@@ -92,6 +92,24 @@ fn import_png(store:&mut AttachmentStore,scratch:&Scratch,id:&str,width:u32,heig
  let list=store.list().unwrap();
  assert_eq!(list.len(),1);assert_eq!(list[0].id,old.id);
  assert!(scratch.0.join("attachments").join(format!("{}.png",old.id)).exists());
+}
+
+#[test] fn request_payloads_stay_bounded_while_originals_are_untouched(){
+ let scratch=Scratch::new();let mut store=AttachmentStore::open(&scratch.0).unwrap();
+ // 8192×1219 keeps the pixel budget but exceeds the 6000px request side.
+ let id="2".repeat(32);let source=scratch.source("wide.png");std::fs::write(&source,png(8192,1219)).unwrap();
+ store.import(&id,&source).unwrap();
+ let image_path=scratch.0.join("attachments").join(format!("{id}.png"));
+ let original=std::fs::read(&image_path).unwrap();
+ let payload=store.model_payload(&id).unwrap();
+ assert!(payload.len() as u64<=MAX_REQUEST_IMAGE_BYTES);
+ let mut decoder=png::Decoder::new(std::io::Cursor::new(&payload));
+ let reader=decoder.read_info().unwrap();
+ assert!(reader.info().width<=MAX_REQUEST_IMAGE_DIM);
+ assert!(reader.info().height<=MAX_REQUEST_IMAGE_DIM);
+ assert_eq!(std::fs::read(&image_path).unwrap(),original,"stored original must never be rewritten");
+ assert!(matches!(store.model_payload(&"f".repeat(32)),Err(Error::AttachmentMissing)));
+ assert!(matches!(store.model_payload("../escape"),Err(Error::AttachmentMissing)));
 }
 
 #[test] fn deleted_image_does_not_return_a_preview_or_leak_other_files(){

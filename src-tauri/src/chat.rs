@@ -1,9 +1,11 @@
+//! Native chat commands. Screenshots route to the configured vision model.
 use crate::{SharedStorage,ClientError,provider};
+use base64::{Engine as _,engine::general_purpose::STANDARD as BASE64_STANDARD};
 use serde::Serialize;
 use std::{collections::VecDeque,sync::{Arc,Mutex},time::{Instant,Duration}};
 use tauri::Emitter;
 use tokio::sync::watch;
-use zwen_core::{journal::{Journal,Turn,TurnState},completion::FinishReason};
+use zwen_core::{attachment::AttachmentStore,journal::{Journal,Turn,TurnState},completion::FinishReason};
 #[derive(Clone,Serialize)]
 pub struct Reply {#[serde(flatten)] turn:Turn,saved:bool}
 #[derive(Serialize)]
@@ -58,13 +60,28 @@ pub async fn start_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStora
   if s.revoked.contains(&request_id){return Err(error("chat_cancelled","此请求已取消"));}
   if s.last.as_ref().is_some_and(|r|!r.saved){return Err(error("chat_unsaved","上一条回答尚未保存，请先重试保存"));}
   let config=provider::configured(&storage)?;let key=config.read_key()?;
-  let mut journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;
+  let dir=directory(&storage)?;
+  let mut journal=Journal::open(&dir.join("chat.sqlite3"))?;
   let profile=serde_json::to_string(&config).map_err(|_|ClientError::storage())?;
+  // Screenshot questions carry bounded base64 payloads to the configured vision
+  // model. Preparation happens here, off the UI thread; a failed payload aborts
+  // before the question is persisted so no half-attached turn is stored.
+  let store=AttachmentStore::open(&dir)?;
+  let attached=store.list()?;
+  let vision=if attached.is_empty(){None}else{
+   let image_model=config.image_model().ok_or_else(||error("image_model_missing","截图尚未接入模型；请先在模型设置中配置图片模型"))?.to_owned();
+   let mut images=Vec::new();
+   for attachment in &attached{images.push(BASE64_STANDARD.encode(store.model_payload(&attachment.id)?));}
+   Some((image_model,images))
+  };
+  let request_config=match &vision{Some((model,_))=>config.with_model(model)?,None=>config.clone()};
   let mut messages=journal.context(conversation_id.as_deref(),&profile,prompt.len())?;let count=messages.len()/2;
-  let turn=journal.begin_in(&request_id,&prompt,config.model(),conversation_id.as_deref(),&profile,count)?;
-  messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt});let reply=Reply{turn:turn.clone(),saved:true};s.last=Some(reply.clone());
+  let request_model=request_config.model().to_owned();
+  let turn=journal.begin_in(&request_id,&prompt,&request_model,conversation_id.as_deref(),&profile,count)?;
+  let images=vision.map(|(_,images)|images).unwrap_or_default();
+  messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt,images});let reply=Reply{turn:turn.clone(),saved:true};s.last=Some(reply.clone());
   let (cancel,rx)=watch::channel(false);let id=request_id;let worker=state.clone();
-  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,turn,config,key,messages,rx));
+  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,turn,request_config,key,messages,rx));
   s.active=Some(Active{id,cancel,handle:Some(handle)});Ok(reply)
  }).await.map_err(|_|ClientError::storage())?
 }

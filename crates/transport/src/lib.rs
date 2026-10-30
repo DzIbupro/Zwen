@@ -4,6 +4,8 @@ use tokio::sync::watch;
 use zwen_core::{provider::{ProviderConfig,ApiKey},completion::{CompletionDecoder,FinishReason},stream::{Decoder,MAX_CHUNK_BYTES}};
 pub const MAX_RESPONSE_BYTES:usize=256*1024;
 pub const MAX_WIRE_BYTES:usize=8*1024*1024;
+pub const MAX_MESSAGE_IMAGES:usize=8;
+pub const MAX_IMAGE_PAYLOAD_BYTES:usize=8*1024*1024;
 #[derive(Debug,PartialEq)] pub enum Error {Cancelled,Http(u16),Api{status:u16,code:u32},Protocol,Network,Timeout,TooLarge,Delivery,Empty,InvalidInput}
 impl fmt::Display for Error {
  fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{if let Self::Api{status,code}=self{return write!(f,"{}（HTTP {}，代码 {}），请核对服务状态后手动重试",if *status==429{"服务拒绝本次请求"}else{"服务返回异常状态"},status,code);}f.write_str(match self{
@@ -34,6 +36,9 @@ async fn http_error(response:&mut reqwest::Response,cancel:&mut watch::Receiver<
 pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,messages:&[zwen_core::completion::Message],mut cancel:watch::Receiver<bool>,mut on_text:impl FnMut(&str)->Result<(),()>)->Result<FinishReason,Error>{
  use zwen_core::completion::Role;
  if messages.is_empty()||messages.len()>17||messages.len()%2==0||messages.last().is_none_or(|m|m.content.trim().is_empty())||messages.iter().enumerate().any(|(i,m)|m.role!=if i%2==0{Role::User}else{Role::Assistant}){return Err(Error::InvalidInput);}
+ let total_images:usize=messages.iter().map(|m|m.images.len()).sum();
+ if messages.iter().any(|m|m.images.len()>MAX_MESSAGE_IMAGES)||total_images>MAX_MESSAGE_IMAGES{return Err(Error::InvalidInput);}
+ if messages.iter().any(|m|m.images.iter().any(|image|image.is_empty()||image.len()>MAX_IMAGE_PAYLOAD_BYTES||!image.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'+'||b==b'/'||b==b'='))){return Err(Error::InvalidInput);}
  let bytes=messages.iter().try_fold(0usize,|n,m|n.checked_add(m.content.len())).ok_or(Error::InvalidInput)?;
  if bytes>zwen_core::MAX_DRAFT_BYTES{return Err(Error::InvalidInput);}
  if *cancel.borrow(){return Err(Error::Cancelled);}
@@ -61,5 +66,5 @@ pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:
  }
 }
 pub async fn stream_text(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,prompt:&str,cancel:watch::Receiver<bool>,on_text:impl FnMut(&str)->Result<(),()>)->Result<FinishReason,Error>{
- let messages=[zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt.into()}];stream_messages(client,config,key,&messages,cancel,on_text).await
+ let messages=[zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt.into(),images:Vec::new()}];stream_messages(client,config,key,&messages,cancel,on_text).await
 }

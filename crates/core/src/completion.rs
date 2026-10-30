@@ -37,5 +37,24 @@ impl CompletionDecoder {
 #[derive(Clone,Debug,PartialEq,serde::Serialize)]
 #[serde(rename_all="lowercase")]
 pub enum Role {User,Assistant}
-#[derive(Clone,Debug,PartialEq,serde::Serialize)]
-pub struct Message {pub role:Role,pub content:String}
+/// `images` carries bare base64 payloads (official GLM-4.6V examples use raw
+/// base64 in `image_url.url`). Empty renders the plain string form that
+/// text-only services expect; images render the official content-parts array.
+#[derive(Clone,Debug,PartialEq)]
+pub struct Message {pub role:Role,pub content:String,pub images:Vec<String>}
+impl serde::Serialize for Message {
+ fn serialize<S:serde::Serializer>(&self,serializer:S)->Result<S::Ok,S::Error>{
+  use serde::ser::SerializeStruct;
+  let mut out=serializer.serialize_struct("Message",2)?;
+  out.serialize_field("role",&self.role)?;
+  if self.images.is_empty(){
+   out.serialize_field("content",&self.content)?;
+  }else{
+   let mut parts=Vec::with_capacity(self.images.len()+1);
+   for image in &self.images{parts.push(serde_json::json!({"type":"image_url","image_url":{"url":image}}));}
+   parts.push(serde_json::json!({"type":"text","text":self.content}));
+   out.serialize_field("content",&parts)?;
+  }
+  out.end()
+ }
+}

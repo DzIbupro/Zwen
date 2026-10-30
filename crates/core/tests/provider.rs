@@ -10,3 +10,24 @@ fn path()->std::path::PathBuf{let p=std::env::temp_dir().join(format!("zwen-prov
 #[cfg(unix)] #[test] fn provider_database_is_private(){use std::os::unix::fs::PermissionsExt;let p=path();let mut s=ProviderStore::open(&p).unwrap();s.save(0,config()).unwrap();assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode()&0o077,0);drop(s);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
 #[test] fn future_provider_schema_is_preserved(){let p=path();let c=rusqlite::Connection::open(&p).unwrap();c.pragma_update(None,"user_version",99).unwrap();drop(c);assert!(ProviderStore::open(&p).is_err());let c=rusqlite::Connection::open(&p).unwrap();assert_eq!(c.pragma_query_value(None,"user_version",|r|r.get::<_,i64>(0)).unwrap(),99);drop(c);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
 #[test] fn normalized_url_cannot_exceed_roundtrip_limit(){let raw=format!("https://example.com/{}","中".repeat(500));assert!(raw.len()<2048);assert!(ProviderConfig::new(&raw,"m","KEY").is_err());}
+#[test] fn image_model_is_optional_and_legacy_profiles_stay_bound(){
+ let base=config();
+ assert_eq!(base.image_model(),None);
+ // Without an image model the serialized profile is byte-identical to the
+ // pre-vision format, so existing conversation bindings keep matching.
+ assert_eq!(serde_json::to_string(&base).unwrap(),format!("{{\"baseUrl\":\"{}\",\"model\":\"model-a\",\"keyEnv\":\"ZWEN_TEST_KEY\"}}",base.base_url()));
+ let legacy:ProviderConfig=serde_json::from_str(r#"{"baseUrl":"https://models.example/v1","model":"model-a","keyEnv":"ZWEN_TEST_KEY"}"#).unwrap();
+ assert_eq!(legacy,base);
+ for blank in ["","   "]{assert_eq!(ProviderConfig::build("https://example.com","model","KEY",Some(blank)).unwrap().image_model(),None);}
+}
+#[test] fn image_model_is_validated_and_routed_without_touching_the_stored_config(){
+ for bad in ["bad\nmodel",&"m".repeat(201)]{assert!(ProviderConfig::build("https://example.com","model","KEY",Some(bad)).is_err());}
+ let good=ProviderConfig::build("https://example.com","model","KEY",Some(" glm-4.6v-flash ")).unwrap();
+ assert_eq!(good.image_model(),Some("glm-4.6v-flash"));
+ assert_eq!(serde_json::to_string(&good).unwrap(),r#"{"baseUrl":"https://example.com","model":"model","keyEnv":"KEY","imageModel":"glm-4.6v-flash"}"#);
+ let routed=good.with_model("text-model").unwrap();
+ assert_eq!(routed.model(),"text-model");assert_eq!(routed.image_model(),Some("glm-4.6v-flash"));
+ assert!(good.with_model("bad\nmodel").is_err());
+ let roundtrip:ProviderConfig=serde_json::from_str(&serde_json::to_string(&good).unwrap()).unwrap();
+ assert_eq!(roundtrip,good);
+}

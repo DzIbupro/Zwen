@@ -19,7 +19,7 @@
   const input=document.querySelector('[data-capsule] textarea');
   input.value='合成旧草稿\n\n检查图片';input.dispatchEvent(new Event('input',{bubbles:true}));
   input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true}));
-  await wait(()=>document.querySelector('.attachment-note')?.textContent.includes('视觉模型'));
+  await wait(()=>document.querySelector('.attachment-note')?.textContent.includes('图片模型'));
   if((await api.core.invoke('get_chat')).activeRequestId)throw Error('Blocked send still contacted the model');
   await stage('send-blocked');
   // Retake replaces the item without increasing the count.

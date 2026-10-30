@@ -39,7 +39,7 @@ impl Journal {
   let ids=statement.query_map([conversation],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
   let mut budget=MAX_DRAFT_BYTES.checked_sub(prompt_bytes).ok_or(Error::ContextTooLarge)?;let mut chosen=Vec::new();
   for id in ids{let t=read(&self.connection,Some(&id))?.ok_or(Error::InvalidChat)?;let size=t.prompt.len()+t.answer.len();if size>budget{if chosen.is_empty(){return Err(Error::ContextTooLarge);}break;}budget-=size;chosen.push(t);}
-  let mut messages=Vec::new();for t in chosen.into_iter().rev(){messages.push(Message{role:Role::User,content:t.prompt});messages.push(Message{role:Role::Assistant,content:t.answer});}Ok(messages)
+  let mut messages=Vec::new();for t in chosen.into_iter().rev(){messages.push(Message{role:Role::User,content:t.prompt,images:Vec::new()});messages.push(Message{role:Role::Assistant,content:t.answer,images:Vec::new()});}Ok(messages)
  }
  pub fn history(&self,offset:usize,limit:usize)->Result<Vec<Summary>,Error>{
   if limit==0||limit>30||offset>100000{return Err(Error::InvalidChat);}

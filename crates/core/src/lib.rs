@@ -47,7 +47,7 @@ impl fmt::Display for Error {
             Self::ProviderConflict => "模型配置已被更新，请重新读取后再保存",
             Self::UnsupportedSchema => "数据库版本不受支持；请使用对应版本打开",
             Self::AttachmentLimit => "截图附件已达上限（最多 3 张、合计 48 MiB）；请先删除旧截图",
-            Self::InvalidImage => "截图不是有效图片，或尺寸/大小超出限制；未附加，原草稿已保留",
+            Self::InvalidImage => "截图无效或超出大小限制；请删除该截图后重新截图",
             Self::AttachmentMissing => "截图文件不可读；可删除后重新截图",
         })
     }

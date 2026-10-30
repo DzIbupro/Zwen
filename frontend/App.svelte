@@ -17,7 +17,7 @@
   import {SelectionController,type SelectionState} from './lib/selection';
   import {selectionPort} from './lib/bridge';
   import ProviderSettings from './ProviderSettings.svelte';
-  import {ProviderController,type SettingsState} from './lib/provider';
+  import {ProviderController,imageModelOf,type SettingsState} from './lib/provider';
   import {providerPort} from './lib/bridge';
   import Attachments from './Attachments.svelte';
   import {AttachmentController,type AttachmentState} from './lib/attachments';
@@ -40,11 +40,14 @@
   async function send(){
     if(selectionState.busy){notice='请等待选区处理完成';return;}
     if(attachmentState.pending){attachmentController.note('请等待截图完成');return;}
-    if(attachmentState.items.length>0){attachmentController.note('截图附件尚未接入视觉模型；请先删除图片或等待后续版本');return;}
+    if(attachmentState.items.length>0&&!imageModelOf(settings.config)){attachmentController.note('截图尚未接入模型；请先在模型设置中配置图片模型');return;}
     if(!isDesktop){notice='浏览器仅预览，请在桌面应用中发送';return;}
     if(settings.status==='loading'||!chatState.loaded){notice='正在读取本机配置，请稍后发送';return;}
     if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥';await switchSurface('full');view='settings';return;}
-    demo.stop();responseKind='model';view='reply';const sent=draft.text;const accepted=await chat.send(sent,()=>controller.flush());if(accepted&&draft.text===sent)controller.edit('');
+    demo.stop();responseKind='model';view='reply';const sent=draft.text;const sentIds=attachmentState.items.map(item=>item.id);
+    const accepted=await chat.send(sent,()=>controller.flush());
+    if(accepted&&draft.text===sent)controller.edit('');
+    if(accepted&&sentIds.length>0)void attachmentController.removeSent(sentIds);
   }
   function newConversation(){if(chat.newConversation()){responseKind='model';view='ask';notice='已准备新对话，当前草稿保留';}}
   function continueHistory(reply:ChatReply){if(chat.adopt(reply)){responseKind='model';view='reply';notice='继续此会话将附带近期问答';}}
@@ -105,7 +108,7 @@
 
 <svelte:window onkeydown={keydown}/>
 {#if surface.mode==='capsule'}
-<Capsule {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&attachmentState.items.length===0&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+<Capsule {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
 {:else}
 <div class="shell">
   <header class="titlebar">
@@ -134,7 +137,7 @@
     {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">
       <Attachments state={attachmentState} onCancel={()=>void attachmentController.cancel()} onRemove={id=>void attachmentController.remove(id)} onRetake={id=>captureScreenshot(id)}/>
       <label class="sr-only" for="question">问题草稿</label><textarea bind:this={input} id="question" disabled={!draft.loaded} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder="写下问题，或粘贴一段想理解的内容……" spellcheck="false" rows="4"></textarea>
-      <div class="composer-tools"><div><span class="local-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/></svg> 本地草稿</span>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="text-button" data-capture disabled={!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}>截图</button><button class="text-button" aria-label="保存草稿" title="Ctrl S 保存草稿" disabled={!draft.loaded} onclick={save}>保存</button><button class="primary-button" data-send disabled={selectionState.busy||attachmentState.pending||attachmentState.items.length>0||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}>{chatState.stopping?'正在保存…':'发送'} <kbd>Ctrl ↵</kbd></button></div>
+      <div class="composer-tools"><div><span class="local-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/></svg> 本地草稿</span>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="text-button" data-capture disabled={!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}>截图</button><button class="text-button" aria-label="保存草稿" title="Ctrl S 保存草稿" disabled={!draft.loaded} onclick={save}>保存</button><button class="primary-button" data-send disabled={selectionState.busy||attachmentState.pending||(attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}>{chatState.stopping?'正在保存…':'发送'} <kbd>Ctrl ↵</kbd></button></div>
     </section>
     {/if}
     <footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{statusText}</span><span>{notice || '不采集当前应用内容 · 不自动上传'}</span></footer>

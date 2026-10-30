@@ -97,7 +97,7 @@ Rust core 已增加有界 SSE 帧解码：输入块不大于64KiB、行与data�
 
 请求先落盘问题，一个受控后台请求线程拥有SQLite及当前线程异步runtime；首片段、收到内容时的500ms检查点、终态保存。帧带requestId/revision，迟到帧失效；停止pending调用也能撤销后到的start。保存故障保留NativeRAM快照，重建WebView仍可见；这不代表已经持久化。退出先停止并等待保存，失败留窗。显示层区分完成/停止/失败/中断，不让演示伪装模型输出。
 
-用户选择智谱：API根https://open.bigmodel.cn/api/paas/v4，文本glm-4.7-flash；视觉glm-4.6v-flash在截图附件阶段路由，当前已实现本地截图附件但未实现图片输入。密钥暂由用户本机启动环境提供；Secret Service界面后续完善。当前没有自动划词、视觉模型、知识整理或图谱实现。详细证据见[本轮验证](validation/2026-10-30-provider-chat.md)与[截图验证](validation/2026-10-31-screenshot.md)。
+用户选择智谱：API根https://open.bigmodel.cn/api/paas/v4，文本glm-4.7-flash；视觉glm-4.6v-flash在模型设置中可选配置，本地截图附件与合成图片请求已实现，真实图片调用未验证。密钥暂由用户本机启动环境提供；Secret Service界面后续完善。当前没有自动划词、知识整理或图谱实现。详细证据见[本轮验证](validation/2026-10-30-provider-chat.md)、[截图验证](validation/2026-10-31-screenshot.md)与[视觉验证](validation/2026-10-31-vision.md)。
 
 ## 2026-10-30 显式选区入口落实
 
@@ -108,3 +108,9 @@ select / explain-selection / translate-selection读取PRIMARY后才请求胶囊�
 截图走显式入口 `screenshot`/胶囊按钮，不自动触发。每次请求生成唯一 request ID 和绝对路径，先订阅 Niri 事件再请求交互截图；只有命令成功、文件出现且稳定、PNG 解码校验通过才导入。事件只作提示，文件与路径归属是成功依据。取消、60 秒超时和进程重启后的请求文件都不能再被确认；迟到文件只清理，不附加到新草稿。胶囊在等待期间保持可见并提供取消，Niri 的 Esc 取消没有可靠事件，不能实时识别。
 
 附件为独立 `attachment.sqlite3` schema1 和私有文件，不迁移既有三库。单张 PNG≤24MiB、≤8192 边长且≤10MP、最多 3 张、合计≤48MiB；生成最长边 480 的缩略图；重截在同一事务内替换，失败保留旧图。图片只在本机；视觉模型与本单元分离，存在图片时禁止发送，避免误发给当前文字模型。窗口意图与选区一致，迟到结果不能覆盖用户后来的窗口操作。详细边界与合成证据见 `docs/validation/2026-10-31-screenshot.md`。
+
+## 2026-10-31 视觉模型路由落实
+
+模型设置增加可选"图片模型"。发送带截图时路由到该模型，未配置则前后端双重拒绝；请求按官方 GLM-4.6V-Flash 协议把有界 PNG（≤4MiB、≤6000px，必要时等比缩小）以裸 base64 放入 `image_url` 部件，与文字部件组成 content 数组，流式返回复用既有 SSE 通路。transport 独立校验图片数量与 base64 合法性，非法负载在任何网络请求前拒绝。配置不填图片模型时序列化与旧格式逐字节一致，旧对话绑定不变。
+
+边界：发送接受后附件即消费（与草稿同语义），流式失败不回收附件；追问同会话纯文本，历史上下文不回带图片；图片轮 `turn.model` 记录图片模型。真实智谱调用未做，限值按保守假设并在真实验证后再校准。证据见 `docs/validation/2026-10-31-vision.md`。

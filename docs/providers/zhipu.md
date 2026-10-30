@@ -4,12 +4,18 @@
 
 - API根地址：`https://open.bigmodel.cn/api/paas/v4`
 - 当前文本模型：`glm-4.7-flash`
-- 后续截图/图片模型：`glm-4.6v-flash`（附件通路尚未完成，不声称已能看图）
+- 截图/图片模型：`glm-4.6v-flash`（模型设置中可选填写"图片模型"；本地附件与合成验证已完成，**真实图片请求尚未验证**）
 - 密钥环境名：`ZWEN_API_KEY`，密钥值不进入SQLite、前端IPC、仓库或日志。
 
 官方依据：[GLM-4.7-Flash](https://docs.bigmodel.cn/cn/guide/models/free/glm-4.7-flash)、[GLM-4.6V-Flash](https://docs.bigmodel.cn/cn/guide/models/free/glm-4.6v-flash)。聊天POST为根地址后加`/chat/completions`，Bearer鉴权。模型的reasoning_content目前不展示、不持久化，正常回答content走Markdown渲染。
 
 文本请求/取消/历史/多轮已用本机合成服务验证；真实智谱服务必须单独验收，不能把合成测试当成实测。暂不自动添加工具调用、联网搜索或复杂推理参数。
+
+## 图片请求（2026-10-31 接入，未实测真实服务）
+
+官方 [GLM-4.6V-Flash 文档](https://docs.bigmodel.cn/cn/guide/models/free/glm-4.6v-flash)：`content` 用数组承载 `image_url`（官方示例直接放**裸 base64**）与 `text` 部件；支持一条消息多张图；支持 `stream:true`。该页未给数值限制；实现按旧版 GLM-4V 公开规范（≤5MB、≤6000×6000）取更保守的**单张 ≤4MiB、边长 ≤6000**，必要时等比缩小后再发送。这两个数值未经真实服务确认，首次真实调用如返回图片相关错误，按数字业务码查[官方错误码](https://docs.bigmodel.cn/cn/api/api-code)。
+
+行为边界：图片模型留空时不能发送截图（前后端双重拦截）；发送接受后附件即消费；追问同会话纯文本、不回带历史图片；图片模型与文字模型共用 `ZWEN_API_KEY`。
 
 ## 在本机提供密钥
 

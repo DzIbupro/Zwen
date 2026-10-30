@@ -10,6 +10,12 @@ pub const MAX_IMAGE_BYTES:u64=24*1024*1024;
 pub const MAX_TOTAL_BYTES:u64=48*1024*1024;
 pub const MAX_IMAGE_PIXELS:u64=10_000_000;
 pub const MAX_IMAGE_DIM:u32=8192;
+/// Conservative request bounds: the official GLM-4.6V-Flash page documents no
+/// numeric image limits, so the legacy GLM-4V limits (5MB, 6000×6000) are
+/// undercut. Verified only against synthetic services so far.
+pub const MAX_REQUEST_IMAGE_BYTES:u64=4*1024*1024;
+pub const MAX_REQUEST_IMAGE_DIM:u32=6000;
+const MIN_REQUEST_DIM:u32=256;
 const THUMB_MAX:u32=480;
 const MAX_THUMB_BYTES:u64=2*1024*1024;
 const PNG_SIGNATURE:[u8;8]=[137,80,78,71,13,10,26,10];
@@ -104,6 +110,30 @@ impl AttachmentStore {
   write_private(&preview,&thumbnail)?;
   Ok(thumbnail)
  }
+ /// Bounded PNG payload for a model request: at most 4 MiB and 6000px per side.
+ /// The stored original is never modified; a payload that cannot fit even at
+ /// the minimum size is rejected instead of sent oversized.
+ pub fn model_payload(&self,id:&str)->Result<Vec<u8>,Error>{
+  if !valid_id(id){return Err(Error::AttachmentMissing);}
+  let exists:Option<i64>=self.connection.query_row("SELECT 1 FROM attachments WHERE id=?1",[id],|r|r.get(0)).optional()?;
+  if exists.is_none(){return Err(Error::AttachmentMissing);}
+  let image=read_bounded(&self.directory.join(format!("{id}.png")),MAX_IMAGE_BYTES)?;
+  let (width,height,rgba)=decode_rgba(&image)?;
+  let source_width=width as usize;let source_height=height as usize;
+  let mut scale=1.0f64;
+  if width>MAX_REQUEST_IMAGE_DIM{scale=scale.min(MAX_REQUEST_IMAGE_DIM as f64/width as f64);}
+  if height>MAX_REQUEST_IMAGE_DIM{scale=scale.min(MAX_REQUEST_IMAGE_DIM as f64/height as f64);}
+  let mut target_width=((width as f64*scale).round() as u32).max(1);
+  let mut target_height=((height as f64*scale).round() as u32).max(1);
+  loop{
+   let small=downscale(&rgba,source_width,source_height,target_width as usize,target_height as usize);
+   let encoded=encode_png(target_width,target_height,&small)?;
+   if encoded.len() as u64<=MAX_REQUEST_IMAGE_BYTES{return Ok(encoded);}
+   if target_width<=MIN_REQUEST_DIM&&target_height<=MIN_REQUEST_DIM{return Err(Error::InvalidImage);}
+   target_width=(target_width/2).max(MIN_REQUEST_DIM);
+   target_height=(target_height/2).max(MIN_REQUEST_DIM);
+  }
+ }
 }
 
 pub fn valid_id(id:&str)->bool{id.len()==32&&id.bytes().all(|b|b.is_ascii_hexdigit()&&!b.is_ascii_uppercase())}
@@ -125,6 +155,15 @@ fn read_all(connection:&Connection)->Result<Vec<Attachment>,Error>{
 }
 
 fn render_thumbnail(bytes:&[u8])->Result<(u32,u32,Vec<u8>),Error>{
+ let (width,height,rgba)=decode_rgba(bytes)?;
+ let (thumb_width,thumb_height)=thumbnail_size(width,height);
+ let small=downscale(&rgba,width as usize,height as usize,thumb_width as usize,thumb_height as usize);
+ let encoded=encode_png(thumb_width,thumb_height,&small)?;
+ if encoded.len() as u64>MAX_THUMB_BYTES{return Err(Error::InvalidImage);}
+ Ok((width,height,encoded))
+}
+
+fn decode_rgba(bytes:&[u8])->Result<(u32,u32,Vec<u8>),Error>{
  if bytes.len()<PNG_SIGNATURE.len()||bytes[..PNG_SIGNATURE.len()]!=PNG_SIGNATURE{return Err(Error::InvalidImage);}
  let mut decoder=Decoder::new_with_limits(Cursor::new(bytes),Limits{bytes:64*1024*1024});
  decoder.set_transformations(Transformations::normalize_to_color8());
@@ -138,18 +177,19 @@ fn render_thumbnail(bytes:&[u8])->Result<(u32,u32,Vec<u8>),Error>{
  let (color,depth)=reader.output_color_type();
  if depth!=BitDepth::Eight{return Err(Error::InvalidImage);}
  let rgba=to_rgba(&pixels[..output.buffer_size()],color,output.width as usize,output.height as usize)?;
- let (thumb_width,thumb_height)=thumbnail_size(width,height);
- let small=downscale(&rgba,width as usize,height as usize,thumb_width as usize,thumb_height as usize);
+ Ok((width,height,rgba))
+}
+
+fn encode_png(width:u32,height:u32,rgba:&[u8])->Result<Vec<u8>,Error>{
  let mut encoded=Vec::new();
  {
-  let mut encoder=Encoder::new(&mut encoded,thumb_width,thumb_height);
+  let mut encoder=Encoder::new(&mut encoded,width,height);
   encoder.set_color(ColorType::Rgba);encoder.set_depth(BitDepth::Eight);
   let mut writer=encoder.write_header().map_err(|_|Error::InvalidImage)?;
-  writer.write_image_data(&small).map_err(|_|Error::InvalidImage)?;
+  writer.write_image_data(rgba).map_err(|_|Error::InvalidImage)?;
   writer.finish().map_err(|_|Error::InvalidImage)?;
  }
- if encoded.len() as u64>MAX_THUMB_BYTES{return Err(Error::InvalidImage);}
- Ok((width,height,encoded))
+ Ok(encoded)
 }
 
 fn to_rgba(data:&[u8],color:ColorType,width:usize,height:usize)->Result<Vec<u8>,Error>{

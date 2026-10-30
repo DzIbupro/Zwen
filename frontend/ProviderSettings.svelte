@@ -11,6 +11,8 @@
   <label for="api-root">API 根地址</label><input id="api-root" type="url" required maxlength="2048" value={state.fields.baseUrl} disabled={busy||!state.loaded} oninput={e=>onEdit('baseUrl',e.currentTarget.value)} placeholder="https://你的服务地址/v1"/>
   <small>包含版本路径（如 /v1），不包含 /chat/completions。使用 HTTPS；本机回环地址可使用 HTTP。</small>
   <label for="model-name">模型标识</label><input id="model-name" required maxlength="200" value={state.fields.model} disabled={busy||!state.loaded} oninput={e=>onEdit('model',e.currentTarget.value)} placeholder="填写服务提供的模型名称"/>
+  <label for="image-model">图片模型（可选）</label><input id="image-model" maxlength="200" value={state.fields.imageModel??''} disabled={busy||!state.loaded} oninput={e=>onEdit('imageModel',e.currentTarget.value)} placeholder="截图提问使用的视觉模型，例如 glm-4.6v-flash"/>
+  <small>仅截图提问使用；留空时不能发送截图。图片模型与文字模型共用同一个密钥环境变量。</small>
   <label for="key-environment">密钥环境变量名</label><input id="key-environment" required maxlength="128" pattern="[A-Z_][A-Z0-9_]*" value={state.fields.keyEnv} disabled={busy||!state.loaded} oninput={e=>onEdit('keyEnv',e.currentTarget.value)} spellcheck="false"/>
   <small>这里只填变量名，不填密钥。密钥从启动 Zwen 的环境读取；更改环境后需完全退出并重启应用。</small>
   <div class="state" role="status">{state.status==='saving'?'正在保存…':state.status==='loading'?'正在读取…':state.status==='dirty'?'有未保存的修改':state.config?state.keyAvailable?'配置已保存 · 已检测到密钥，尚未验证联网':'配置已保存 · 未检测到有效密钥':'尚未配置模型'}</div>

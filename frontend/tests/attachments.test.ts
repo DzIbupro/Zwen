@@ -57,6 +57,16 @@ it('removes only the chosen attachment and refreshes',async()=>{
  expect(f.controller.state.items.map(x=>x.id)).toEqual([second.id]);
 });
 
+it('removeSent consumes accepted ids and tolerates concurrent manual deletes',async()=>{
+ const first=item('1'.repeat(32));const second=item('2'.repeat(32));const f=fixture(view([first,second]));await f.controller.start();
+ // A concurrent manual delete already removed it server-side before removeSent ran.
+ f.current={...f.current,items:[second]};
+ const original=f.port.remove;
+ f.port.remove=async id=>{if(id===first.id)throw Error('截图不存在');return original(id);};
+ await f.controller.removeSent([first.id,'9'.repeat(32)]);
+ expect(f.controller.state.items.map(x=>x.id)).toEqual([second.id]);
+});
+
 it('a failed list is visible without losing a loaded state',async()=>{
  const f=fixture();await f.controller.start();
  f.port.list=async()=>{throw Error('本地数据库暂不可用');};

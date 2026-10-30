@@ -7,16 +7,25 @@ use url::{Url,Host};
 
 #[derive(Clone,Debug,PartialEq,Serialize,Deserialize)]
 #[serde(rename_all="camelCase",try_from="Input")]
-pub struct ProviderConfig {base_url:String,model:String,key_env:String}
+pub struct ProviderConfig {base_url:String,model:String,key_env:String,#[serde(skip_serializing_if="Option::is_none")] image_model:Option<String>}
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct Input {base_url:String,model:String,key_env:String}
+struct Input {base_url:String,model:String,key_env:String,#[serde(default)] image_model:Option<String>}
 impl TryFrom<Input> for ProviderConfig {
  type Error=Error;
- fn try_from(v:Input)->Result<Self,Error>{Self::new(&v.base_url,&v.model,&v.key_env)}
+ fn try_from(v:Input)->Result<Self,Error>{Self::build(&v.base_url,&v.model,&v.key_env,v.image_model.as_deref())}
+}
+fn clean_model_name(value:&str)->Result<Option<String>,Error>{
+ let model=value.trim();
+ if model.is_empty(){return Ok(None);}
+ if model.len()>200||model.chars().any(char::is_control){return Err(Error::InvalidProvider);}
+ Ok(Some(model.into()))
 }
 impl ProviderConfig {
- pub fn new(base_url:&str,model:&str,key_env:&str)->Result<Self,Error>{
+ pub fn new(base_url:&str,model:&str,key_env:&str)->Result<Self,Error>{Self::build(base_url,model,key_env,None)}
+ /// `image_model` routes screenshot questions; `None` keeps the serialized
+ /// profile byte-identical to pre-vision configs so conversations stay bound.
+ pub fn build(base_url:&str,model:&str,key_env:&str,image_model:Option<&str>)->Result<Self,Error>{
   if base_url.len()>2048||base_url.chars().any(char::is_control){return Err(Error::InvalidProvider);}
   let url=Url::parse(base_url.trim()).map_err(|_|Error::InvalidProvider)?;
   if url.as_str().len()>2048{return Err(Error::InvalidProvider);}
@@ -24,11 +33,15 @@ impl ProviderConfig {
   if !(url.scheme()=="https"||(url.scheme()=="http"&&loopback))||url.host().is_none()||!url.username().is_empty()||url.password().is_some()||url.query().is_some()||url.fragment().is_some(){return Err(Error::InvalidProvider);}
   let model=model.trim();let key_env=key_env.trim();
   if model.is_empty()||model.len()>200||model.chars().any(char::is_control)||key_env.is_empty()||key_env.len()>128||!key_env.bytes().all(|b|b.is_ascii_uppercase()||b.is_ascii_digit()||b==b'_')||key_env.as_bytes()[0].is_ascii_digit(){return Err(Error::InvalidProvider);}
-  Ok(Self{base_url:url.as_str().trim_end_matches('/').into(),model:model.into(),key_env:key_env.into()})
+  Ok(Self{base_url:url.as_str().trim_end_matches('/').into(),model:model.into(),key_env:key_env.into(),image_model:clean_model_name(image_model.unwrap_or(""))?})
  }
  pub fn base_url(&self)->&str{&self.base_url}
  pub fn model(&self)->&str{&self.model}
+ pub fn image_model(&self)->Option<&str>{self.image_model.as_deref()}
  pub fn key_env(&self)->&str{&self.key_env}
+ /// Same service and key, a different request model. Used to route screenshot
+ /// questions to the configured vision model without touching the stored config.
+ pub fn with_model(&self,model:&str)->Result<Self,Error>{Self::build(&self.base_url,model,&self.key_env,self.image_model.as_deref())}
  pub fn read_key(&self)->Result<ApiKey,Error>{let value=std::env::var(&self.key_env).map_err(|_|Error::InvalidProvider)?;ApiKey::new(&value)}
 }
 pub struct ApiKey(String);

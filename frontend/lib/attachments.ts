@@ -78,6 +78,13 @@ export class AttachmentController {
   try{await this.port.remove(id);}catch(error){this.publish({notice:this.message(error,'删除截图未完成')});}
   await this.load();
  }
+ /// Consume the exact attachments that were accepted into a sent request.
+ /// Missing ids are tolerated: a concurrent manual delete already removed them.
+ async removeSent(ids:string[]):Promise<void>{
+  if(this.disposed)return;
+  for(const id of ids){try{await this.port.remove(id);}catch{/* reflected by the reload below */}}
+  await this.load();
+ }
  note(text:string):void{this.publish({notice:text});}
  dispose():void{this.disposed=true;this.unlisten?.();this.unlisten=null;}
  private message(error:unknown,fallback:string):string{return error instanceof Error?error.message:fallback;}
