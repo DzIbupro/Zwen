@@ -5,8 +5,9 @@
 ## 源码、入口
 
 - `/home/dzibupro/Zwen/Zwen`；分支 `feat/desktop-foundation`，GitHub https://github.com/DzIbupro/Zwen ，草稿 PR1。
-- 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮代码提交见 `git log`，本文档随后单独提交。
-- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；哈希见 git-ignored `artifacts/validation/ordinary-binary.sha256`。
+- 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮本地提交 `ea4ff0e`（交接文档）与 `d1138db`（截图单元），本文档随后单独提交。
+- **推送状态：本机提交已产生，但当前环境没有 GitHub HTTPS 凭据（`gh` 未安装，`git push` 报 could not read Username），因此尚未更新远端草稿 PR1。** 需要在用户已授权的本机凭据环境重试；未读取或索取任何密钥。
+- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `30d0ebc5972de2a3bd0dd565c4fb24f2b00794c7ea6e01a567a381b15afb1034`，同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
 - 新入口：`./artifacts/zwen screenshot`（兼容 `capture-screenshot`），胶囊也有截图按钮。**尚未安装 Niri 全局快捷键**，需用户自行绑定。
 - `scripts/run-with-key.sh` 规则不变：用户本机不回显输入，只进入应用环境；不读 `/proc` 环境，不要求把 Key 发到聊天。
 
