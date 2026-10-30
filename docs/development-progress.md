@@ -1,11 +1,11 @@
 # Zwen 当前进度（2026-10-30）
 
-状态：**in-progress**。本轮已用账户工具确认300分钟额度重置（开始时1%），正在执行已授权的最小单元，不重复启动。本轮已完成显式选区导入及评审修复，正在保存代码与普通程序，再按下一最小任务推进。最近检查27%，本窗口重置Unix1793384224，即北京时间2026-10-31 02:17:04。约95%才收尾暂停，不提前伪装额度耗尽。
+状态：**unit-complete**。本轮按“下一最小任务”完成显式选区导入、独立评审、失败先行修复和提交。额度已恢复，完成后账户工具显示300分钟窗口32%；这是单元完成状态，不是quota-paused，不应被额度重置自动续接重复启动。当前窗口重置Unix1793384224，即北京时间2026-10-31 02:17:04；未来开发仍遵循约95%时保存、暂停并安排重置后续接。
 
 ## 源码、入口
 
 - /home/dzibupro/Zwen/Zwen；分支feat/desktop-foundation，GitHub https://github.com/DzIbupro/Zwen ，草稿PR1。
-- 基线19406c7已同步私有GitHub草稿PR；本轮选区单元正在提交。上轮已清理约2.6GiB，本轮按需重建后会保留普通程序并再清理中间产物；没有安装新系统依赖。
+- 选区功能提交b1ee2a8已同步私有GitHub草稿PR1；普通程序已更新，哈希校验通过且不含desktop-smoke。本轮已清理target约1.61GiB，保留普通程序和选中依赖；没有安装新系统依赖。
 - 普通程序 artifacts/zwen；不含desktop-smoke。最终哈希见git-ignored artifacts/validation/ordinary-binary.sha256。
 - scripts/run-with-key.sh：用户本机不回显输入Key，传给应用环境；未写.env/SQLite/日志。程序需重启才能读取新环境或替换后的Rust二进制。不要读取/proc进程环境、不要要求把Key发到聊天。
 

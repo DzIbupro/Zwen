@@ -48,3 +48,4 @@
 - Final: fixed busy/discard race — 3 deferred refresh/import/discard tests RED→GREEN; full frontend45/45 and Svelte0/0.
 - Final: fixed late window activation — native lifecycle RED hidden window remapped → GREEN hidden unmapped/full retained, alongside native cold/warm/recovery cases and foundation/capsule regressions.
 - Deferred minors: none after lifecycle finding regraded Important and fixed. Normal release rebuilt without desktop-smoke; no automatic real-service request.
+- Task1/Task2 complete: feature commit b1ee2a8, GitHub/local feature branch synchronized; final ordinary binary verified without smoke markers. No merge.
