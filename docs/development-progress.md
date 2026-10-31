@@ -5,7 +5,7 @@
 ## 源码、入口
 
 - `/home/dzibupro/Zwen/Zwen`；分支 `feat/desktop-foundation`，GitHub https://github.com/DzIbupro/Zwen ，草稿 PR1。
-- 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮本地提交 `ea4ff0e`（交接文档）与 `d1138db`（截图单元），本文档随后单独提交。
+- 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮本地提交依次为 `ea4ff0e`（交接文档）、`d1138db`（截图单元）、`40f6479`/`8da1453`（证据与哈希）、`2027846`（视觉模型路由）。
 - **推送状态：本机提交已产生，但当前环境没有 GitHub HTTPS 凭据（`gh` 未安装，`git push` 报 could not read Username），因此尚未更新远端草稿 PR1。** 需要在用户已授权的本机凭据环境重试；未读取或索取任何密钥。
 - 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `ee3d64cbfdded7b9ee8a4a2c5a4d139d033a9a6e574e8d187ec12969db5c78a9`，同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
 - 新入口：`./artifacts/zwen screenshot`（兼容 `capture-screenshot`），胶囊也有截图按钮。**尚未安装 Niri 全局快捷键**，需用户自行绑定。
