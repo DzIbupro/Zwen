@@ -25,7 +25,7 @@ fn publish(app:&tauri::AppHandle,state:&Shared,reply:Reply)->Result<(),()>{
  if s.active.as_ref().is_none_or(|a|a.id!=reply.turn.request_id){return Err(());}
  s.last=Some(reply.clone());app.emit("chat-update",reply).map_err(|_|())
 }
-fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,messages:Vec<zwen_core::completion::Message>,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
+fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,messages:Vec<zwen_core::completion::Message>,mut consume_ids:Vec<String>,attach_dir:std::path::PathBuf,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
  let mut emit_at=Instant::now();let mut save_at=Instant::now();let mut first=true;
  let result=(||{
   let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_|zwen_transport::Error::Network)?;
@@ -33,6 +33,20 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
    let client=zwen_transport::client()?;
    zwen_transport::stream_messages(&client,&config,&key,&messages,cancel,|part|{
     turn.answer.push_str(part);
+    // Screenshots are consumed once the model actually starts answering. A
+    // request rejected before the first token (429, network, …) keeps them so
+    // the user can retry without re-capturing.
+    if !consume_ids.is_empty(){
+     let mut store=AttachmentStore::open(&attach_dir).ok();
+     if let Some(store)=store.as_mut(){
+      let mut all=true;
+      for id in consume_ids.iter(){
+       match store.remove(id){Ok(())=>{},Err(zwen_core::Error::AttachmentMissing)=>{},Err(_)=>{all=false;}}
+      }
+      if all{consume_ids.clear();}
+     }
+     let _=app.emit("attachments-changed",());
+    }
     let emit=first||emit_at.elapsed()>=Duration::from_millis(80);let save=first||save_at.elapsed()>=Duration::from_millis(500);
     if emit||save{turn.revision+=1;}
     if save{journal.checkpoint(&turn).map_err(|_|())?;save_at=Instant::now();}
@@ -76,20 +90,21 @@ pub async fn start_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStora
   // before the question is persisted so no half-attached turn is stored.
   let store=AttachmentStore::open(&dir)?;
   let attached=store.list()?;
+  let attached_ids:Vec<String>=attached.iter().map(|a|a.id.clone()).collect();
   let vision=if attached.is_empty(){None}else{
    let image_model=config.image_model().ok_or_else(||error("image_model_missing","截图尚未接入模型；请先在模型设置中配置图片模型"))?.to_owned();
    let mut images=Vec::new();
    for attachment in &attached{images.push(BASE64_STANDARD.encode(store.model_payload(&attachment.id)?));}
-   Some((image_model,images))
+   Some((image_model,images,attached_ids))
   };
-  let request_config=match &vision{Some((model,_))=>config.with_model(model)?,None=>config.clone()};
+  let request_config=match &vision{Some((model,_,_))=>config.with_model(model)?,None=>config.clone()};
   let mut messages=journal.context(conversation_id.as_deref(),&profile,prompt.len())?;let count=messages.len()/2;
   let request_model=request_config.model().to_owned();
   let turn=journal.begin_in(&request_id,&prompt,&request_model,conversation_id.as_deref(),&profile,count)?;
-  let images=vision.map(|(_,images)|images).unwrap_or_default();
+  let (images,consume_ids)=vision.map(|(_,images,ids)|(images,ids)).unwrap_or_default();
   messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt,images});let reply=Reply{turn:turn.clone(),saved:true};s.last=Some(reply.clone());
   let (cancel,rx)=watch::channel(false);let id=request_id;let worker=state.clone();
-  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,turn,request_config,key,messages,rx));
+  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,turn,request_config,key,messages,consume_ids,dir,rx));
   s.active=Some(Active{id,cancel,handle:Some(handle)});Ok(reply)
  }).await.map_err(|_|ClientError::storage())?
 }

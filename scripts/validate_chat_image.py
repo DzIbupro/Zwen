@@ -22,7 +22,7 @@ class Service(BaseHTTPRequestHandler):
    assert self.headers.get('Authorization')=='Bearer fixture-token'
    length=int(self.headers['Content-Length']);data=json.loads(self.rfile.read(length))
    last=data['messages'][-1];model=data['model'];assert data['stream']
-   if not requests: # vision turn: content must be the official parts array
+   if not requests: # first vision request is rejected with the real-world shape: 429 + 1305
     assert model=='fixture-vision',model
     assert len(data['messages'])==1
     content=last['content'];assert isinstance(content,list) and len(content)==2,content
@@ -30,11 +30,18 @@ class Service(BaseHTTPRequestHandler):
     payload=base64.b64decode(content[0]['image_url']['url'],validate=True)
     assert payload[:8]==b'\x89PNG\r\n\x1a\n'
     assert struct.unpack('>IIBBBBB',payload[16:29])[0:2]==(64,48),struct.unpack('>IIBBBBB',payload[16:29])
-    ihdr_end=33;pos=payload.index(b'IDAT');idat_length=struct.unpack('>I',payload[pos-4:pos])[0]
+    pos=payload.index(b'IDAT');idat_length=struct.unpack('>I',payload[pos-4:pos])[0]
     pixels=zlib.decompress(payload[pos+4:pos+4+idat_length])
     assert pixels[1:5]==bytes([80,120,90,255]),'marker pixels did not travel'
     assert content[1]['text']=='这张合成截图里有什么？'
-    requests.append({'model':model,'text':content[1]['text'],'imageBytes':len(payload)})
+    requests.append({'model':model,'text':content[1]['text'],'imageBytes':len(payload),'outcome':'429-1305'})
+    body=json.dumps({'error':{'code':1305,'message':'platform overloaded fixture'}}).encode()
+    self.send_response(429);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers()
+    self.wfile.write(body);self.wfile.flush();return
+   elif model=='fixture-vision': # retry of the same screenshot question succeeds
+    assert len(data['messages'])==1,data['messages']
+    content=last['content'];assert isinstance(content,list) and content[1]['text']=='这张合成截图里有什么？',content
+    requests.append({'model':model,'text':content[1]['text'],'outcome':'ok'})
    else: # text follow-up in the same conversation: plain string content
     assert model=='fixture-model',model
     assert len(data['messages'])==3,data['messages']
@@ -67,12 +74,15 @@ try:
   (out/'chat-image-stdout.txt').write_text(stdout);(out/'chat-image-stderr.txt').write_text(stderr)
   rows=[json.loads(line.split(':',1)[1]) for line in stdout.splitlines() if line.startswith('FOUNDATION_SMOKE:')]
   assert p.returncode==0 and rows and rows[-1].get('ok'),(p.returncode,rows,stderr[-1500:],requests,server_errors)
-  assert len(requests)==2 and not server_errors,(requests,server_errors)
-  assert requests[0]['model']=='fixture-vision' and requests[1]['model']=='fixture-model',requests
+  assert len(requests)==3 and not server_errors,(requests,server_errors)
+  assert requests[0]['outcome']=='429-1305' and requests[1]['outcome']=='ok',requests
+  assert requests[0]['model']=='fixture-vision' and requests[1]['model']=='fixture-vision' and requests[2]['model']=='fixture-model',requests
   with sqlite3.connect(root/'chat.sqlite3') as c:
    turns=c.execute('SELECT request_id,model,state,answer FROM turns ORDER BY id').fetchall()
-  assert len(turns)==2 and turns[0][1]=='fixture-vision' and turns[1][1]=='fixture-model',turns
-  assert all(state=='complete' for _,_,state,_ in turns),turns
+  assert len(turns)==3,turns
+  assert turns[0][1]=='fixture-vision' and turns[0][2]=='failed' and turns[0][3]=='','rejected turn must keep zero answer'
+  assert turns[1][1]=='fixture-vision' and turns[1][2]=='complete',turns
+  assert turns[2][1]=='fixture-model' and turns[2][2]=='complete',turns
   with sqlite3.connect(root/'attachment.sqlite3') as c:
    assert c.execute('SELECT count(*) FROM attachments').fetchone()[0]==0,'attachments were not consumed'
   assert not list(attachments.glob('*.png')),'attachment files were not consumed'
@@ -82,5 +92,5 @@ try:
   summary={'passed':True,'exit':p.returncode,'requests':requests,'turns':[t[1] for t in turns]}
   (out/'chat-image.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
   print(json.dumps(summary,ensure_ascii=False))
-  print('Vision routing, bounded payload, attachment consumption, text follow-up PASS; no key persisted')
+  print('Vision routing, bounded payload, 429 keeps retry material, attachment consumption, text follow-up PASS; no key persisted')
 finally:server.shutdown();server.server_close()

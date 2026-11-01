@@ -7,7 +7,7 @@
 - `/home/dzibupro/Zwen/Zwen`；分支 `feat/desktop-foundation`，GitHub https://github.com/DzIbupro/Zwen ，草稿 PR1。
 - 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮本地提交依次为 `ea4ff0e`（交接文档）、`d1138db`（截图单元）、`40f6479`/`8da1453`（证据与哈希）、`2027846`（视觉模型路由）。
 - **推送状态：2026-10-31 已推送 `9a3efc9..4d9e5a1` 到远端 `feat/desktop-foundation`，草稿 PR1（OPEN）同步更新。** 推送经由用户在本机浏览器完成 GitHub CLI 设备流授权；`gh` 已以用户级方式安装到 `~/.local/bin`，令牌仅存于本机 `~/.config/gh`，未进入仓库或聊天。
-- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `cc2d25f0d881fa7c260f5487f648c46a9b47e0f0258598a6b673df51c9e27256`（2026-11-01 钥匙环保存版），同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
+- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `fb4fcaa2391ba16f4cebfd96825bd751def3cd23f0f1f4ae9a0fe64071e7af27`（2026-11-01 失败保留重试材料版），同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
 - 新入口：`./artifacts/zwen screenshot`（兼容 `capture-screenshot`），胶囊也有截图按钮。**2026-11-01 用户确认后已在其 Niri 配置绑定 `Ctrl+Alt+A` → `spawn zwen screenshot`**（niri validate 通过，配置热重载生效；Niri 绑定不区分左右 Alt）。选区三个入口仍未绑定全局快捷键。
 - `scripts/run-with-key.sh` 规则不变：用户本机不回显输入，只进入应用环境；不读 `/proc` 环境，不要求把 Key 发到聊天。
 
@@ -59,6 +59,11 @@
    - 修复：等待期间再次触发=**重新开始截图**——丢弃旧等待（旧 worker 见 id 变化自行退出并清理自己的请求文件），用新 request ID/路径立即发起新请求；不再只弹胶囊。
    - 残余边界（文档化）：若 Niri 截图界面还开着就再按快捷键，新请求的动作可能被忽略而旧等待已取消，结果是最迟 60 秒后超时提示；建议先完成或 Esc 关闭选区界面再按。
    - Rust 79 项通过；原生 screenshot smoke 新增 restart 阶段（等待中重触发→新请求成功→数量保持 1），因用户实例运行中整套原生回归未跑。普通二进制 SHA256 `d1a1ed2f01c3ccb6f13e12d3f33620e4e272af854d966b6c14336abd999b0b1b`。
+14. **失败即保留重试材料（2026-11-01 深夜，用户真实 429/1305 驱动）**：
+   - 用户首次真实截图提问被智谱拒绝（429/1305=平台过载，见 `docs/providers/zhipu.md`）；按旧语义"发送接受即清空草稿、消费截图"，一个字都没生成的失败也要重新截图重打问题。
+   - 修复：消费时机推迟到**收到第一个回答字**。后端 `run()` 在首个文本增量到达时删除附件并广播 `attachments-changed`；前端 `pendingConsume` 在回答非空时才清草稿（按 requestId 匹配，无 id 时按 prompt 匹配）。429/网络/空回答等零字失败完整保留问题与截图，直接再按发送即重试；开始生成后的停止/失败语义不变。手动删除附件、附件已缺失（AttachmentMissing）等情况按已消费处理，不阻塞流。
+   - 失败先行：合成视觉服务先对第一次视觉请求返回真实形状的 HTTP 429+1305，断言草稿保留、附件保留、错误码呈现，再重试成功并消费——`validate_chat_image.py` 全链路断言 3 请求/3 轮（failed→complete→complete）。
+   - Rust 79 项、前端 59 项、`svelte-check` 0/0 通过；原生套件因用户实例运行未跑。普通二进制 SHA256 `fb4fcaa2391ba16f4cebfd96825bd751def3cd23f0f1f4ae9a0fe64071e7af27`。
 
 ## 验证
 

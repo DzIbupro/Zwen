@@ -29,7 +29,7 @@
   let surface=$state<SurfaceInfo>({mode:'full',scaleFactor:1,generation:0,bounds:{width:480,initialHeight:96,maxHeight:594}});
   let responseKind=$state<'demo'|'model'>('model');let demoText=$state('');let demoRunning=$state(false);let switching=$state(false);let closing=false;
   let chatState=$state<ChatState>({answer:'',running:false,stopping:false,loaded:false,error:null,reply:null});
-  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;if(appeared&&view==='ask'){responseKind='model';view='reply';}});
+  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;consumeWhenAnswered();if(appeared&&view==='ask'){responseKind='model';view='reply';}});
   const response=$derived(responseKind==='demo'?demoText:chatState.answer);
   const running=$derived(responseKind==='demo'?demoRunning:chatState.running);
   const replyStatus=$derived(responseKind==='demo'?(demoRunning?'演示中':'演示结束'):chatState.reply?({streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'}[chatState.reply.state]):chatState.running?'等待回复':'');
@@ -37,6 +37,18 @@
   const combinedNotice=$derived(responseKind==='model'?(chatState.error||notice):notice);
   const demo=new DemoStream((text,active)=>{demoText=text;demoRunning=active;});
   function startDemo(){if(chatState.running||chatState.stopping)return;responseKind='demo';demo.start();}
+  let pendingConsume:{text:string;ids:string[];requestId:string|null}|null=null;
+  // Screenshots and the draft survive until the model actually answers: a
+  // request rejected before the first token (429, network…) stays retryable.
+  function consumeWhenAnswered(){
+    const consume=pendingConsume;const reply=chatState.reply;
+    if(!consume||!reply||reply.answer==='')return;
+    const matched=consume.requestId===null?reply.prompt===consume.text:reply.requestId===consume.requestId;
+    if(!matched)return;
+    pendingConsume=null;
+    if(draft.loaded&&draft.text===consume.text)controller.edit('');
+    if(consume.ids.length>0)void attachmentController.removeSent(consume.ids);
+  }
   async function send(){
     if(selectionState.busy){notice='请等待选区处理完成';return;}
     if(attachmentState.pending){attachmentController.note('请等待截图完成');return;}
@@ -46,8 +58,8 @@
     if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥';await switchSurface('full');view='settings';return;}
     demo.stop();responseKind='model';view='reply';const sent=draft.text;const sentIds=attachmentState.items.map(item=>item.id);
     const accepted=await chat.send(sent,()=>controller.flush());
-    if(accepted&&draft.text===sent)controller.edit('');
-    if(accepted&&sentIds.length>0)void attachmentController.removeSent(sentIds);
+    if(accepted)pendingConsume={text:sent,ids:sentIds,requestId:chatState.reply?.requestId??null};
+    else pendingConsume=null;
   }
   function newConversation(){if(chat.newConversation()){responseKind='model';view='ask';notice='已准备新对话，当前草稿保留';}}
   function continueHistory(reply:ChatReply){if(chat.adopt(reply)){responseKind='model';view='reply';notice='继续此会话将附带近期问答';}}

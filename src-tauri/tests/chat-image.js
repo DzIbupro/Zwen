@@ -35,6 +35,15 @@
   fill('这张合成截图里有什么？');
   await wait(()=>!document.querySelector('[data-send]').disabled);
   document.querySelector('[data-send]').click();
+  // The synthetic service rejects the first attempt with HTTP 429 / code 1305:
+  // a zero-answer failure must keep the draft AND the attachment for retry.
+  await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='failed'&&s.reply.answer==='';});
+  if(!String((await invoke('get_chat')).reply?.error??'').includes('1305'))throw Error('Numeric code not surfaced');
+  if(input()?.value!=='这张合成截图里有什么？')throw Error('Rejected send cleared the draft');
+  if((await invoke('get_attachments')).items.length!==1)throw Error('Rejected send consumed the attachment');
+  stage='vision-retry';
+  await wait(()=>!document.querySelector('[data-send]').disabled);
+  document.querySelector('[data-send]').click();
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete'&&s.reply.saved&&!s.activeRequestId;});
   const vision=(await invoke('get_chat')).reply;
   if(vision.model!=='fixture-vision')throw Error('Vision turn used '+vision.model);
