@@ -40,3 +40,7 @@
 
 - 原生回归含 knowledge 共 **10/10 通过**（desktop/capsule/selection/provider/chat/chat_fault/chat_image/screenshot/knowledge + 追加段）；chat 冒烟内存采样 PSS 259.86 / RSS 512.02 MiB（合成参考值）。
 - knowledge smoke 现覆盖：命令收藏（含来源 request）→ 界面列表 → 重建采纳孤儿 → 中文子串搜索 → 查看渲染 → 应用内编辑（标题+正文，界面与后端一致）→ 查看原始问答（历史详情原文断言）→ 两步删除（兼容详情/列表两种返回状态）→ 删除后文件清理、孤儿与聊天附件保留。
+
+## 7. AI 整理地基测试（2026-11-02）
+
+core organize 4 项：创建去重与 changeset、范围外/控制字符/超限拒绝且零落库、撤销只删本批（手工主题与归属存活、二次撤销拒绝）、stale hash 检测。desktop 6 项：提示词边界（截断/上限）、解析器（围栏剥离、未知主题/笔记与空白名丢弃、同笔记合并、主题数封顶）、非 JSON 报错。

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-run"
+description = "Enables the organize_run command without any pre-configured scope."
+commands.allow = ["organize_run"]
+
+[[permission]]
+identifier = "deny-organize-run"
+description = "Denies the organize_run command without any pre-configured scope."
+commands.deny = ["organize_run"]

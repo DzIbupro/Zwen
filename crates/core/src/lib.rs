@@ -154,3 +154,5 @@ pub mod screenshot;
 pub mod attachment;
 
 pub mod notes;
+
+pub mod organize;

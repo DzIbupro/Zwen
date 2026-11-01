@@ -107,3 +107,8 @@
     - 应用内编辑：`notes_update` 改标题+正文，原子写回，身份/创建时间/来源/附件保留；编辑器含取消与保存中禁用。
     - 验证：Rust 89 项（+2）、前端 70 项（+2）、`svelte-check` 0/0；knowledge smoke 扩展编辑流+跳转流，**全套原生回归 10/10 通过**（追加段见 native-suite.log）。普通二进制 SHA256 `ddd09430644310dcd2ea2a97573499e9cd6f83593423946b92ff74bf20304545`。
     - 调试记录：跳转后知识面板保留原详情视图属预期 UX，驱动初版误假设返回列表——"测试失败"两小时后定位为驱动假设错误，产品代码无此缺陷；教训与选择器一致：断言前先确认视图状态。
+19. **AI 整理地基（2026-11-02）**：
+    - `organize.sqlite3` schema1 + `OrganizeStore`：apply_batch（原子、changeset、范围强校验）、undo_batch（只删本批）、list_topics、note_ids、stale_assignments（note_hash 对比）、content_hash（FNV-1a，无新依赖）。
+    - 管线：build_prompt（1–8 篇/正文 4000 字截断/总长 256KiB 上限）、parse_model_output（剥围栏、合并同笔记、丢未知与非法）、run_organize_job（既有 SSE 通路 + 密钥解析 + 单任务互斥 + 失败零修改）。
+    - `organize_run` 命令注册（能力最小化照旧）；UI 与首次启用确认待下单元（UI 前命令不可达）。
+    - Rust：core 4 项新测试（97）、desktop 6 项解析测试，合计 99 通过；`organize_run` 未接 UI 前无原生 smoke（下单元随 UI 一起加，含合成服务 429/坏 JSON 路径）。
