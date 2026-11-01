@@ -11,7 +11,7 @@
   let rejected=false;try{await invoke('save_provider',{expectedRevision:0,config});}catch{rejected=true;}if(!rejected)throw Error('Stale save accepted');
   rejected=false;try{await invoke('save_provider',{expectedRevision:1,config:{...config,baseUrl:'http://remote.example'}});}catch{rejected=true;}if(!rejected)throw Error('Unsafe endpoint accepted');
   [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();
-  await wait(()=>document.querySelector('.settings button[type=button]'));
+  await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();
   await wait(()=>document.querySelector('#model-name')?.value==='fixture-a');
   const input=document.querySelector('#model-name');input.value='fixture-b';input.dispatchEvent(new Event('input',{bubbles:true}));

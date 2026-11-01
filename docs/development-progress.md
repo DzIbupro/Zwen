@@ -64,6 +64,11 @@
    - 修复：消费时机推迟到**收到第一个回答字**。后端 `run()` 在首个文本增量到达时删除附件并广播 `attachments-changed`；前端 `pendingConsume` 在回答非空时才清草稿（按 requestId 匹配，无 id 时按 prompt 匹配）。429/网络/空回答等零字失败完整保留问题与截图，直接再按发送即重试；开始生成后的停止/失败语义不变。手动删除附件、附件已缺失（AttachmentMissing）等情况按已消费处理，不阻塞流。
    - 失败先行：合成视觉服务先对第一次视觉请求返回真实形状的 HTTP 429+1305，断言草稿保留、附件保留、错误码呈现，再重试成功并消费——`validate_chat_image.py` 全链路断言 3 请求/3 轮（failed→complete→complete）。
    - Rust 79 项、前端 59 项、`svelte-check` 0/0 通过；原生套件因用户实例运行未跑。普通二进制 SHA256 `fb4fcaa2391ba16f4cebfd96825bd751def3cd23f0f1f4ae9a0fe64071e7af27`。
+15. **原生验收全套补跑（2026-11-01 深夜，用户配合退出实例）**：
+   - 8 项原生合成回归全部通过：desktop、capsule、selection、provider、chat（含内存采样）、chat_fault（磁盘故障注入）、chat_image（含 429 保留重试材料）、screenshot（含等待中重触发 restart 阶段）。完整输出存 git-ignored `artifacts/validation/native-suite.log`。
+   - 首轮曾挂 chat 与 chat_image：根因是**测试驱动选择器脆弱**——设置页新增"保存密钥"按钮后，驱动里 `.settings button[type=button]` 先匹配到新按钮，"重新读取"没被点击。产品 UI 无问题；四个驱动（chat/chat-image/stress/provider）改为按文字匹配"重新读取"。教训：驱动选择器应绑定语义文本而非 DOM 顺序。
+   - chat 冒烟内存采样（50ms 进程树）：PSS 峰 259.86MiB、RSS 峰 512.02MiB——合成负载参考值，不是成品验收。
+   - 此前"原生回归待补跑"的欠账已清零；此后每轮改动照常按影响重跑对应项。
 
 ## 验证
 

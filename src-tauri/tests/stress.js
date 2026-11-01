@@ -4,8 +4,8 @@
  try{
   await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'fixture-model',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
   await invoke('set_surface',{mode:'full'});await wait(()=>[...document.querySelectorAll('nav button')].some(b=>b.textContent==='模型设置'));
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();await wait(()=>document.querySelector('.settings button[type=button]'));
-  document.querySelector('.settings button[type=button]').click();await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
+  [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
   await invoke('set_surface',{mode:'capsule'});await wait(()=>document.querySelector('[data-capsule]'));
   for(let i=0;i<20;i++){
    const input=document.querySelector('textarea');input.value=`stress-${i}`;input.dispatchEvent(new Event('input',{bubbles:true}));await wait(()=>!document.querySelector('[data-send]').disabled);document.querySelector('[data-send]').click();
