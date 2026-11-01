@@ -129,13 +129,11 @@ pub fn start(app:AppHandle,storage:SharedStorage,shared:Shared,replace:Option<St
 }
 
 async fn run(app:AppHandle,storage:SharedStorage,shared:Shared,id:String,path:PathBuf,intent:u64,replace:Option<String>){
- // Keep the pending/cancel state visible; a late result never overrides a newer
- // user window action because both activations share this intent token.
- if windows::activate_if_current(app.clone(),true,intent).await.is_err(){
-  finish(&shared,&id,Some("窗口操作未完成，截图未开始".into()));
-  let _=app.emit("attachments-changed",());
-  return;
- }
+ // The assistant hides while Niri's interactive selection UI is up: a visible
+ // window would obscure (and could contaminate) the region being captured.
+ // hide_if_current keeps user window actions authoritative; the same intent
+ // re-presents the capsule once the request settles, in every outcome.
+ let _hidden=windows::hide_if_current(app.clone(),intent).await;
  let worker_shared=shared.clone();let worker_id=id.clone();let worker_path=path.clone();
  let result=tauri::async_runtime::spawn_blocking(move||{
   zwen_core::screenshot::capture(&worker_path,capture_timeout(),||cancelled(&worker_shared,&worker_id))

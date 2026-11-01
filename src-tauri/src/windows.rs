@@ -96,3 +96,15 @@ fn present(app:tauri::AppHandle,reload:bool)->impl std::future::Future<Output=Re
   Ok(())
  }).await.map_err(|_|ClientError::window())?}
 }
+
+// Hide only when this request still owns the latest intent. Used before an
+// interactive screenshot so the assistant cannot obscure the captured region;
+// a user window action always wins over a stale hide.
+pub async fn hide_if_current(app:tauri::AppHandle,intent:u64)->Result<bool,ClientError>{
+ tauri::async_runtime::spawn_blocking(move||{
+  let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
+  let shared=app.state::<Shared>();let _guard=shared.lock().map_err(|_|ClientError::window())?;
+  if !current(intent){return Ok(false);}
+  window.hide().map_err(|_|ClientError::window())?;Ok(true)
+ }).await.map_err(|_|ClientError::window())?
+}
