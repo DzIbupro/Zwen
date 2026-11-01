@@ -101,10 +101,11 @@ pub fn start_from_app(app:&AppHandle,replace:Option<String>){
 }
 
 pub fn start(app:AppHandle,storage:SharedStorage,shared:Shared,replace:Option<String>){
- if cancel_pending(&shared,"已取消上一次截图等待；若 Niri 截图界面仍打开，可按 Esc 关闭"){
+ // Niri's Esc produces no event, so a previous wait may still be pending.
+ // Re-triggering means "restart the capture": drop the stale wait and begin
+ // a fresh request instead of only reopening the capsule.
+ if cancel_pending(&shared,"已取消上一次截图等待"){
   let _=app.emit("attachments-changed",());
-  spawn_activate(&app);
-  return;
  }
  let replace=match replace{
   Some(id) if valid_id(&id)=>Some(id),
@@ -120,7 +121,8 @@ pub fn start(app:AppHandle,storage:SharedStorage,shared:Shared,replace:Option<St
  let id=request_id();let path=incoming.join(format!("{id}.png"));let intent=windows::new_intent();
  {
   let Ok(mut state)=shared.lock()else{return;};
-  if state.pending.is_some(){return;}
+  // The stale entry above stays Some until its worker exits; the new request
+  // takes the slot now and the old worker sees an id mismatch and stops.
   state.pending=Some(Pending{id:id.clone(),replace:replace.clone(),cancelled:false});
   state.notice=None;
  }

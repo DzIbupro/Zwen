@@ -61,7 +61,20 @@
   await wait(async()=>(await state()).items.length===0);
   if(document.querySelector('[data-attachment]'))throw Error('Removed preview still visible');
   await stage('removed');
-  await api.event.emit('foundation-smoke',{ok:true,mode:'screenshot',thumbnail:true,sendBlocked:true,replaced:true,cancelled:true,expired:true,removed:true});
+  // Re-triggering while a wait is pending restarts the capture instead of
+  // only reopening the capsule: the stale request is dropped, the fresh one
+  // completes and the count stays at one.
+  phase='restart';
+  await api.core.invoke('capture_screenshot',{replaceId:null});
+  await wait(async()=>(await state()).capture.state==='pending');
+  await api.core.invoke('capture_screenshot',{replaceId:null});
+  await wait(async()=>{const view=await state();return view.capture.state==='idle'&&view.items.length===1&&(view.notice||'').includes('已附加');});
+  const restarted=(await state()).items[0];
+  if(restarted.id===second.id)throw Error('Restart reused the removed attachment');
+  await stage('restarted');
+  await api.core.invoke('remove_attachment',{id:restarted.id});
+  await wait(async()=>(await state()).items.length===0);
+  await api.event.emit('foundation-smoke',{ok:true,mode:'screenshot',thumbnail:true,sendBlocked:true,replaced:true,cancelled:true,expired:true,removed:true,restarted:true});
  }catch(error){
   await api.event.emit('foundation-smoke',{ok:false,mode:'screenshot',phase,error:String(error)});
  }

@@ -28,6 +28,8 @@ if args[:3]==['msg','action','screenshot']:
         shutil.copyfile(root/'image.png',path)
     elif n==4:
         subprocess.Popen([sys.executable,'-c','import shutil,sys,time;time.sleep(1.2);shutil.copyfile(sys.argv[1],sys.argv[2])',str(root/'image.png'),path],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    else:
+        shutil.copyfile(root/'image.png',path)
     sys.exit(0)
 sys.exit(2)
 ''')
