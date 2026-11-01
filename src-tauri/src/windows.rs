@@ -49,9 +49,16 @@ pub async fn activate_if_current(app:tauri::AppHandle,capsule:bool,intent:u64)->
       if let Some(p)=&c.placement {p.tile();}
     }
     c.state.set_mode(capsule);
+    let snapshot=c.snapshot(&window);
+    // Announce the new surface while the window is still unmapped so the
+    // renderer switches layouts first; showing earlier painted a stale
+    // full-window strip (the ghosted titlebar) into the capsule frame.
+    let _=window.emit("surface-changed",&snapshot);
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    if !current(intent){return Ok(c.snapshot(&window));}
     window.show().map_err(|_|ClientError::window())?;
     if capsule {let width=c.bounds.width;if let Some(p)=&mut c.placement {p.place(width,true);}else{let _=window.center();}}
-    let _=window.set_focus();let snapshot=c.snapshot(&window);let _=window.emit("surface-changed",&snapshot);Ok(snapshot)
+    let _=window.set_focus();Ok(snapshot)
  }).await.map_err(|_|ClientError::window())?
 }
 pub async fn resize(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{

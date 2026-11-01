@@ -120,7 +120,7 @@ fn main() {
                 let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                     .title("Zwen · 学习助手").transparent(true)
                     .inner_size(if capsule_surface(action){480.0}else{900.0},if capsule_surface(action){96.0}else{850.0})
-                    .resizable(true).min_inner_size(480.0,if capsule_surface(action){96.0}else{560.0}).decorations(action!=LaunchAction::Capsule).visible(false);
+                    .resizable(true).min_inner_size(480.0,if capsule_surface(action){96.0}else{560.0}).decorations(!capsule_surface(action)).visible(false);
                 let window=if capsule_surface(action){window.max_inner_size(480.0,96.0)}else{window};
                 window.on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
                     .build()?;

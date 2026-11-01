@@ -7,7 +7,7 @@
 - `/home/dzibupro/Zwen/Zwen`；分支 `feat/desktop-foundation`，GitHub https://github.com/DzIbupro/Zwen ，草稿 PR1。
 - 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮本地提交依次为 `ea4ff0e`（交接文档）、`d1138db`（截图单元）、`40f6479`/`8da1453`（证据与哈希）、`2027846`（视觉模型路由）。
 - **推送状态：2026-10-31 已推送 `9a3efc9..4d9e5a1` 到远端 `feat/desktop-foundation`，草稿 PR1（OPEN）同步更新。** 推送经由用户在本机浏览器完成 GitHub CLI 设备流授权；`gh` 已以用户级方式安装到 `~/.local/bin`，令牌仅存于本机 `~/.config/gh`，未进入仓库或聊天。
-- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `228666a56f38d1170e170ebe418ac02364b7d1c14e7a9837ae02bc9ee23100a8`（2026-11-01 隐藏窗口修复版），同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
+- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `cb053bc475d05d8aebeb5bff820680e06546ca1f1cd7ce917ef3143aa25ac4ad`（2026-11-01 残影修复版），同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
 - 新入口：`./artifacts/zwen screenshot`（兼容 `capture-screenshot`），胶囊也有截图按钮。**尚未安装 Niri 全局快捷键**，需用户自行绑定。
 - `scripts/run-with-key.sh` 规则不变：用户本机不回显输入，只进入应用环境；不读 `/proc` 环境，不要求把 Key 发到聊天。
 
@@ -42,6 +42,11 @@
    - 等待期间的取消路径相应变化：胶囊已隐藏，取消=再次触发 `screenshot` 入口（自动取消并显示胶囊），或等 Niri Esc 后约 60 秒超时；界面内"取消等待"按钮仅在窗口可见时有意义。
    - 修复后的原生合成回归因用户实例运行中未重跑（单实例会路由到用户进程，约定不杀用户实例）；Rust 单元测试 79 项通过，普通二进制已重建，哈希见 `ordinary-binary.sha256`。
    - **真实环境确认**：修复由用户在 2026-11-01 之后的真实使用中验收（选区期间无遮挡即视为通过）。
+11. **胶囊过渡残影修复（2026-11-01 晚，用户截图驱动）**：
+   - 用户提供选区期间的截图：屏幕中央出现 480×96 的窗口，内容是完整窗口标题栏残影（"快捷胶囊/−/···"）与半透明胶囊内容混合并闪烁。该截图同时证明用户实例仍运行旧二进制（旧行为在选区前打开胶囊）。
+   - 根因：`activate_if_current` 先 `show` 再发 `surface-changed`，页面在窗口可见后才切换布局；WebKitGTK 透明窗口在重映射瞬间把旧帧（完整窗口顶部条）画进胶囊帧，且 body 过渡态半透明。
+   - 修复：`surface-changed` 改为**在 `show` 之前发出**并等待 120ms 让前端切到目标布局；show 前重查 intent，期间的用户操作仍优先。冷启动 `screenshot` 的 `decorations` 改为与胶囊面一致（`!capsule_surface(action)`）。
+   - Rust 单元测试 79 项通过；普通二进制重建，SHA256 `cb053bc475d05d8aebeb5bff820680e06546ca1f1cd7ce917ef3143aa25ac4ad`。原生合成回归仍因用户实例运行未补跑。
 
 ## 验证
 
