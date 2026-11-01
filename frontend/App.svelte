@@ -41,6 +41,7 @@
   const demo=new DemoStream((text,active)=>{demoText=text;demoRunning=active;});
   function startDemo(){if(chatState.running||chatState.stopping)return;responseKind='demo';demo.start();}
   let pendingConsume:{text:string;ids:string[];requestId:string|null}|null=null;
+  let traceRequestId=$state<string|null>(null);
   // The input clears the moment a send is accepted. When the model starts
   // answering, the screenshots are consumed; a request that ends without a
   // single token (429, network…) puts the question back for a one-press retry.
@@ -74,6 +75,8 @@
     }
     else pendingConsume=null;
   }
+  function traceToHistory(requestId:string){traceRequestId=requestId;view='history';}
+  async function saveNoteEdit(id:string,title:string,body:string){await knowledge.saveEdit(id,title,body);}
   function newConversation(){if(chat.newConversation()){responseKind='model';view='ask';notice='已准备新对话，当前草稿保留';}}
   function continueHistory(reply:ChatReply){if(chat.adopt(reply)){responseKind='model';view='reply';notice='继续此会话将附带近期问答';}}
   function stopReply(){if(responseKind==='demo')demo.stop();else void chat.stop().catch(()=>{});}
@@ -84,7 +87,7 @@
     if(!reply||!reply.answer||chatState.running)return;
     const title=reply.prompt.replace(/\s+/g,' ').trim().slice(0,60);
     const body=`## 问题\n\n${reply.prompt}\n\n## 回答\n\n${reply.answer}`;
-    const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:attachmentState.items.map(item=>item.id)});
+    const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:attachmentState.items.map(item=>item.id),requestId:reply.requestId});
     if(saved)notice='已收藏到知识库';
   }
 
@@ -155,9 +158,9 @@
     <nav aria-label="面板视图"><div class="tabs"><button class:active={view==='ask'} aria-pressed={view==='ask'} onclick={()=>view='ask'}>提问</button><button data-preview class:active={view==='preview'} aria-pressed={view==='preview'} onclick={()=>view='preview'}>格式预览</button>{#if chatState.reply||chatState.running||chatState.error}<button aria-pressed={view==='reply'&&responseKind==='model'} class:active={view==='reply'&&responseKind==='model'} onclick={()=>{responseKind='model';view='reply';}}>模型回复</button>{/if}{#if demoText}<button aria-pressed={view==='reply'&&responseKind==='demo'} class:active={view==='reply'&&responseKind==='demo'} onclick={()=>{responseKind='demo';view='reply';}}>演示回复</button>{/if}<button class:active={view==='history'} aria-pressed={view==='history'} onclick={()=>view='history'}>历史</button><button class:active={view==='knowledge'} aria-pressed={view==='knowledge'} onclick={()=>{view='knowledge';void knowledge.refresh();}}>知识库</button><button disabled={chatState.running||chatState.stopping} onclick={newConversation}>新对话</button><button class:active={view==='settings'} aria-pressed={view==='settings'} onclick={()=>view='settings'}>模型设置</button></div><span class="model-status"><i></i> {settings.config?'模型已配置':'模型未配置'}</span></nav>
     <main>
       {#if view==='history'}
-        <HistoryPanel port={historyPort} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory}/>
+        <HistoryPanel port={historyPort} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
       {:else if view==='knowledge'}
-        <KnowledgePanel controller={knowledge} info={knowledgeState}/>
+        <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit}/>
       {:else if view==='settings'}
         <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>
       {:else if view==='ask'}

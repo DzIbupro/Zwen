@@ -1,11 +1,12 @@
 <script lang="ts">
  import {onMount,untrack} from 'svelte';import {renderMarkdown} from './lib/render';import {HistoryController,type HistoryPort,type HistoryState} from './lib/history';import type {ChatReply} from './lib/chat';
- let {port,canContinue,onContinue}:{port:HistoryPort;canContinue:boolean;onContinue:(reply:ChatReply)=>void}=$props();
+ let {port,canContinue,onContinue,focusRequestId,onFocusConsumed}:{port:HistoryPort;canContinue:boolean;onContinue:(reply:ChatReply)=>void;focusRequestId?:string|null;onFocusConsumed?:()=>void}=$props();
  let state=$state<HistoryState>({items:[],selected:null,page:0,hasMore:false,loading:false,error:null});
  const history=new HistoryController(untrack(()=>port),s=>state=s);
  const answer=$derived(state.selected?renderMarkdown(state.selected.answer):'');
  const labels:Record<ChatReply['state'],string>={streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'};
  onMount(()=>{void history.load(0);return()=>history.dispose();});
+ $effect(()=>{const id=focusRequestId;if(!id)return;onFocusConsumed?.();untrack(()=>void history.open(id));});
 </script>
 <section class="history" aria-label="问答历史">
  <div class="history-head"><div><div class="eyebrow">PICK UP A THREAD</div><h1>回到一个问题<span>。</span></h1></div><button disabled={state.loading} onclick={()=>void history.load(0)}>刷新记录</button></div>

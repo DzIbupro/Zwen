@@ -14,7 +14,7 @@ fn store(storage:&SharedStorage)->Result<NoteStore,ClientError>{
 
 #[derive(serde::Deserialize,Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct SaveInput{title:String,body:String,source:String,model:String,attachment_ids:Vec<String>}
+pub struct SaveInput{title:String,body:String,source:String,model:String,attachment_ids:Vec<String>,request_id:Option<String>}
 
 #[tauri::command]
 pub async fn notes_save(storage:tauri::State<'_,SharedStorage>,input:SaveInput)->Result<NoteMeta,ClientError>{
@@ -29,7 +29,7 @@ pub async fn notes_save(storage:tauri::State<'_,SharedStorage>,input:SaveInput)-
    if bytes.len() as u64>zwen_core::attachment::MAX_IMAGE_BYTES{return Err(zwen_core::Error::InvalidNote.into());}
    files.push((format!("{id}.png"),bytes));
   }
-  store.create(&input.title,&input.body,&input.source,&input.model,&files).map_err(Into::into)
+  store.create(&input.title,&input.body,&input.source,&input.model,&files,input.request_id.as_deref()).map_err(Into::into)
  }).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]
@@ -46,6 +46,11 @@ pub async fn notes_read(storage:tauri::State<'_,SharedStorage>,id:String)->Resul
 pub async fn notes_delete(storage:tauri::State<'_,SharedStorage>,id:String)->Result<(),ClientError>{
  let storage=storage.inner().clone();
  tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(store(&storage)?.delete(&id)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn notes_update(storage:tauri::State<'_,SharedStorage>,id:String,title:String,body:String)->Result<NoteMeta,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<NoteMeta,ClientError>{Ok(store(&storage)?.update(&id,&title,&body)?)}).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]
 pub async fn notes_rebuild(storage:tauri::State<'_,SharedStorage>)->Result<usize,ClientError>{

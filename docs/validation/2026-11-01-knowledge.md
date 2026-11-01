@@ -28,3 +28,15 @@
 
 - 真实使用：收藏一篇真实回答、重启后仍在、跨重启索引重建。
 - 下一单元：笔记的"来源回看"（跳回原始问答）与人工编辑（外部编辑后 rebuild 已支持采纳；应用内编辑器待做）；再往后是 AI 自动整理与图谱。
+
+## 5. 来源回看与应用内编辑（2026-11-02 增量）
+
+- front matter 增加 `request:`；`valid_request` 与聊天记录同规则，非法值静默丢弃（手改友好），合法值经重建保留。
+- `NoteStore::update(id,title,body)`：原子写回，保留身份/创建时间/来源/模型/请求/附件文件；索引标题同步。
+- UI：详情页"编辑"（标题+Markdown 正文+保存/取消）与"查看原始问答"；HistoryPanel 增加聚焦接口由知识库跳转。
+- 测试：core +2（编辑保持身份与附件、request 重建与非法丢弃）、前端 +2（saveEdit 成功/失败）；knowledge smoke 扩展编辑流与跳转流（断言历史详情原文）。
+
+## 6. 验证补充（2026-11-02）
+
+- 原生回归含 knowledge 共 **10/10 通过**（desktop/capsule/selection/provider/chat/chat_fault/chat_image/screenshot/knowledge + 追加段）；chat 冒烟内存采样 PSS 259.86 / RSS 512.02 MiB（合成参考值）。
+- knowledge smoke 现覆盖：命令收藏（含来源 request）→ 界面列表 → 重建采纳孤儿 → 中文子串搜索 → 查看渲染 → 应用内编辑（标题+正文，界面与后端一致）→ 查看原始问答（历史详情原文断言）→ 两步删除（兼容详情/列表两种返回状态）→ 删除后文件清理、孤儿与聊天附件保留。

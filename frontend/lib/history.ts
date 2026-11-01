@@ -7,6 +7,6 @@ export class HistoryController {
  constructor(private port:HistoryPort,private changed:(s:HistoryState)=>void){}
  private publish(p:Partial<HistoryState>){if(!this.disposed){this.state={...this.state,...p};this.changed(this.state);}}
  async open(id:string){const operation=++this.operation;this.publish({loading:true,error:null});try{const reply=await this.port.get(id);if(operation===this.operation)this.publish({selected:reply,loading:false,error:reply?null:'此记录暂不可读取，原文件保留'});}catch(e){if(operation===this.operation)this.publish({loading:false,error:e instanceof Error?e.message:'历史读取失败'});}}
- async load(page:number){const operation=++this.operation;this.publish({loading:true,error:null});try{const rows=await this.port.list(page);if(operation===this.operation)this.publish({items:rows.slice(0,20),hasMore:rows.length>20,page,selected:null,loading:false});}catch(e){if(operation===this.operation)this.publish({loading:false,error:e instanceof Error?e.message:'历史读取失败'});}}
+ async load(page:number){const operation=++this.operation;this.publish({loading:true,error:null});try{const rows=await this.port.list(page);if(operation===this.operation)this.publish({items:rows.slice(0,20),hasMore:rows.length>20,page,loading:false});}catch(e){if(operation===this.operation)this.publish({loading:false,error:e instanceof Error?e.message:'历史读取失败'});}}
  dispose(){this.disposed=true;this.operation++;}
 }

@@ -19,7 +19,11 @@ const TEMP_COUNTER:AtomicU64=AtomicU64::new(0);
 
 #[derive(Clone,Debug,PartialEq,Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct NoteMeta{pub id:String,pub title:String,pub created_at:i64,pub source:String,pub model:String,pub attachments:Vec<String>}
+pub struct NoteMeta{pub id:String,pub title:String,pub created_at:i64,pub source:String,pub model:String,pub attachments:Vec<String>,#[serde(skip_serializing_if="Option::is_none")] pub request:Option<String>}
+
+/// Chat request ids follow the journal's rules; anything else is dropped so a
+/// hand-edited front matter cannot smuggle arbitrary values into links.
+pub fn valid_request(value:&str)->bool{!value.is_empty()&&value.len()<=100&&value.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'||b==b'_')}
 #[derive(Clone,Debug,Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Note{pub meta:NoteMeta,pub body:String}
@@ -48,7 +52,8 @@ pub fn sanitize_filename(name:&str)->String{
 
 fn front_matter(meta:&NoteMeta)->String{
  let list=serde_json::to_string(&meta.attachments).unwrap_or_else(|_|"[]".to_string());
- format!("---\nid: {}\ncreated: {}\nsource: {}\nmodel: {}\ntitle: {}\nattachments: {}\n---\n",meta.id,meta.created_at,meta.source,meta.model,meta.title,list)
+ let request=meta.request.as_deref().map(|value|format!("\nrequest: {value}")).unwrap_or_default();
+ format!("---\nid: {}\ncreated: {}\nsource: {}\nmodel: {}\ntitle: {}\nattachments: {}{}\n---\n",meta.id,meta.created_at,meta.source,meta.model,meta.title,list,request)
 }
 
 /// Splits the stored file into metadata and body. The body starts after the
@@ -57,7 +62,7 @@ fn split_file(id:&str,bytes:&[u8])->Result<(NoteMeta,String),Error>{
  let text=String::from_utf8(bytes.to_vec()).map_err(|_|Error::InvalidNote)?;
  if let Some(rest)=text.strip_prefix("---\n"){
   if let Some(end)=rest.find("\n---\n"){
-   let mut meta=NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new()};
+   let mut meta=NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None};
    for line in rest[..end].lines(){
     let Some((key,value))=line.split_once(':')else{continue};
     match key{
@@ -68,6 +73,7 @@ fn split_file(id:&str,bytes:&[u8])->Result<(NoteMeta,String),Error>{
      "model"=>{let v=value.trim();if v.len()<=MAX_MODEL_BYTES{meta.model=v.to_string();}}
      "title"=>{let v=value.trim();if !v.is_empty()&&v.len()<=MAX_TITLE_BYTES{meta.title=v.to_string();}}
      "attachments"=>{if let Ok(list)=serde_json::from_str::<Vec<String>>(value.trim()){meta.attachments=list.into_iter().take(MAX_NOTE_ATTACHMENTS).collect();}}
+     "request"=>{let v=value.trim();if valid_request(v){meta.request=Some(v.to_string());}}
      _=>{}
     }
    }
@@ -75,7 +81,7 @@ fn split_file(id:&str,bytes:&[u8])->Result<(NoteMeta,String),Error>{
    return Ok((meta,body));
   }
  }
- Ok((NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new()},text))
+ Ok((NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None},text))
 }
 
 fn read_all(connection:&Connection)->Result<Vec<NoteMeta>,Error>{
@@ -86,7 +92,7 @@ fn read_all(connection:&Connection)->Result<Vec<NoteMeta>,Error>{
   let(id,title,created_at,source,model)=row?;
   let id=id.ok_or(Error::InvalidNote)?;
   if !valid_id(&id)||title.is_empty(){return Err(Error::InvalidNote);}
-  notes.push(NoteMeta{id,title,created_at,source:source.unwrap_or_default(),model:model.unwrap_or_default(),attachments:Vec::new()});
+  notes.push(NoteMeta{id,title,created_at,source:source.unwrap_or_default(),model:model.unwrap_or_default(),attachments:Vec::new(),request:None});
  }
  Ok(notes)
 }
@@ -114,7 +120,8 @@ impl NoteStore{
   })?;
   Ok(Self{connection,directory})
  }
- pub fn create(&mut self,title:&str,body:&str,source:&str,model:&str,attachments:&[(String,Vec<u8>)])->Result<NoteMeta,Error>{
+ pub fn create(&mut self,title:&str,body:&str,source:&str,model:&str,attachments:&[(String,Vec<u8>)],request:Option<&str>)->Result<NoteMeta,Error>{
+  let request=match request{Some(value) if valid_request(value)=>Some(value.to_string()),_=>None};
   let title=title.trim();
   let title=if title.is_empty(){"未命名笔记".to_string()}else if title.len()<=MAX_TITLE_BYTES{title.to_string()}else{return Err(Error::InvalidNote)};
   if body.len()>MAX_NOTE_BYTES||source.len()>MAX_SOURCE_BYTES||model.len()>MAX_MODEL_BYTES{return Err(Error::InvalidNote);}
@@ -128,7 +135,7 @@ impl NoteStore{
   }
   let id=generate_id();
   let created_at=SystemTime::now().duration_since(UNIX_EPOCH).map(|d|d.as_secs() as i64).unwrap_or(0);
-  let meta=NoteMeta{id:id.clone(),title,created_at,source:source.to_string(),model:model.to_string(),attachments:files.iter().map(|(name,_)|format!("{id}-{name}")).collect()};
+  let meta=NoteMeta{id:id.clone(),title,created_at,source:source.to_string(),model:model.to_string(),attachments:files.iter().map(|(name,_)|format!("{id}-{name}")).collect(),request};
   let mut names=Vec::new();
   for (name,bytes) in &files{
    let stored=format!("{id}-{name}");
@@ -198,6 +205,21 @@ impl NoteStore{
   let _=fs::remove_file(self.directory.join(format!("{id}.md")));
   for name in attachments{let _=fs::remove_file(self.directory.join(ATTACH_DIR).join(name));}
   Ok(())
+ }
+ /// In-app manual edit: rewrites title and body in place. Identity, creation
+ /// time, source, model, request link and attachment files are preserved.
+ pub fn update(&mut self,id:&str,title:&str,body:&str)->Result<NoteMeta,Error>{
+  if !valid_id(id){return Err(Error::NoteMissing);}
+  let title=title.trim();
+  if title.is_empty()||title.len()>MAX_TITLE_BYTES||body.len()>MAX_NOTE_BYTES{return Err(Error::InvalidNote);}
+  let (mut meta,_)=self.load_file(id)?;
+  meta.title=title.to_string();
+  let mut document=front_matter(&meta).into_bytes();document.extend_from_slice(body.as_bytes());
+  write_atomic(&self.directory.join(format!("{id}.md")),&document)?;
+  let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+  tx.execute("UPDATE notes SET title=?1 WHERE id=?2",params![meta.title,id])?;
+  tx.commit()?;
+  Ok(meta)
  }
  /// Rebuilds the index from the files on disk. Orphan files are adopted (the
  /// .md is the authority); index rows whose file disappeared are dropped.

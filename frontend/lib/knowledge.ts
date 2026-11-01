@@ -1,11 +1,12 @@
-export interface NoteMeta {id:string;title:string;createdAt:number;source:string;model:string;attachments:string[]}
+export interface NoteMeta {id:string;title:string;createdAt:number;source:string;model:string;attachments:string[];request?:string|null}
 export interface Note {meta:NoteMeta;body:string}
-export interface SaveNoteInput {title:string;body:string;source:string;model:string;attachmentIds:string[]}
+export interface SaveNoteInput {title:string;body:string;source:string;model:string;attachmentIds:string[];requestId?:string|null}
 export interface KnowledgePort {
  list(query:string):Promise<NoteMeta[]>;
  read(id:string):Promise<Note>;
  save(input:SaveNoteInput):Promise<NoteMeta>;
  remove(id:string):Promise<void>;
+ update(id:string,title:string,body:string):Promise<NoteMeta>;
  rebuild():Promise<number>;
 }
 export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null;busy:boolean;loaded:boolean;notice:string}
@@ -74,6 +75,23 @@ export class KnowledgeController {
   this.publish({busy:false});
   await this.refresh();
   return this.state.notes.find(note=>note.title===input.title)??null;
+ }
+ async saveEdit(id:string,title:string,body:string):Promise<NoteMeta|null>{
+  if(this.disposed||this.state.busy)return null;
+  this.publish({busy:true});
+  try{
+   const meta=await this.port.update(id,title,body);
+   const note=await this.port.read(id);
+   this.publish({current:note,notice:''});
+   this.publish({busy:false});
+   await this.refresh();
+   return meta;
+  }
+  catch(error){
+   this.publish({notice:error instanceof Error?error.message:'保存编辑未完成'});
+   this.publish({busy:false});
+   return null;
+  }
  }
  async rebuild(){
   if(this.disposed||this.state.busy)return;

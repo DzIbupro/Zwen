@@ -3,12 +3,13 @@ import {KnowledgeController,type KnowledgePort,type NoteMeta,type Note} from '..
 const cleanups:(()=>void)[]=[];afterEach(()=>cleanups.splice(0).forEach(f=>f()));
 function meta(id='a'.repeat(32)):NoteMeta{return{id,title:'正则化笔记',createdAt:1700000000,source:'chat',model:'glm-4.7-flash',attachments:[]};}
 function fixture(initial:NoteMeta[]=[],fail?:{list?:boolean;remove?:boolean}){
- let notes=initial;let saved:Note|null=null;
+ let notes=initial;let saved:Note|null=null;const edits:Record<string,string>={};
  const port:KnowledgePort={
   list:async query=>{if(fail?.list)throw Error('知识库读取失败');if(!query)return notes.map(n=>({...n}));return notes.filter(n=>n.title.includes(query)).map(n=>({...n}));},
-  read:async id=>{if(saved&&saved.meta.id===id)return saved;const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');return{meta:{...m,attachments:[]},body:'正文'};},
+  read:async id=>{if(saved&&saved.meta.id===id)return saved;const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');return{meta:{...m,attachments:[]},body:edits[id]??'正文'};},
   save:async input=>{const m=meta('b'.repeat(32));m.title=input.title;notes=[m,...notes];saved={meta:{...m},body:input.body};return {...m};},
   remove:async id=>{if(fail?.remove)throw Error('删除未完成');notes=notes.filter(n=>n.id!==id);if(saved?.meta.id===id)saved=null;},
+  update:async(id,title,body)=>{edits[id]=body;if(saved?.meta.id===id)saved={...saved,body};const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');m.title=title;return {...m};},
   rebuild:async()=>notes.length,
  };
  const controller=new KnowledgeController(port,()=>{});cleanups.push(()=>controller.dispose());
@@ -85,4 +86,24 @@ it('rebuild reports the adopted count',async()=>{
  const f=fixture([meta(),meta()]);await f.controller.refresh();
  await f.controller.rebuild();
  expect(f.controller.state.notice).toContain('共 2 篇');
+});
+
+it('saveEdit updates the note, refreshes the list and re-reads the body',async()=>{
+ const f=fixture([meta()]);await f.controller.refresh();
+ await f.controller.open(meta().id);
+ const saved=await f.controller.saveEdit(meta().id,'编辑标题','编辑后的正文');
+ expect(saved?.title).toBe('编辑标题');
+ expect(f.controller.state.current?.body).toBe('编辑后的正文');
+ expect(f.controller.state.notes[0].title).toBe('编辑标题');
+ expect(f.controller.state.notice).toBe('');
+});
+
+it('a failed edit reports and keeps the current note untouched',async()=>{
+ const f=fixture([meta()]);await f.controller.refresh();
+ await f.controller.open(meta().id);
+ f.port.update=async()=>{throw Error('磁盘满');};
+ const result=await f.controller.saveEdit(meta().id,'x','y');
+ expect(result).toBeNull();
+ expect(f.controller.state.notice).toContain('磁盘满');
+ expect(f.controller.state.current?.body).toBe('正文');
 });

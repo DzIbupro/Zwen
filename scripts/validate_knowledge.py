@@ -17,6 +17,11 @@ db.execute('INSERT INTO attachments VALUES(?,?,?,?,?)',(ATTACH,64,48,28,123));db
 notes=root/'notes';(notes/'attachments').mkdir(parents=True)
 (notes/f'{ORPHAN}.md').write_text(f"---\nid: {ORPHAN}\ncreated: 1700000000\nsource: chat\nmodel: model-b\ntitle: 孤儿笔记\nattachments: []\n---\n孤儿正文",encoding='utf-8')
 
+db=sqlite3.connect(root/'chat.sqlite3')
+db.executescript("CREATE TABLE turns(id INTEGER PRIMARY KEY,request_id TEXT NOT NULL UNIQUE,conversation_id TEXT NOT NULL,provider_profile TEXT NOT NULL,context_turns INTEGER NOT NULL,prompt TEXT NOT NULL,model TEXT NOT NULL,answer TEXT NOT NULL DEFAULT '',revision INTEGER NOT NULL DEFAULT 0 CHECK(revision>=0),state TEXT NOT NULL DEFAULT 'streaming',error TEXT,created_at INTEGER NOT NULL DEFAULT (unixepoch()));PRAGMA user_version=2;")
+db.execute("INSERT INTO turns(request_id,conversation_id,provider_profile,context_turns,prompt,model,answer,revision,state) VALUES('seedturn0001','conv1','p',0,'原始问题文本','fixture-model','原始回答内容',1,'complete')")
+db.commit();db.close()
+
 env=os.environ.copy()
 env.update({'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'knowledge','ZWEN_SMOKE_TIMEOUT_SECS':'90'})
 process=subprocess.Popen([str(binary)],env=env,stdout=subprocess.PIPE,stderr=(root/'stderr.log').open('wb'),bufsize=0,start_new_session=True)
@@ -44,6 +49,7 @@ try:
  assert not remain,f'note attachment copies remain: {remain}'
  assert (notes/f'{ORPHAN}.md').exists(),'orphan note was deleted'
  db=sqlite3.connect(root/'attachment.sqlite3');assert db.execute('SELECT count(*) FROM attachments').fetchone()[0]==1;db.close()
+ db=sqlite3.connect(root/'chat.sqlite3');assert db.execute("SELECT prompt,answer FROM turns WHERE request_id='seedturn0001'").fetchone()==('原始问题文本','原始回答内容');db.close()
  for path in root.glob('*.sqlite3*'):assert b'fixture-token' not in path.read_bytes() if path.exists() else True
  summary={'passed':True,'exit':process.returncode,'events':rows}
  Path('artifacts/validation').mkdir(parents=True,exist_ok=True)
