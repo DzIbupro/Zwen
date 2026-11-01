@@ -52,7 +52,13 @@ import threading as _threading
 _threading.Thread(target=organize_server.serve_forever,daemon=True).start()
 
 env=os.environ.copy()
-env.update({'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'knowledge','ZWEN_SMOKE_TIMEOUT_SECS':'90','ZWEN_PROVIDER_TEST_KEY':'fixture-token','ZWEN_PROVIDER_TEST_BASE':f'http://127.0.0.1:{organize_server.server_port}/v1'})
+watcher_log=root/'watcher.log'
+fake_bin=root/'bin';fake_bin.mkdir(parents=True,exist_ok=True)
+fake_watch=fake_bin/'wl-paste'
+fake_watch.write_text('#!/usr/bin/python3\nimport sys\nsys.exit(0)\n')
+fake_watch.chmod(0o755)
+env=os.environ.copy()
+env.update({'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'knowledge','ZWEN_SMOKE_TIMEOUT_SECS':'90','ZWEN_PROVIDER_TEST_KEY':'fixture-token','ZWEN_PROVIDER_TEST_BASE':f'http://127.0.0.1:{organize_server.server_port}/v1','PATH':str(fake_bin)+':'+env['PATH']})
 process=subprocess.Popen([str(binary)],env=env,stdout=subprocess.PIPE,stderr=(root/'stderr.log').open('wb'),bufsize=0,start_new_session=True)
 selector=__import__('selectors').DefaultSelector();selector.register(process.stdout,__import__('selectors').EVENT_READ);buffer=b'';rows=[];passed=False
 try:

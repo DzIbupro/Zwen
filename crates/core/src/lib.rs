@@ -112,7 +112,7 @@ fn read_draft(connection:&Connection)->Result<Draft,Error> {
         })?)
     }
 
-fn open_private_database(path:&Path,initialize:impl FnOnce(&mut Connection)->Result<(),Error>)->Result<Connection,Error> {
+pub fn open_private_database(path:&Path,initialize:impl FnOnce(&mut Connection)->Result<(),Error>)->Result<Connection,Error> {
         #[cfg(unix)] {
             use std::os::unix::fs::OpenOptionsExt;
             match std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path) {

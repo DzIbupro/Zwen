@@ -21,7 +21,7 @@
   import {providerPort} from './lib/bridge';
   import Attachments from './Attachments.svelte';
   import {AttachmentController,type AttachmentState} from './lib/attachments';
-  import {attachmentPort,openExternal} from './lib/bridge';
+  import {attachmentPort,openExternal,invokeRaw as invoke} from './lib/bridge';
   import {proseLinkClick} from './lib/links';
   import KnowledgePanel from './KnowledgePanel.svelte';
   import KnowledgeGraph from './KnowledgeGraph.svelte';
@@ -44,6 +44,8 @@
   function startDemo(){if(chatState.running||chatState.stopping)return;responseKind='demo';demo.start();}
   let pendingConsume:{text:string;ids:string[];requestId:string|null}|null=null;
   let traceRequestId=$state<string|null>(null);
+ let candidateEnabled=$state(false);
+ void 0;
   // The input clears the moment a send is accepted. When the model starts
   // answering, the screenshots are consumed; a request that ends without a
   // single token (429, network…) puts the question back for a one-press retry.
@@ -76,6 +78,10 @@
       pendingConsume={text:sent,ids:sentIds,requestId:chatState.reply?.requestId??null};
     }
     else pendingConsume=null;
+  }
+  async function onCandidateToggle(on:boolean){
+    try{await invoke('candidate_set_enabled',{enabled:on});candidateEnabled=on;}
+    catch(error){notice=error instanceof Error?error.message:'自动划词开关未完成';}
   }
   function traceToHistory(requestId:string){traceRequestId=requestId;view='history';}
   async function saveNoteEdit(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}){await knowledge.saveEdit(id,title,body,source);}
@@ -135,6 +141,7 @@
     void provider.load();void chat.load();
     void controller.start().then(()=>{input?.focus();void selection.refresh();}).catch(()=>{});
     void attachmentController.start();
+    if(isDesktop)void invoke('candidate_get_enabled').then((value:unknown)=>{candidateEnabled=typeof value==='boolean'&&value;}).catch(()=>{});
     void getSurface().then(applySurface).catch(()=>{notice='窗口模式读取失败';});
     let disposed=false;const unlisteners:(()=>void)[]=[];
     if(isDesktop) void listen('selection-ready',()=>void selection.refresh()).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{notice='选区事件暂不可用，可重新读取状态';});
@@ -166,7 +173,7 @@
       {:else if view==='knowledge'}
         <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
       {:else if view==='settings'}
-        <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>
+        <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()} candidateEnabled={candidateEnabled} onCandidateToggle={onCandidateToggle}/>
       {:else if view==='ask'}
         <section class="welcome"><div class="eyebrow">A LITTLE SPACE FOR CURIOSITY</div><h1>从一个问题开始<span>。</span></h1><p>留住阅读时的疑问，慢慢把知识连起来。</p><div class="orbit" aria-hidden="true"><span></span><span></span><span></span><b><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4v24M4 16h24M7.5 7.5l17 17m-17 0 17-17"/></svg></b></div></section>
         <section class="suggestions" aria-label="开始一个草稿"><button disabled={!draft.loaded} onclick={()=>fill('请帮我解释这段内容：\n\n')}><span class="suggestion-icon">Aa</span><strong>读懂一段内容</strong><span>换个角度，把意思讲清楚</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('我想理解这个公式：\n\n')}><span class="suggestion-icon">ƒ</span><strong>理解一个公式</strong><span>从符号到它背后的直觉</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('帮我梳理这个想法：\n\n')}><span class="suggestion-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c0 5-4 9-9 9 5 0 9 4 9 9 0-5 4-9 9-9-5 0-9-4-9-9Z"/></svg></span><strong>梳理一个想法</strong><span>先记下来，再找到联系</span><b>↗</b></button></section>

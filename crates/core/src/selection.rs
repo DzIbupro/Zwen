@@ -60,7 +60,7 @@ pub fn read_from(mut command:Command,timeout:Duration)->Result<String,SelectionE
 pub fn read_from(_:Command,_:Duration)->Result<String,SelectionError>{Err(SelectionError::Unavailable)}
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize)]
 #[serde(rename_all="lowercase")]
-pub enum Mode{Raw,Explain,Translate}
+pub enum Mode{Raw,Explain,Translate,Candidate}
 #[derive(Clone,Serialize)]
 pub struct Item{pub id:u32,pub mode:Mode,pub text:Option<String>,pub error:Option<String>,pub claimed:bool}
 #[derive(Default)]

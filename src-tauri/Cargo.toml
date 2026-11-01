@@ -25,4 +25,5 @@ serde_json = "1"
 zwen-transport = { path = "../crates/transport" }
 tokio = { version = "=1.54.1", features = ["sync", "time", "rt", "net"] }
 base64 = "=0.23.1"
+rusqlite = { version = "=0.41.1", features = ["limits"] }
 zbus = "=5.19.0"

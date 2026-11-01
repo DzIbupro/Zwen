@@ -133,3 +133,8 @@
     - 阶段 5 落地：新"知识网络"标签页——主题节点（大小=归属数）、AI 关系为边（悬停看理由）；圆环布局（确定性，无第三方图依赖，设计文档的 Cytoscape 拟用改为手写 SVG 以避免新增依赖）；滚轮缩放/拖动平移/复位；搜索筛选（节点与边随查询收窄）；点主题节点按需展开成员笔记（≤12 个二级节点，幂等）；点笔记节点跳详情。
     - `lib/graph.ts`：buildGraph（过滤+圆环布局+边过滤）、expandTopic（幂等展开）+4 项测试；KnowledgeGraph 组件（a11y：节点 role=button+键盘，stage 交互注释豁免）；App 新 tab 接线。
     - 验证：前端 84 项（+4）、`svelte-check` 0/0；knowledge smoke 加图谱段（建主题→节点渲染→筛选→清空→恢复），全套原生回归 10/10。
+25. **自动划词浮条 + Unit D 收官（2026-11-02）**：
+    - 设置页新增"自动划词浮条"开关（持久化 `settings.sqlite3` schema1，启动时恢复）；开启后派生 `wl-paste --primary --watch <self> candidate-callback` 监听 PRIMARY——选中文字后自动弹出胶囊并以候选材料呈现（复用选区单槽收件箱，本地呈现，**不自动发送**）。
+    - candidate-callback 入口（CLI + 单实例路由）；_mode=Candidate 与既有解释/翻译同路。
+    - 验证：knowledge smoke 候选段（fake wl-paste 触发 + 开关持久化 + get_enabled）通过；**全套原生回归 10/10**；Rust 95 项、前端 84 项、`svelte-check` 0/0。
+    - 边界：浮条位置当前跟随既有胶囊顶部锚点（不跟鼠标）；跨应用 PRIMARY 支持矩阵仍未验收；真实鼠标划词场景需真机验证。

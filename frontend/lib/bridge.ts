@@ -83,6 +83,7 @@ export const knowledgePort:KnowledgePort=isDesktop?{
 
 import type {SelectionPort,SelectionItem} from './selection';
 export const openExternal=(url:string)=>command<void>('open_external',{url});
+export const invokeRaw=invoke;
 export const selectionPort:SelectionPort=isDesktop?{claim:()=>command<{reading:boolean;item:SelectionItem|null}>('claim_selection'),acknowledge:id=>command<void>('acknowledge_selection',{id})}:{claim:async()=>({reading:false,item:null}),acknowledge:async()=>{}};
 
 import type {AttachmentPort,AttachmentView} from './attachments';

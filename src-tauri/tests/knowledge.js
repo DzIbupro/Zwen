@@ -133,10 +133,13 @@
   await invoke('organize_set_auto',{on:true});
   if(!(await invoke('organize_get_auto')))throw Error('auto toggle not persisted');
   if((await invoke('organize_list_relations')).length!==0)throw Error('unexpected relations');
+  stage='candidate';
+  await invoke('candidate_set_enabled',{enabled:true});
+  if(!(await invoke('candidate_get_enabled')))throw Error('candidate toggle not persisted');
   const exportPath=await invoke('note_export',{id:'abcdef0123456789abcdef0123456789'});
   if(!String(exportPath).endsWith('.md'))throw Error('Export path invalid: '+exportPath);
   const exportAllPath=await invoke('notes_export_all');
   const exported=await invoke('notes_list',{query:''});
-  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',v:DRIVER_VERSION,saved:true,rebuild:true,search:true,detail:true,deleted:true,organized:true,undone:true,exportPath:String(exportPath),exportAllPath:String(exportAllPath),exportedCount:exported.length,governance:true,auto:true});
+  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',v:DRIVER_VERSION,saved:true,rebuild:true,search:true,detail:true,deleted:true,organized:true,undone:true,exportPath:String(exportPath),exportAllPath:String(exportAllPath),exportedCount:exported.length,governance:true,auto:true,candidate:true});
  }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'knowledge',stage,error:String(e&&e.message||e),ui:document.body.innerText.slice(0,1200)});}
 })();

@@ -1,6 +1,6 @@
 <script lang="ts">
  import type {SettingsState,ProviderConfig} from './lib/provider';
- let {settings,desktop,onEdit,onSave,onReload,onSaveSecret,onClearSecret}:{settings:SettingsState;desktop:boolean;onEdit:(name:keyof ProviderConfig,value:string)=>void;onSave:()=>void;onReload:()=>void;onSaveSecret:(value:string)=>Promise<void>;onClearSecret:()=>Promise<void>}=$props();
+ let {settings,desktop,onEdit,onSave,onReload,onSaveSecret,onClearSecret,candidateEnabled,onCandidateToggle}:{settings:SettingsState;desktop:boolean;onEdit:(name:keyof ProviderConfig,value:string)=>void;onSave:()=>void;onReload:()=>void;onSaveSecret:(value:string)=>Promise<void>;onClearSecret:()=>Promise<void>;candidateEnabled:boolean;onCandidateToggle:(on:boolean)=>void}=$props();
  const busy=$derived(settings.status==='loading'||settings.status==='saving');
  let secretValue=$state('');
  const secretBusy=$derived(settings.secretSaving);
@@ -30,11 +30,17 @@
    {#if settings.secretNotice}<div class="failure" role="alert">{settings.secretNotice}</div>{/if}
   {/if}
   <div class="state" role="status">{settings.status==='saving'?'正在保存…':settings.status==='loading'?'正在读取…':settings.status==='dirty'?'有未保存的修改':settings.config?settings.keyAvailable?'配置已保存 · 已检测到密钥，尚未验证联网':'配置已保存 · 未检测到有效密钥':'尚未配置模型'}</div>
-  {#if settings.error}<div class="failure" role="alert">{settings.error}</div>{/if}
+  {#if desktop}
+   <label for="candidate-toggle">自动划词浮条</label>
+   <div class="candidate-row"><input id="candidate-toggle" type="checkbox" checked={candidateEnabled} onchange={e=>onCandidateToggle(e.currentTarget.checked)}/><span class="secret-state">选中文字后自动弹出候选浮条（本地呈现，不自动发送）</span></div>
+  {/if}
+    {#if settings.error}<div class="failure" role="alert">{settings.error}</div>{/if}
   <div class="actions"><button type="button" disabled={busy} onclick={onReload}>重新读取</button><button class="primary" type="submit" disabled={!desktop||busy||!settings.loaded}>保存模型设置</button></div>
  </form>
 </section>
 <style>
  .settings{max-width:620px;margin:28px auto;padding:0 18px 28px;color:#333d36}.eyebrow{font-size:10px;letter-spacing:.18em;color:#8d9f86}h1{font-size:29px;font-weight:550;letter-spacing:-1px;margin:12px 0}h1 span{color:#67946d}p,small{color:#697663;font-size:12px;line-height:1.8}form{display:flex;flex-direction:column;margin-top:28px}label{font-size:12px;margin:18px 0 8px}input{width:100%;box-sizing:border-box;border:1px solid #d7dece;border-radius:8px;padding:11px 12px;background:#fffef9;color:#333d36;font:inherit;font-size:13px}input:focus{outline:2px solid #417f65;outline-offset:2px}small{font-size:11px;margin-top:7px}.state{margin-top:23px;color:#3b7157;font-size:12px}.failure{color:#a44134;font-size:12px;margin-top:10px}.hint{border-left:2px solid #b6c8a7;padding-left:12px}.actions{display:flex;gap:12px;margin-top:20px}button{border:1px solid #d5ddcb;background:transparent;color:#55634b;border-radius:8px;padding:10px 14px;font:inherit;font-size:12px;cursor:pointer}button.primary{background:#3b7157;color:#f4f7ec;border-color:#3b7157}button:disabled,input:disabled{opacity:.5;cursor:default}
+ .candidate-row{display:flex;align-items:center;gap:10px;font-size:12px;color:#55634b}
+ .candidate-row input{width:auto}
  .secret-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.secret-row button{padding:8px 12px}.secret-state{font-size:11px;color:#55634b}
 </style>
