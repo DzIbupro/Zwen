@@ -8,7 +8,7 @@
 - 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮本地提交依次为 `ea4ff0e`（交接文档）、`d1138db`（截图单元）、`40f6479`/`8da1453`（证据与哈希）、`2027846`（视觉模型路由）。
 - **推送状态：2026-10-31 已推送 `9a3efc9..4d9e5a1` 到远端 `feat/desktop-foundation`，草稿 PR1（OPEN）同步更新。** 推送经由用户在本机浏览器完成 GitHub CLI 设备流授权；`gh` 已以用户级方式安装到 `~/.local/bin`，令牌仅存于本机 `~/.config/gh`，未进入仓库或聊天。
 - 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `cb053bc475d05d8aebeb5bff820680e06546ca1f1cd7ce917ef3143aa25ac4ad`（2026-11-01 残影修复版），同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
-- 新入口：`./artifacts/zwen screenshot`（兼容 `capture-screenshot`），胶囊也有截图按钮。**尚未安装 Niri 全局快捷键**，需用户自行绑定。
+- 新入口：`./artifacts/zwen screenshot`（兼容 `capture-screenshot`），胶囊也有截图按钮。**2026-11-01 用户确认后已在其 Niri 配置绑定 `Ctrl+Alt+A` → `spawn zwen screenshot`**（niri validate 通过，配置热重载生效；Niri 绑定不区分左右 Alt）。选区三个入口仍未绑定全局快捷键。
 - `scripts/run-with-key.sh` 规则不变：用户本机不回显输入，只进入应用环境；不读 `/proc` 环境，不要求把 Key 发到聊天。
 
 ## 已完成
