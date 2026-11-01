@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-delete-topic"
+description = "Enables the organize_delete_topic command without any pre-configured scope."
+commands.allow = ["organize_delete_topic"]
+
+[[permission]]
+identifier = "deny-organize-delete-topic"
+description = "Denies the organize_delete_topic command without any pre-configured scope."
+commands.deny = ["organize_delete_topic"]

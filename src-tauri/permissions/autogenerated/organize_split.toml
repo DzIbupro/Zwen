@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-split"
+description = "Enables the organize_split command without any pre-configured scope."
+commands.allow = ["organize_split"]
+
+[[permission]]
+identifier = "deny-organize-split"
+description = "Denies the organize_split command without any pre-configured scope."
+commands.deny = ["organize_split"]

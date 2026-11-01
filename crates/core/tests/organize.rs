@@ -81,3 +81,50 @@ impl ManualSeed for OrganizeStore{
   Ok(())
  }
 }
+
+#[test] fn governance_rename_merge_split_lock_and_relations(){
+ use zwen_core::organize::OrganizeStore;
+ let scratch=Scratch::new();let mut store=OrganizeStore::open(&scratch.0).unwrap();
+ let note="a".repeat(32);let note2="b".repeat(32);
+ let scope=scope(&[&note,&note2]);
+ let hash=content_hash(b"body");
+ store.apply_batch("m",&scope,&[
+  (note.clone(),hash,vec!["旧主题".into(),"相邻主题".into()]),
+  (note2.clone(),hash,vec!["相邻主题".into()]),
+ ]).unwrap();
+ let topics=store.list_topics().unwrap();
+ let old_id=topics.iter().find(|t|t.topic.name=="旧主题").unwrap().topic.id.clone();
+ let other_id=topics.iter().find(|t|t.topic.name=="相邻主题").unwrap().topic.id.clone();
+ // relation with real two-sided evidence
+ let rel=store.add_relation(&old_id,&other_id,"同源于该笔记",&note).unwrap();
+ assert!(store.list_relations().unwrap().iter().any(|r|r.id==rel));
+ assert!(matches!(store.add_relation(&other_id,&other_id,"自环",&note),Err(Error::InvalidChat)));
+ assert!(matches!(store.add_relation(&old_id,&other_id,"证据不在两侧",&note2),Err(Error::InvalidChat)));
+ // rename keeps id and memberships
+ store.rename_topic(&old_id,"新主题").unwrap();
+ assert!(matches!(store.rename_topic(&old_id,"相邻主题"),Err(Error::InvalidChat)));
+ // lock target blocks merge; unlock allows it and drops dangling relations
+ store.set_topic_locked(&other_id,true).unwrap();
+ assert!(matches!(store.merge_topics(&old_id,&other_id),Err(Error::InvalidChat)));
+ store.set_topic_locked(&other_id,false).unwrap();
+ store.merge_topics(&old_id,&other_id).unwrap();
+ assert!(store.list_topics().unwrap().iter().all(|t|t.topic.name!="新主题"));
+ assert!(store.list_relations().unwrap().is_empty(),"relations of merged topic must not dangle");
+ // split one note into a new manual topic, then relate with two-sided evidence
+ store.split_membership(&note2,&other_id,"拆分主题","机器学习").unwrap();
+ let split=store.list_topics().unwrap().iter().find(|t|t.topic.name=="拆分主题").unwrap().clone();
+ assert_eq!(split.note_ids,vec![note2.clone()]);
+ assert_eq!(split.topic.created_by,"manual");
+ // re-assign note2 to 相邻主题 so the relation has two-sided evidence
+ store.apply_batch("m",&scope,&[(note2.clone(),hash,vec!["相邻主题".into()])]).unwrap();
+ let rel2=store.add_relation(&other_id,&split.topic.id,"笔记同源",&note2).unwrap();
+ assert!(store.list_relations().unwrap().iter().any(|r|r.id==rel2));
+ store.remove_relation(&rel2).unwrap();
+ assert!(store.list_relations().unwrap().is_empty());
+ // column move + auto toggle
+ store.set_topic_column(&split.topic.id,"机器学习").unwrap();
+ assert!(store.list_topics().unwrap().iter().find(|t|t.topic.id==split.topic.id).unwrap().topic.column=="机器学习");
+ assert!(!store.auto_organize().unwrap());
+ store.set_auto_organize(true).unwrap();
+ assert!(store.auto_organize().unwrap());
+}

@@ -124,3 +124,8 @@
     - 外链：`open_external` 仅 http(s)、xdg-open 分离进程；渲染区链接点击统一拦截（`lib/links.ts` + 三处 prose 接线），webview 不再自行导航。
     - 验证：core 12 项 notes（+1 来源 roundtrip/拒绝/清除/重建保留）、前端 78 项（+2 links helper）、knowledge smoke 扩展来源编辑断言与导出（单篇+全部，文件内容校验）、javascript: URL 拒绝断言。
 22. 单元状态：Unit A 完成。下一步：Unit B（主题改名/合并/拆分/重归类+关系+锁定+自动增量）→ Unit C（SVG 图谱）→ Unit D（自动划词浮条）。
+23. **主题治理与关系 + 自动增量（2026-11-02）**：
+    - core：rename_topic / set_topic_column / merge_topics（成员迁移、触及关系随删、目标锁定拒绝）/ split_membership（移动语义）/ delete_topic（成员+触及关系+主题单事务删除）/ set_topic_locked / add_relation(证据必须同时属于两侧主题)/ remove_relation / list_relations / auto_organize 开关（meta 表）。
+    - shell：organize_rename/set_column/merge/split/set_locked/delete_topic/add_relation/remove_relation/list_relations/set_auto/get_auto 共 12 命令；UI 主题覆盖层加治理区（重命名/栏目/锁定/删除主题）与关系列表；整理面板加"自动整理新收藏"开关（持久化 meta）；收藏成功后 runAutoFor 静默增量。
+    - 修复：organize_delete_topic 初版用哨兵合并写法被目标缺失阻断——改为专用 delete_topic；relations/meta 表首次建库重复声明去重。
+    - 验证：core organize 5 项（+治理全链：改名/锁拒合并/合并删悬空关系/拆分移动/两侧行为证据关系/栏目/开关）；前端 80 项（+6）；knowledge smoke 治理段（rename/locked-skip/delete/auto 持久化）通过。

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-merge"
+description = "Enables the organize_merge command without any pre-configured scope."
+commands.allow = ["organize_merge"]
+
+[[permission]]
+identifier = "deny-organize-merge"
+description = "Denies the organize_merge command without any pre-configured scope."
+commands.deny = ["organize_merge"]

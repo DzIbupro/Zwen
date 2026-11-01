@@ -3,7 +3,7 @@ import {KnowledgeController,type KnowledgePort,type NoteMeta,type Note} from '..
 const cleanups:(()=>void)[]=[];afterEach(()=>cleanups.splice(0).forEach(f=>f()));
 function meta(id='a'.repeat(32)):NoteMeta{return{id,title:'正则化笔记',createdAt:1700000000,source:'chat',model:'glm-4.7-flash',attachments:[]};}
 function fixture(initial:NoteMeta[]=[],fail?:{list?:boolean;remove?:boolean}){
- let notes=initial;let saved:Note|null=null;const edits:Record<string,string>={};
+ let notes=initial;let saved:Note|null=null;const edits:Record<string,string>={};let autoFlag=false;
  const port:KnowledgePort={
   list:async query=>{if(fail?.list)throw Error('知识库读取失败');if(!query)return notes.map(n=>({...n}));return notes.filter(n=>n.title.includes(query)).map(n=>({...n}));},
   read:async id=>{if(saved&&saved.meta.id===id)return saved;const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');return{meta:{...m,attachments:[]},body:edits[id]??'正文'};},
@@ -14,10 +14,13 @@ function fixture(initial:NoteMeta[]=[],fail?:{list?:boolean;remove?:boolean}){
   exportNote:async id=>`/tmp/export-${id.slice(0,8)}.md`,
   exportAll:async()=>'/tmp/export-all',
   rebuild:async()=>notes.length,
-  topics:async()=>notes.map(n=>({topic:{id:`t-${n.id}`,name:`主题-${n.title}`,column:'',createdBy:'ai',batchId:'b1',createdAt:1},noteIds:[n.id],count:1})),
+  topics:async()=>notes.map(n=>({topic:{id:`t-${n.id}`,name:`主题-${n.title}`,column:'',createdBy:'ai',batchId:'b1',createdAt:1,locked:false},noteIds:[n.id],count:1})),
   topicNotes:async topicId=>{const t=notes.find(n=>`t-${n.id}`===topicId);return t?[{meta:{...t,attachments:[]},body:'主题笔记'}]:[];},
   run:async ids=>({batchId:'batch-1',topics:ids.length,assignments:ids.length}),
   undo:async()=>{},
+  renameTopic:async()=>{},setTopicColumn:async()=>{},mergeTopics:async()=>{},splitNote:async()=>{throw Error('x')},
+  setLocked:async()=>{},deleteTopic:async()=>{},listRelations:async()=>[],addRelation:async()=>{throw Error('x')},removeRelation:async()=>{},
+  setAuto:async (value:boolean)=>{autoFlag=value;},getAuto:async()=>autoFlag,
  };
  const controller=new KnowledgeController(port,()=>{});cleanups.push(()=>controller.dispose());
  return {controller,get notes(){return notes;},port,get saved(){return saved;}};
@@ -155,4 +158,25 @@ it('a failed organize reports and keeps the selection',async()=>{
  expect(f.controller.state.notice).toContain('整理模型调用未成功');
  expect(Object.keys(f.controller.state.selected).length).toBe(1);
  expect(f.controller.state.lastBatch).toBeNull();
+});
+
+it('auto toggle persists and runAutoFor runs only when enabled',async()=>{
+ let ran=0;let auto=false;
+ const f=fixture([meta()]);
+ f.port.run=async ids=>{ran++;return{batchId:`b${ran}`,topics:1,assignments:1};};
+ f.port.getAuto=async()=>auto;f.port.setAuto=async (value:boolean)=>{auto=value;};
+ await f.controller.runAutoFor(meta().id);
+ expect(ran).toBe(0);
+ await f.controller.setAuto(true);
+ expect(f.controller.state.auto).toBe(true);
+ await f.controller.runAutoFor(meta().id);
+ expect(ran).toBe(1);
+});
+it('governance wrappers refresh topics and report failures',async()=>{
+ const f=fixture([meta()]);await f.controller.refresh();await f.controller.loadTopics();
+ await f.controller.renameTopic('t-'+meta().id,'改名');
+ expect(f.controller.state.notice).toBe('');
+ f.port.renameTopic=async()=>{throw Error('重命名未完成');};
+ await f.controller.renameTopic('t-'+meta().id,'x');
+ expect(f.controller.state.notice).toContain('重命名未完成');
 });

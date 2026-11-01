@@ -107,6 +107,27 @@
   if(!String(exportPath).endsWith('.md'))throw Error('Export path invalid: '+exportPath);
   const exportAllPath=await invoke('notes_export_all');
   const exported=await invoke('notes_list',{query:''});
-  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',v:DRIVER_VERSION,saved:true,rebuild:true,search:true,detail:true,deleted:true,organized:true,undone:true,exportPath:String(exportPath),exportAllPath:String(exportAllPath),exportedCount:exported.length});
- }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'knowledge',stage,error:JSON.stringify(e),ui:document.body.innerText.slice(0,1200)});}
+  stage='governance';
+  await invoke('organize_run',{noteIds:['abcdef0123456789abcdef0123456789']});
+  let topics=await invoke('organize_topics');
+  const tid=topics[0].topic.id;
+  await invoke('organize_rename',{topicId:tid,name:'改名主题'});
+  topics=await invoke('organize_topics');
+  if(topics[0].topic.name!=='改名主题')throw Error('rename failed');
+  await invoke('organize_set_locked',{topicId:tid,locked:true});
+  const lockedCount=topics[0].count;
+  await invoke('organize_run',{noteIds:['abcdef0123456789abcdef0123456789']});
+  topics=await invoke('organize_topics');
+  if(topics[0].count!==lockedCount)throw Error('locked topic was written by AI');
+  await invoke('organize_delete_topic',{topicId:tid});
+  for(const t of await invoke('organize_topics')){
+   await invoke('organize_delete_topic',{topicId:t.topic.id});
+  }
+  topics=await invoke('organize_topics');
+  if(topics.length!==0)throw Error('delete topic failed');
+  await invoke('organize_set_auto',{on:true});
+  if(!(await invoke('organize_get_auto')))throw Error('auto toggle not persisted');
+  if((await invoke('organize_list_relations')).length!==0)throw Error('unexpected relations');
+  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',v:DRIVER_VERSION,saved:true,rebuild:true,search:true,detail:true,deleted:true,organized:true,undone:true,exportPath:String(exportPath),exportAllPath:String(exportAllPath),exportedCount:exported.length,governance:true,auto:true});
+ }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'knowledge',stage,error:String(e&&e.message||e),ui:document.body.innerText.slice(0,1200)});}
 })();

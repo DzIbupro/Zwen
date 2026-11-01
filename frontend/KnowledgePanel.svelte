@@ -11,6 +11,9 @@
  let srcUrl: string = $state('');
  let srcLoc: string = $state('');
  let exportMsg: string = $state('');
+ let govName: string = $state('');
+ let govColumn: string = $state('');
+ let govArmed: boolean = $state(false);
  const dateText=(value:number)=>new Date(value*1000).toLocaleString('zh-CN',{dateStyle:'short',timeStyle:'short'});
  const selectedCount=$derived(Object.keys(info.selected).length);
 </script>
@@ -53,6 +56,7 @@
     </div>
    {:else}
     <p class="organize-hint">勾选 1–8 篇笔记（它们将被发送给 {modelLabel} 归纳主题）：</p>
+    <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏（收藏后自动为该笔记归纳主题）</label>
     <ul class="note-list organize-select">
      {#each info.notes as note (note.id)}
       <li><label class="organize-row"><input type="checkbox" data-select={note.id} checked={info.selected[note.id]===true} onchange={()=>controller.toggleSelect(note.id)}/><span><strong>{note.title}</strong><small>{dateText(note.createdAt)}</small></span></label></li>
@@ -71,12 +75,21 @@
    <button data-knowledge-rebuild disabled={info.busy} title="从 Markdown 文件重建索引（正文是权威）" onclick={()=>void controller.rebuild()}>重建索引</button>
   </div>
   {#if info.topics.length>0&&!info.query}
-   <div class="topics-strip" data-topics-strip>{#each info.topics as topicView (topicView.topic.id)}<button data-topic-chip onclick={()=>void controller.openTopic(topicView.topic.id)}>{topicView.topic.name}（{topicView.count}）</button>{/each}</div>
+   <div class="topics-strip" data-topics-strip>{#each info.topics as topicView (topicView.topic.id)}<button data-topic-chip onclick={()=>void controller.openTopic(topicView.topic.id)}>{topicView.topic.name}（{topicView.count}）{topicView.topic.locked?' 🔒':''}</button>{/each}</div>
   {/if}
   {#if info.topicView}
+   {@const lockedCurrent=info.topics.find(t=>t.topic.id===info.topicView?.id)?.topic.locked??false}
    <div class="topic-view" data-topic-view>
     <div class="note-toolbar"><strong>{info.topicView.title}</strong><button onclick={()=>controller.closeTopic()}>关闭</button></div>
     <ul class="note-list">{#each info.topicView.notes as note (note.meta.id)}<li><button onclick={()=>void controller.open(note.meta.id)}><strong>{note.meta.title}</strong><small>{dateText(note.meta.createdAt)}</small></button></li>{/each}</ul>
+    <div class="gov" data-topic-gov>
+     <div class="gov-row"><input data-gov-rename placeholder="重命名为…" bind:value={govName} maxlength="200"/><button disabled={info.busy||!govName.trim()} onclick={()=>void controller.renameTopic(info.topicView!.id,govName).then(()=>govName='')}>重命名</button></div>
+     <div class="gov-row"><input data-gov-column placeholder="栏目（重新归类）" bind:value={govColumn} maxlength="80"/><button disabled={info.busy} onclick={()=>void controller.setTopicColumn(info.topicView!.id,govColumn).then(()=>govColumn='')}>改栏目</button></div>
+     <div class="gov-row"><button data-gov-lock disabled={info.busy} onclick={()=>void controller.lockTopic(info.topicView!.id,!lockedCurrent)}>{lockedCurrent?'解锁主题':'锁定主题'}</button><button data-gov-delete disabled={info.busy} onclick={()=>{if(govArmed){void controller.deleteTopic(info.topicView!.id);govArmed=false;}else{govArmed=true;}}}>{govArmed?'确认删除主题':'删除主题'}</button><span class="gov-hint">锁定后 AI 整理不会写入该主题；删除主题保留笔记原文</span></div>
+     {#each info.relations.filter(r=>r.fromTopic===info.topicView?.id||r.toTopic===info.topicView?.id) as rel (rel.id)}
+      <div class="gov-row" data-relation={rel.id}><span class="gov-hint">{rel.reason}</span><button onclick={()=>void controller.removeRelation(rel.id)}>删关系</button></div>
+     {/each}
+    </div>
    </div>
   {:else}
    {#if info.notice}<div class="knowledge-notice" role="status">{info.notice}</div>{/if}
@@ -117,4 +130,5 @@
  .organize-confirm,.organize-result{border:1px solid #dce2d2;border-radius:11px;background:#fbfcf6;padding:15px 17px}
  .note-source{font-size:12px;color:#697663;margin:-6px 0 12px}.note-source a{color:#3b7350}
  .topic-view{border:1px solid #dce2d2;border-radius:11px;background:#fbfcf6;padding:13px 15px}
+ .gov{margin-top:12px;display:flex;flex-direction:column;gap:6px;border-top:1px dashed #dbe3cd;padding-top:10px}.gov-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.gov-row input{border:1px solid #d7dece;border-radius:7px;padding:7px 10px;font:inherit;font-size:12px;flex:1;min-width:140px;background:#fffef9;color:#333d36}.gov-hint{font-size:11px;color:#8b967e}.auto-row{display:flex;gap:8px;align-items:center;font-size:12px;color:#55634b;margin-bottom:8px}
 </style>

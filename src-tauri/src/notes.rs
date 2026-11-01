@@ -175,3 +175,59 @@ pub fn open_external(url:String)->Result<(),ClientError>{
  std::process::Command::new("xdg-open").arg(url).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|_|ClientError{code:"open_failed",message:"系统浏览器打开失败".into()})?;
  Ok(())
 }
+
+#[tauri::command]
+pub async fn organize_rename(storage:tauri::State<'_,SharedStorage>,topic_id:String,name:String)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.rename_topic(&topic_id,&name)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_set_column(storage:tauri::State<'_,SharedStorage>,topic_id:String,column:String)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.set_topic_column(&topic_id,&column)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_merge(storage:tauri::State<'_,SharedStorage>,source:String,target:String)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.merge_topics(&source,&target)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_split(storage:tauri::State<'_,SharedStorage>,note_id:String,from:String,to_name:String,column:String)->Result<String,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<String,ClientError>{Ok(organize_store(&storage)?.split_membership(&note_id,&from,&to_name,&column)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_set_locked(storage:tauri::State<'_,SharedStorage>,topic_id:String,locked:bool)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.set_topic_locked(&topic_id,locked)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_delete_topic(storage:tauri::State<'_,SharedStorage>,topic_id:String)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.delete_topic(&topic_id)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_add_relation(storage:tauri::State<'_,SharedStorage>,from_topic:String,to_topic:String,reason:String,evidence:String)->Result<String,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<String,ClientError>{Ok(organize_store(&storage)?.add_relation(&from_topic,&to_topic,&reason,&evidence)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_remove_relation(storage:tauri::State<'_,SharedStorage>,relation_id:String)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.remove_relation(&relation_id)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_list_relations(storage:tauri::State<'_,SharedStorage>)->Result<Vec<zwen_core::organize::Relation>,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<Vec<zwen_core::organize::Relation>,ClientError>{Ok(organize_store(&storage)?.list_relations()?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_set_auto(storage:tauri::State<'_,SharedStorage>,on:bool)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.set_auto_organize(on)?)}).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn organize_get_auto(storage:tauri::State<'_,SharedStorage>)->Result<bool,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<bool,ClientError>{Ok(organize_store(&storage)?.auto_organize()?)}).await.map_err(|_|ClientError::storage())?
+}

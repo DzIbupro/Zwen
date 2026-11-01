@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-add-relation"
+description = "Enables the organize_add_relation command without any pre-configured scope."
+commands.allow = ["organize_add_relation"]
+
+[[permission]]
+identifier = "deny-organize-add-relation"
+description = "Denies the organize_add_relation command without any pre-configured scope."
+commands.deny = ["organize_add_relation"]

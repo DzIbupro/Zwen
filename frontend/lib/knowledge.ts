@@ -2,9 +2,10 @@ export interface NoteMeta {id:string;title:string;createdAt:number;source:string
 export interface Note {meta:NoteMeta;body:string}
 export interface SourceMetaInput {sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}
 export interface SaveNoteInput {title:string;body:string;source:string;model:string;attachmentIds:string[];requestId?:string|null}
-export interface TopicInfo {id:string;name:string;column:string;createdBy:string;batchId:string|null;createdAt:number}
+export interface TopicInfo {id:string;name:string;column:string;createdBy:string;batchId:string|null;createdAt:number;locked:boolean}
 export interface TopicView {topic:TopicInfo;noteIds:string[];count:number}
 export interface OrganizeSummaryView {batchId:string;topics:number;assignments:number}
+export interface RelationView {id:string;fromTopic:string;toTopic:string;reason:string;evidence:string;addedBy:string}
 export interface KnowledgePort {
  list(query:string):Promise<NoteMeta[]>;
  read(id:string):Promise<Note>;
@@ -19,13 +20,25 @@ export interface KnowledgePort {
  topicNotes(topicId:string):Promise<Note[]>;
  run(noteIds:string[]):Promise<OrganizeSummaryView>;
  undo(batchId:string):Promise<void>;
+ renameTopic(topicId:string,name:string):Promise<void>;
+ setTopicColumn(topicId:string,column:string):Promise<void>;
+ mergeTopics(source:string,target:string):Promise<void>;
+ splitNote(noteId:string,from:string,toName:string,column:string):Promise<string>;
+ setLocked(topicId:string,locked:boolean):Promise<void>;
+ deleteTopic(topicId:string):Promise<void>;
+ listRelations():Promise<RelationView[]>;
+ addRelation(fromTopic:string,toTopic:string,reason:string,evidence:string):Promise<string>;
+ removeRelation(relationId:string):Promise<void>;
+ setAuto(on:boolean):Promise<void>;
+ getAuto():Promise<boolean>;
 }
 export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null;busy:boolean;loaded:boolean;notice:string;
  topics:TopicView[];organizeMode:boolean;selected:Record<string,boolean>;confirming:boolean;organizeBusy:boolean;
- lastBatch:string|null;lastSummary:OrganizeSummaryView|null;topicView:{title:string;notes:Note[]}|null}
+ lastBatch:string|null;lastSummary:OrganizeSummaryView|null;topicView:{id:string;title:string;notes:Note[]}|null;
+ relations:RelationView[];auto:boolean}
 
 export class KnowledgeController {
- state:KnowledgeState={notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null};
+ state:KnowledgeState={notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false};
  private disposed=false;
  constructor(private port:KnowledgePort,private changed:(s:KnowledgeState)=>void){}
  private publish(patch:Partial<KnowledgeState>):void{
@@ -164,7 +177,7 @@ export class KnowledgeController {
   try{
    const notes=await this.port.topicNotes(topicId);
    const topic=this.state.topics.find(t=>t.topic.id===topicId);
-   this.publish({topicView:{title:topic?.topic.name??'主题',notes}});
+   this.publish({topicView:{id:topicId,title:topic?.topic.name??'主题',notes}});
   }
   catch(error){this.publish({notice:error instanceof Error?error.message:'主题笔记读取失败'});}
   finally{this.publish({busy:false});}
@@ -212,6 +225,25 @@ export class KnowledgeController {
    return null;
   }
   finally{this.publish({busy:false});}
+ }
+ async loadRelations(){
+  if(this.disposed)return;
+  try{const relations=await this.port.listRelations();this.publish({relations});}
+  catch{ /* relation list is auxiliary */ }
+ }
+ async renameTopic(topicId:string,name:string){if(this.disposed||this.state.busy)return;this.publish({busy:true});try{await this.port.renameTopic(topicId,name);const tv=this.state.topicView;if(tv&&tv.id===topicId)this.publish({topicView:{...tv,title:name}});await this.loadTopics();}catch(error){this.publish({notice:error instanceof Error?error.message:'重命名未完成'});}finally{this.publish({busy:false});}}
+ async setTopicColumn(topicId:string,column:string){if(this.disposed||this.state.busy)return;this.publish({busy:true});try{await this.port.setTopicColumn(topicId,column);await this.loadTopics();}catch(error){this.publish({notice:error instanceof Error?error.message:'栏目修改未完成'});}finally{this.publish({busy:false});}}
+ async mergeTopics(source:string,target:string){if(this.disposed||this.state.busy)return;this.publish({busy:true});try{await this.port.mergeTopics(source,target);if(this.state.topicView?.id===source)this.publish({topicView:null});await this.loadTopics();}catch(error){this.publish({notice:error instanceof Error?error.message:'合并未完成'});}finally{this.publish({busy:false});}}
+ async lockTopic(topicId:string,locked:boolean){if(this.disposed||this.state.busy)return;this.publish({busy:true});try{await this.port.setLocked(topicId,locked);await this.loadTopics();}catch(error){this.publish({notice:error instanceof Error?error.message:'锁定修改未完成'});}finally{this.publish({busy:false});}}
+ async deleteTopic(topicId:string){if(this.disposed||this.state.busy)return;this.publish({busy:true});try{await this.port.deleteTopic(topicId);if(this.state.topicView?.id===topicId)this.publish({topicView:null});await this.loadTopics();}catch(error){this.publish({notice:error instanceof Error?error.message:'删除主题未完成'});}finally{this.publish({busy:false});}}
+ async addRelation(fromTopic:string,toTopic:string,reason:string,evidence:string){if(this.disposed||this.state.busy)return;this.publish({busy:true});try{await this.port.addRelation(fromTopic,toTopic,reason,evidence);await this.loadRelations();}catch(error){this.publish({notice:error instanceof Error?error.message:'关系添加未完成'});}finally{this.publish({busy:false});}}
+ async removeRelation(relationId:string){if(this.disposed||this.state.busy)return;try{await this.port.removeRelation(relationId);await this.loadRelations();}catch(error){this.publish({notice:error instanceof Error?error.message:'关系删除未完成'});}}
+ async setAuto(on:boolean){if(this.disposed)return;try{await this.port.setAuto(on);this.publish({auto:on});}catch(error){this.publish({notice:error instanceof Error?error.message:'自动整理开关未完成'});}}
+ /// Auto incremental organizing for a freshly collected note. Silent on
+ /// failure: the manual flow remains the source of truth.
+ async runAutoFor(noteId:string):Promise<void>{
+  if(this.disposed||this.state.organizeBusy||this.state.busy)return;
+  try{if(await this.port.getAuto())await this.port.run([noteId]);}catch{/* silent by design */}
  }
  async rebuild(){
   if(this.disposed||this.state.busy)return;

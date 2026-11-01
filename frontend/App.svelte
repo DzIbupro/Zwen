@@ -89,7 +89,7 @@
     const title=reply.prompt.replace(/\s+/g,' ').trim().slice(0,60);
     const body=`## 问题\n\n${reply.prompt}\n\n## 回答\n\n${reply.answer}`;
     const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:attachmentState.items.map(item=>item.id),requestId:reply.requestId});
-    if(saved)notice='已收藏到知识库';
+    if(saved){notice='已收藏到知识库';await knowledge.runAutoFor(saved.id);}
   }
 
   function applySurface(next:SurfaceInfo){if(canApplySurface(surface.generation,next.generation)){surface=next;document.documentElement.dataset.surface=next.mode;}}
@@ -108,7 +108,7 @@
   const selection=new SelectionController(selectionPort,controller,s=>selectionState=s);
   let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
   const attachmentController=new AttachmentController(attachmentPort,s=>attachmentState=s);
-  let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null});
+  let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false});
   const knowledge=new KnowledgeController(knowledgePort,s=>knowledgeState=s);
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
