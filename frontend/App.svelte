@@ -22,8 +22,11 @@
   import Attachments from './Attachments.svelte';
   import {AttachmentController,type AttachmentState} from './lib/attachments';
   import {attachmentPort} from './lib/bridge';
+  import KnowledgePanel from './KnowledgePanel.svelte';
+  import {KnowledgeController,type KnowledgeState} from './lib/knowledge';
+  import {knowledgePort} from './lib/bridge';
   let notice=$state('');
-  let view=$state<'ask'|'preview'|'reply'|'settings'|'history'>('ask');
+  let view=$state<'ask'|'preview'|'reply'|'settings'|'history'|'knowledge'>('ask');
   let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,keySource:null,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'loading',loaded:false,error:null,secretSaving:false,secretNotice:null});
   const provider=new ProviderController(providerPort,s=>settings=s);
   let surface=$state<SurfaceInfo>({mode:'full',scaleFactor:1,generation:0,bounds:{width:480,initialHeight:96,maxHeight:594}});
@@ -66,6 +69,14 @@
   function stopReply(){if(responseKind==='demo')demo.stop();else void chat.stop().catch(()=>{});}
   async function retryReplySave(){try{await chat.settle();}catch(e){notice=e instanceof Error?e.message:'回答保存未完成';}}
   function captureScreenshot(replaceId?:string|null){if(!isDesktop){notice='浏览器仅预览，请在桌面应用中截图';return;}void attachmentController.capture(replaceId??null);}
+  async function saveToKnowledge(){
+    const reply=chatState.reply;
+    if(!reply||!reply.answer||chatState.running)return;
+    const title=reply.prompt.replace(/\s+/g,' ').trim().slice(0,60);
+    const body=`## 问题\n\n${reply.prompt}\n\n## 回答\n\n${reply.answer}`;
+    const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:attachmentState.items.map(item=>item.id)});
+    if(saved)notice='已收藏到知识库';
+  }
 
   function applySurface(next:SurfaceInfo){if(canApplySurface(surface.generation,next.generation)){surface=next;document.documentElement.dataset.surface=next.mode;}}
   async function switchSurface(mode:'full'|'capsule'){
@@ -83,6 +94,8 @@
   const selection=new SelectionController(selectionPort,controller,s=>selectionState=s);
   let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
   const attachmentController=new AttachmentController(attachmentPort,s=>attachmentState=s);
+  let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:''});
+  const knowledge=new KnowledgeController(knowledgePort,s=>knowledgeState=s);
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
   const example = `## 把复杂，拆成可以理解的部分\n\n正则化让模型在拟合数据与控制复杂度之间取得平衡。\n\n| 方法 | 思路 | 适用场景 |\n| --- | --- | --- |\n| L1 | 让部分参数变为零 | 特征选择 |\n| L2 | 限制参数的幅度 | 改善泛化 |\n\n行内公式 $E=mc^2$，也可以清楚地展示：\n\n$$\nL(w)=\\frac{1}{n}\\sum_{i=1}^{n}(y_i-w^Tx_i)^2+\\lambda\\lVert w\\rVert_2^2\n$$\n\n> 先理解一个概念，再把它与已有知识连起来。\n\n\`\`\`python\nloss = data_loss + strength * penalty\n\`\`\``;
@@ -114,7 +127,7 @@
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>void leave(quit)).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{notice='关闭事件暂不可用，请使用面板按钮';});
     }
-    return ()=>{disposed=true;for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();chat.dispose();demo.stop();resizeQueue.clear();};
+    return ()=>{disposed=true;for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();demo.stop();resizeQueue.clear();};
   });
 </script>
 
@@ -129,10 +142,12 @@
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器交互预览 · 草稿仅保存在此浏览器；桌面版使用本机数据库</div>{/if}
   <div class="workspace">
-    <nav aria-label="面板视图"><div class="tabs"><button class:active={view==='ask'} aria-pressed={view==='ask'} onclick={()=>view='ask'}>提问</button><button data-preview class:active={view==='preview'} aria-pressed={view==='preview'} onclick={()=>view='preview'}>格式预览</button>{#if chatState.reply||chatState.running||chatState.error}<button aria-pressed={view==='reply'&&responseKind==='model'} class:active={view==='reply'&&responseKind==='model'} onclick={()=>{responseKind='model';view='reply';}}>模型回复</button>{/if}{#if demoText}<button aria-pressed={view==='reply'&&responseKind==='demo'} class:active={view==='reply'&&responseKind==='demo'} onclick={()=>{responseKind='demo';view='reply';}}>演示回复</button>{/if}<button class:active={view==='history'} aria-pressed={view==='history'} onclick={()=>view='history'}>历史</button><button disabled={chatState.running||chatState.stopping} onclick={newConversation}>新对话</button><button class:active={view==='settings'} aria-pressed={view==='settings'} onclick={()=>view='settings'}>模型设置</button></div><span class="model-status"><i></i> {settings.config?'模型已配置':'模型未配置'}</span></nav>
+    <nav aria-label="面板视图"><div class="tabs"><button class:active={view==='ask'} aria-pressed={view==='ask'} onclick={()=>view='ask'}>提问</button><button data-preview class:active={view==='preview'} aria-pressed={view==='preview'} onclick={()=>view='preview'}>格式预览</button>{#if chatState.reply||chatState.running||chatState.error}<button aria-pressed={view==='reply'&&responseKind==='model'} class:active={view==='reply'&&responseKind==='model'} onclick={()=>{responseKind='model';view='reply';}}>模型回复</button>{/if}{#if demoText}<button aria-pressed={view==='reply'&&responseKind==='demo'} class:active={view==='reply'&&responseKind==='demo'} onclick={()=>{responseKind='demo';view='reply';}}>演示回复</button>{/if}<button class:active={view==='history'} aria-pressed={view==='history'} onclick={()=>view='history'}>历史</button><button class:active={view==='knowledge'} aria-pressed={view==='knowledge'} onclick={()=>{view='knowledge';void knowledge.refresh();}}>知识库</button><button disabled={chatState.running||chatState.stopping} onclick={newConversation}>新对话</button><button class:active={view==='settings'} aria-pressed={view==='settings'} onclick={()=>view='settings'}>模型设置</button></div><span class="model-status"><i></i> {settings.config?'模型已配置':'模型未配置'}</span></nav>
     <main>
       {#if view==='history'}
         <HistoryPanel port={historyPort} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory}/>
+      {:else if view==='knowledge'}
+        <KnowledgePanel controller={knowledge} info={knowledgeState}/>
       {:else if view==='settings'}
         <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>
       {:else if view==='ask'}
@@ -140,7 +155,7 @@
         <section class="suggestions" aria-label="开始一个草稿"><button disabled={!draft.loaded} onclick={()=>fill('请帮我解释这段内容：\n\n')}><span class="suggestion-icon">Aa</span><strong>读懂一段内容</strong><span>换个角度，把意思讲清楚</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('我想理解这个公式：\n\n')}><span class="suggestion-icon">ƒ</span><strong>理解一个公式</strong><span>从符号到它背后的直觉</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('帮我梳理这个想法：\n\n')}><span class="suggestion-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c0 5-4 9-9 9 5 0 9 4 9 9 0-5 4-9 9-9-5 0-9-4-9-9Z"/></svg></span><strong>梳理一个想法</strong><span>先记下来，再找到联系</span><b>↗</b></button></section>
         <div class="connection-note"><span aria-hidden="true">◌</span><p>这里会成为你的问答空间。<br/><span>先连接你的模型。继续提问会附带本会话近期内容；切换服务请新建对话。</span></p></div>
       {:else}
-        <section class="answer"><div class="answer-label"><span class="assistant-dot"></span><strong>{view==='reply'&&responseKind==='model'?chatState.reply?.model||'模型回复':'阅读效果'}</strong><span>{view==='reply' ? `${replyLabel} · ${replyStatus}` : draft.text.trim() ? '草稿排版预览 · 非 AI 回答' : '内置示例 · 非 AI 回答'}</span></div>{#if view==='reply'&&responseKind==='model'&&chatState.reply}<details class="question-summary"><summary>本轮问题 · 上下文 {chatState.reply.contextTurns} 轮</summary><p>{chatState.reply.prompt}</p></details>{/if}<div class="prose">{@html preview}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{responseKind==='demo'?'停止演示':'停止生成'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
+        <section class="answer"><div class="answer-label"><span class="assistant-dot"></span><strong>{view==='reply'&&responseKind==='model'?chatState.reply?.model||'模型回复':'阅读效果'}</strong><span>{view==='reply' ? `${replyLabel} · ${replyStatus}` : draft.text.trim() ? '草稿排版预览 · 非 AI 回答' : '内置示例 · 非 AI 回答'}</span></div>{#if view==='reply'&&responseKind==='model'&&chatState.reply}<details class="question-summary"><summary>本轮问题 · 上下文 {chatState.reply.contextTurns} 轮</summary><p>{chatState.reply.prompt}</p></details>{/if}<div class="prose">{@html preview}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{responseKind==='demo'?'停止演示':'停止生成'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save onclick={()=>void saveToKnowledge()}>收藏到知识库</button>{/if}{#if view==='reply'&&responseKind==='model'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
       {/if}
     </main>
     <SelectionNotice state={selectionState} onRetry={()=>void selection.applyPending()} onDiscard={()=>void selection.discard()} onReload={()=>void selection.refresh()}/>

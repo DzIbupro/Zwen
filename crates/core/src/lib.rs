@@ -26,6 +26,8 @@ pub enum Error {
     AttachmentLimit,
     InvalidImage,
     AttachmentMissing,
+    InvalidNote,
+    NoteMissing,
 }
 impl From<rusqlite::Error> for Error {
     fn from(value: rusqlite::Error) -> Self { Self::Database(value) }
@@ -49,6 +51,8 @@ impl fmt::Display for Error {
             Self::AttachmentLimit => "截图附件已达上限（最多 3 张、合计 48 MiB）；请先删除旧截图",
             Self::InvalidImage => "截图无效或超出大小限制；请删除该截图后重新截图",
             Self::AttachmentMissing => "截图文件不可读；可删除后重新截图",
+            Self::InvalidNote => "笔记内容无效或超过大小限制；未保存，原文件已保留",
+            Self::NoteMissing => "笔记不存在或已被删除",
         })
     }
 }
@@ -148,3 +152,5 @@ pub mod selection;
 pub mod screenshot;
 
 pub mod attachment;
+
+pub mod notes;

@@ -5,6 +5,7 @@ mod provider;
 mod windows;
 mod attachment;
 mod secret;
+mod notes;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 use zwen_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
@@ -18,7 +19,7 @@ impl ClientError {
 }
 impl From<CoreError> for ClientError {
     fn from(error: CoreError) -> Self {
-        let code = match error { CoreError::ConversationChanged=>"conversation_changed",CoreError::ContextTooLarge=>"context_too_large",CoreError::InvalidChat=>"invalid_chat",CoreError::ChatConflict=>"chat_conflict",CoreError::InvalidProvider=>"invalid_provider",CoreError::ProviderConflict=>"provider_conflict",CoreError::Conflict=>"conflict", CoreError::TooLarge=>"too_large", CoreError::UnsupportedSchema=>"unsupported_schema", CoreError::AttachmentLimit=>"attachment_limit", CoreError::InvalidImage=>"invalid_image", CoreError::AttachmentMissing=>"attachment_missing", CoreError::Database(_) | CoreError::Io(_)=>"storage_unavailable" };
+        let code = match error { CoreError::ConversationChanged=>"conversation_changed",CoreError::ContextTooLarge=>"context_too_large",CoreError::InvalidChat=>"invalid_chat",CoreError::ChatConflict=>"chat_conflict",CoreError::InvalidProvider=>"invalid_provider",CoreError::ProviderConflict=>"provider_conflict",CoreError::Conflict=>"conflict", CoreError::TooLarge=>"too_large", CoreError::UnsupportedSchema=>"unsupported_schema", CoreError::AttachmentLimit=>"attachment_limit", CoreError::InvalidImage=>"invalid_image", CoreError::AttachmentMissing=>"attachment_missing", CoreError::InvalidNote=>"invalid_note", CoreError::NoteMissing=>"note_missing", CoreError::Database(_) | CoreError::Io(_)=>"storage_unavailable" };
         Self { code, message: error.to_string() }
     }
 }
@@ -97,7 +98,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action); }
         }))
-        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret])
+        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_rebuild])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
