@@ -1,5 +1,6 @@
 """Synthetic knowledge-base flow over an owned window and temp databases."""
-import json,os,sqlite3,subprocess,sys,tempfile,time
+import json,os,re,sqlite3,subprocess,sys,tempfile,time
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 binary=Path(sys.argv[1]).resolve()
 assert subprocess.run(['pgrep','-x','zwen'],capture_output=True).returncode!=0,'Save and quit existing Zwen before isolated native tests'
@@ -22,8 +23,36 @@ db.executescript("CREATE TABLE turns(id INTEGER PRIMARY KEY,request_id TEXT NOT 
 db.execute("INSERT INTO turns(request_id,conversation_id,provider_profile,context_turns,prompt,model,answer,revision,state) VALUES('seedturn0001','conv1','p',0,'原始问题文本','fixture-model','原始回答内容',1,'complete')")
 db.commit();db.close()
 
+# Synthetic organize service: verifies the prompt carries the note ids and the
+# JSON-only instruction, then streams back a one-topic assignment for each.
+requests=[];server_errors=[]
+class OrganizeService(BaseHTTPRequestHandler):
+ def log_message(self,*args):pass
+ def do_POST(self):
+  try:
+   assert self.path=='/v1/chat/completions'
+   assert self.headers.get('Authorization')=='Bearer fixture-token'
+   length=int(self.headers['Content-Length']);data=json.loads(self.rfile.read(length))
+   content=data['messages'][-1]['content'];assert isinstance(content,str)
+   assert '只输出一个 JSON 对象' in content,content[:200]
+   ids=re.findall(r'\[笔记 ([0-9a-f]{32})\]',content)
+   assert ids,'prompt did not list any note ids'
+   assign=[{'note':i,'topics':['合成主题']} for i in ids]
+   answer=json.dumps({'topics':[{'name':'合成主题','column':''}],'assign':assign},ensure_ascii=False)
+   requests.append({'model':data['model'],'ids':ids})
+   self.send_response(200);self.send_header('Content-Type','text/event-stream; charset=utf-8');self.end_headers()
+   def frame(text=None,finish=None):
+    delta={} if text is None else {'content':text}
+    return ('data: '+json.dumps({'choices':[{'index':0,'delta':delta,'finish_reason':finish}]},ensure_ascii=False)+'\r\n\r\n').encode()
+   self.wfile.write(frame(answer));self.wfile.write(frame(finish='stop')+b'data: [DONE]\n\n');self.wfile.flush()
+  except (BrokenPipeError,ConnectionResetError):pass
+  except Exception as exc:server_errors.append(f'{type(exc).__name__}: {exc}')
+organize_server=ThreadingHTTPServer(('127.0.0.1',0),OrganizeService)
+import threading as _threading
+_threading.Thread(target=organize_server.serve_forever,daemon=True).start()
+
 env=os.environ.copy()
-env.update({'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'knowledge','ZWEN_SMOKE_TIMEOUT_SECS':'90'})
+env.update({'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'knowledge','ZWEN_SMOKE_TIMEOUT_SECS':'90','ZWEN_PROVIDER_TEST_KEY':'fixture-token','ZWEN_PROVIDER_TEST_BASE':f'http://127.0.0.1:{organize_server.server_port}/v1'})
 process=subprocess.Popen([str(binary)],env=env,stdout=subprocess.PIPE,stderr=(root/'stderr.log').open('wb'),bufsize=0,start_new_session=True)
 selector=__import__('selectors').DefaultSelector();selector.register(process.stdout,__import__('selectors').EVENT_READ);buffer=b'';rows=[];passed=False
 try:
@@ -33,6 +62,7 @@ try:
    chunk=os.read(key.fd,65536);buffer+=chunk
    while b'\n' in buffer:
     line,buffer=buffer.split(b'\n',1);text=line.decode(errors='replace');print(text,flush=True)
+    if text.startswith('PAGE_LOAD'):print(text,flush=True)
     if text.startswith('FOUNDATION_SMOKE:'):
      event=json.loads(text.split(':',1)[1]);rows.append(event)
      if event.get('ok'):passed=True

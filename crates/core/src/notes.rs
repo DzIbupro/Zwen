@@ -15,7 +15,7 @@ pub const MAX_NOTE_ATTACHMENTS:usize=6;
 pub const MAX_SEARCH_QUERY:usize=256;
 pub const MAX_LIST:usize=200;
 const ATTACH_DIR:&str="attachments";
-const TEMP_COUNTER:AtomicU64=AtomicU64::new(0);
+static TEMP_COUNTER:AtomicU64=AtomicU64::new(0);
 
 #[derive(Clone,Debug,PartialEq,Serialize)]
 #[serde(rename_all="camelCase")]

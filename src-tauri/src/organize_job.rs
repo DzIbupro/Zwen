@@ -139,7 +139,7 @@ pub async fn run_organize_job(app:AppHandle,storage:SharedStorage,note_ids:Vec<S
    },
   };
   let prompt=build_prompt(&notes)?;
-  let (cancel,rx)=watch::channel(false);
+  let (_cancel,rx)=watch::channel(false);
   let prompt_ref=prompt.clone();
   let config_ref=config.clone();
   let answer=tokio::task::spawn_blocking(move||run_prompt_text(&prompt_ref,&config_ref,&key,rx)).await.map_err(|_|ClientError::storage())??;

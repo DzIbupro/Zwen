@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-undo"
+description = "Enables the organize_undo command without any pre-configured scope."
+commands.allow = ["organize_undo"]
+
+[[permission]]
+identifier = "deny-organize-undo"
+description = "Denies the organize_undo command without any pre-configured scope."
+commands.deny = ["organize_undo"]

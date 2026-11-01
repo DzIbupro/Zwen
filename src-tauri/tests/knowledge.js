@@ -1,12 +1,20 @@
 (async()=>{
  window.__ZWEN_LOADS__=(window.__ZWEN_LOADS__||0)+1;
  const api=window.__TAURI__,invoke=api.core.invoke;
+ const DRIVER_VERSION=6;
  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
- const wait=async(check,limit=200)=>{for(let i=0;i<limit;i++){if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error('Knowledge fixture timeout');};
+ const wait=async(check,label='Knowledge fixture timeout',limit=200)=>{for(let i=0;i<limit;i++){if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error(label);};
  const items=async()=>[...document.querySelectorAll('[data-note-item]')];
  let stage='boot';
  try{
   await wait(()=>document.querySelector('.shell'));
+  await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'fixture-model',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();
+  await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
+  [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();
+  await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='知识库').click();
+  await wait(()=>document.querySelector('[data-knowledge]'));
   const attachmentId=(await invoke('get_attachments')).items[0]?.id;
   if(!attachmentId)throw Error('seeded attachment missing');
   stage='save';
@@ -69,6 +77,25 @@
   document.querySelector('[data-note-delete]').click();
   await wait(async()=>(await items()).length===1);
   if(document.querySelector('[data-note-detail]'))throw Error('Detail stayed after delete');
-  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',saved:true,rebuild:true,search:true,detail:true,deleted:true});
+  stage='organize';
+  await wait(()=>document.querySelector('[data-organize-start]'));
+  document.querySelector('[data-organize-start]').click();
+  await wait(()=>document.querySelector('[data-organize-panel]'));
+  const orphanBox=document.querySelector('input[data-select="abcdef0123456789abcdef0123456789"]');
+  if(!orphanBox)throw Error('orphan row missing from organize list');
+  orphanBox.click();
+  await wait(()=>document.querySelector('[data-organize-confirm]')?.disabled===false);
+  document.querySelector('[data-organize-confirm]').click();
+  await wait(()=>document.querySelector('[data-organize-confirm-view]'));
+  if(!document.querySelector('[data-organize-confirm-view]').textContent.includes('fixture-model'))throw Error('Confirm view missing model name');
+  document.querySelector('[data-organize-go]').click();
+  await wait(()=>document.querySelector('[data-organize-result]'));
+  await wait(async()=>(await invoke('organize_topics')).length===1,'topics after organize');
+  stage='undo';
+  document.querySelector('[data-organize-undo]').click();
+  await wait(async()=>(await invoke('organize_topics')).length===0,'topics after undo');
+  // Undo is fast: the result view may already be replaced by the select list.
+  await wait(()=>document.querySelector('[data-organize-panel]')&&!document.querySelector('[data-topic-chip]'));
+  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',v:DRIVER_VERSION,saved:true,rebuild:true,search:true,detail:true,deleted:true,organized:true,undone:true});
  }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'knowledge',stage,error:String(e),ui:document.body.innerText.slice(0,1500)});}
 })();

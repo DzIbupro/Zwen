@@ -112,3 +112,9 @@
     - 管线：build_prompt（1–8 篇/正文 4000 字截断/总长 256KiB 上限）、parse_model_output（剥围栏、合并同笔记、丢未知与非法）、run_organize_job（既有 SSE 通路 + 密钥解析 + 单任务互斥 + 失败零修改）。
     - `organize_run` 命令注册（能力最小化照旧）；UI 与首次启用确认待下单元（UI 前命令不可达）。
     - Rust：core 4 项新测试（97）、desktop 6 项解析测试，合计 99 通过；`organize_run` 未接 UI 前无原生 smoke（下单元随 UI 一起加，含合成服务 429/坏 JSON 路径）。
+20. **整理 UI 与首次启用确认（2026-11-02）**：
+    - 知识库页新增"AI 整理"：勾选 1–8 篇 → **确认视图明示模型名、篇数与"正文将发送"**（每次整理都确认，满足"初次启用明确模型与范围"）→ 结果摘要 → **一键撤销本批**；主题条（名称+归属数）常驻列表上方，点主题看成员笔记并可跳详情。
+    - 后端新增 `organize_topics` / `organize_topic_notes`（跨库联表取成员笔记）/ `organize_undo` 命令与权限；`TopicAssignments.note_ids` 改为序列化输出。
+    - 修复真实缺陷：`notes.rs` 的 `TEMP_COUNTER` 误声明为 `const`（每次使用都是新原子，ID 计数器失效）——警告驱动发现，改 `static`。
+    - 验证：Rust 93 项、前端 74 项（+4 整理流）、`svelte-check` 0/0；knowledge smoke 扩展整理服务（断言提示词含笔记 id 与"只输出 JSON"指令）与整理→撤销全流程（批次 undone、成员清空、空 AI 主题移除），连续 3 次通过；**全套原生回归 10/10**。普通二进制 SHA256 见 ordinary-binary.sha256。
+    - 教训（重发）：`include_str!` 驱动改动后必须重建；驱动 `wait(check,label,limit)` 参数顺序曾致立即超时假失败。

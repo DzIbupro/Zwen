@@ -18,7 +18,7 @@ pub const MAX_SCOPE:usize=64;
 pub struct Topic{pub id:String,pub name:String,pub column:String,pub created_by:String,pub batch_id:Option<String>,pub created_at:i64}
 #[derive(Clone,Debug,Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct TopicAssignments{pub topic:Topic,#[serde(skip)] pub note_ids:Vec<String>,pub count:i64}
+pub struct TopicAssignments{pub topic:Topic,pub note_ids:Vec<String>,pub count:i64}
 #[derive(Clone,Debug,Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Batch{pub id:String,pub model:String,status:std::cell::Cell<&'static str>,pub created_at:i64,finished_at:std::cell::Cell<Option<i64>>}
@@ -114,7 +114,7 @@ impl OrganizeStore{
   for (note,hash,topics) in &cleaned{
    for name in topics{
     let existing:Option<(String,String,String)>=tx.query_row("SELECT id,column_name,created_by FROM topics WHERE name=?1",[name],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-    let (topic_id,created)=match existing{
+    let (topic_id,_created)=match existing{
      Some((topic_id,_,_))=>(topic_id,false),
      None=>{
       let topic_id=crate::notes::generate_id();

@@ -1,6 +1,9 @@
 export interface NoteMeta {id:string;title:string;createdAt:number;source:string;model:string;attachments:string[];request?:string|null}
 export interface Note {meta:NoteMeta;body:string}
 export interface SaveNoteInput {title:string;body:string;source:string;model:string;attachmentIds:string[];requestId?:string|null}
+export interface TopicInfo {id:string;name:string;column:string;createdBy:string;batchId:string|null;createdAt:number}
+export interface TopicView {topic:TopicInfo;noteIds:string[];count:number}
+export interface OrganizeSummaryView {batchId:string;topics:number;assignments:number}
 export interface KnowledgePort {
  list(query:string):Promise<NoteMeta[]>;
  read(id:string):Promise<Note>;
@@ -8,11 +11,17 @@ export interface KnowledgePort {
  remove(id:string):Promise<void>;
  update(id:string,title:string,body:string):Promise<NoteMeta>;
  rebuild():Promise<number>;
+ topics():Promise<TopicView[]>;
+ topicNotes(topicId:string):Promise<Note[]>;
+ run(noteIds:string[]):Promise<OrganizeSummaryView>;
+ undo(batchId:string):Promise<void>;
 }
-export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null;busy:boolean;loaded:boolean;notice:string}
+export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null;busy:boolean;loaded:boolean;notice:string;
+ topics:TopicView[];organizeMode:boolean;selected:Record<string,boolean>;confirming:boolean;organizeBusy:boolean;
+ lastBatch:string|null;lastSummary:OrganizeSummaryView|null;topicView:{title:string;notes:Note[]}|null}
 
 export class KnowledgeController {
- state:KnowledgeState={notes:[],query:'',current:null,busy:false,loaded:false,notice:''};
+ state:KnowledgeState={notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null};
  private disposed=false;
  constructor(private port:KnowledgePort,private changed:(s:KnowledgeState)=>void){}
  private publish(patch:Partial<KnowledgeState>):void{
@@ -93,6 +102,70 @@ export class KnowledgeController {
    return null;
   }
  }
+ async loadTopics(){
+  if(this.disposed)return;
+  try{const topics=await this.port.topics();this.publish({topics});}
+  catch(error){this.publish({notice:error instanceof Error?error.message:'主题读取失败'});}
+ }
+ enterOrganize(){
+  if(this.disposed||this.state.busy)return;
+  this.publish({organizeMode:true,selected:{},confirming:false,lastSummary:null,notice:''});
+ }
+ exitOrganize():void{this.publish({organizeMode:false,selected:{},confirming:false});}
+ toggleSelect(id:string){
+  if(this.disposed)return;
+  const selected={...this.state.selected};
+  if(selected[id])delete selected[id];
+  else{
+   if(Object.keys(selected).length>=8)return;
+   selected[id]=true;
+  }
+  this.publish({selected});
+ }
+ async runOrganize(modelLabel:string){
+  if(this.disposed||this.state.organizeBusy)return;
+  const ids=Object.keys(this.state.selected);
+  if(!this.state.confirming||ids.length===0)return;
+  this.publish({organizeBusy:true,notice:'',lastSummary:null});
+  try{
+   const summary=await this.port.run(ids);
+   this.publish({lastBatch:summary.batchId,lastSummary:summary,selected:{},confirming:false});
+   await this.loadTopics();
+   await this.refresh();
+   return summary;
+  }
+  catch(error){
+   this.publish({notice:error instanceof Error?error.message:'整理未完成'});
+   return null;
+  }
+  finally{this.publish({organizeBusy:false});}
+ }
+ startConfirm():void{if(Object.keys(this.state.selected).length>0)this.publish({confirming:true});}
+ cancelConfirm():void{this.publish({confirming:false});}
+ async undoLast(){
+  if(this.disposed||this.state.organizeBusy||!this.state.lastBatch)return;
+  this.publish({organizeBusy:true});
+  try{
+   await this.port.undo(this.state.lastBatch);
+   this.publish({lastBatch:null,lastSummary:null,notice:'已撤销上次整理'});
+   await this.loadTopics();
+   await this.refresh();
+  }
+  catch(error){this.publish({notice:error instanceof Error?error.message:'撤销未完成'});}
+  finally{this.publish({organizeBusy:false});}
+ }
+ async openTopic(topicId:string){
+  if(this.disposed||this.state.busy)return;
+  this.publish({busy:true});
+  try{
+   const notes=await this.port.topicNotes(topicId);
+   const topic=this.state.topics.find(t=>t.topic.id===topicId);
+   this.publish({topicView:{title:topic?.topic.name??'主题',notes}});
+  }
+  catch(error){this.publish({notice:error instanceof Error?error.message:'主题笔记读取失败'});}
+  finally{this.publish({busy:false});}
+ }
+ closeTopic():void{this.publish({topicView:null});}
  async rebuild(){
   if(this.disposed||this.state.busy)return;
   this.publish({busy:true});

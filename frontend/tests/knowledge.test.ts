@@ -11,6 +11,10 @@ function fixture(initial:NoteMeta[]=[],fail?:{list?:boolean;remove?:boolean}){
   remove:async id=>{if(fail?.remove)throw Error('删除未完成');notes=notes.filter(n=>n.id!==id);if(saved?.meta.id===id)saved=null;},
   update:async(id,title,body)=>{edits[id]=body;if(saved?.meta.id===id)saved={...saved,body};const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');m.title=title;return {...m};},
   rebuild:async()=>notes.length,
+  topics:async()=>notes.map(n=>({topic:{id:`t-${n.id}`,name:`主题-${n.title}`,column:'',createdBy:'ai',batchId:'b1',createdAt:1},noteIds:[n.id],count:1})),
+  topicNotes:async topicId=>{const t=notes.find(n=>`t-${n.id}`===topicId);return t?[{meta:{...t,attachments:[]},body:'主题笔记'}]:[];},
+  run:async ids=>({batchId:'batch-1',topics:ids.length,assignments:ids.length}),
+  undo:async()=>{},
  };
  const controller=new KnowledgeController(port,()=>{});cleanups.push(()=>controller.dispose());
  return {controller,get notes(){return notes;},port,get saved(){return saved;}};
@@ -106,4 +110,46 @@ it('a failed edit reports and keeps the current note untouched',async()=>{
  expect(result).toBeNull();
  expect(f.controller.state.notice).toContain('磁盘满');
  expect(f.controller.state.current?.body).toBe('正文');
+});
+
+it('organize flow: select, confirm gate, run, and undo refresh topics',async()=>{
+ const f=fixture([meta()]);await f.controller.refresh();await f.controller.loadTopics();
+ f.controller.enterOrganize();
+ expect(f.controller.state.organizeMode).toBe(true);
+ f.controller.toggleSelect(meta().id);
+ f.controller.startConfirm();
+ expect(f.controller.state.confirming).toBe(true);
+ const summary=await f.controller.runOrganize('fixture-model');
+ expect(summary?.batchId).toBe('batch-1');
+ expect(f.controller.state.lastBatch).toBe('batch-1');
+ expect(f.controller.state.topics.length).toBe(1);
+ await f.controller.undoLast();
+ expect(f.controller.state.lastBatch).toBeNull();
+ expect(f.controller.state.notice).toContain('已撤销');
+});
+it('selection is capped at 8 and requires the confirm gate',async()=>{
+ const many=[...Array(10).keys()].map(i=>meta(String(i).padStart(32,'0')));
+ const f=fixture(many);await f.controller.refresh();f.controller.enterOrganize();
+ for(const n of many)f.controller.toggleSelect(n.id);
+ expect(Object.keys(f.controller.state.selected).length).toBe(8);
+ f.controller.toggleSelect(many[0].id);
+ expect(f.controller.state.confirming).toBe(false);
+ await f.controller.runOrganize('m');
+ expect(f.controller.state.lastSummary).toBeNull(),"confirm gate blocks direct run";
+});
+it('topic overlay loads its notes and closes',async()=>{
+ const f=fixture([meta()]);await f.controller.refresh();await f.controller.loadTopics();
+ await f.controller.openTopic('t-'+meta().id);
+ expect(f.controller.state.topicView?.notes[0].body).toBe('主题笔记');
+ f.controller.closeTopic();
+ expect(f.controller.state.topicView).toBeNull();
+});
+it('a failed organize reports and keeps the selection',async()=>{
+ const f=fixture([meta()]);await f.controller.refresh();f.controller.enterOrganize();
+ f.controller.toggleSelect(meta().id);f.controller.startConfirm();
+ f.port.run=async()=>{throw Error('整理模型调用未成功');};
+ await f.controller.runOrganize('m');
+ expect(f.controller.state.notice).toContain('整理模型调用未成功');
+ expect(Object.keys(f.controller.state.selected).length).toBe(1);
+ expect(f.controller.state.lastBatch).toBeNull();
 });

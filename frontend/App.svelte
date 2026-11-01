@@ -107,7 +107,7 @@
   const selection=new SelectionController(selectionPort,controller,s=>selectionState=s);
   let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
   const attachmentController=new AttachmentController(attachmentPort,s=>attachmentState=s);
-  let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:''});
+  let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null});
   const knowledge=new KnowledgeController(knowledgePort,s=>knowledgeState=s);
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
@@ -160,7 +160,7 @@
       {#if view==='history'}
         <HistoryPanel port={historyPort} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
       {:else if view==='knowledge'}
-        <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit}/>
+        <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
       {:else if view==='settings'}
         <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>
       {:else if view==='ask'}

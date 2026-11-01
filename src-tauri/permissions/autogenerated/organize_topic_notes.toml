@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-topic-notes"
+description = "Enables the organize_topic_notes command without any pre-configured scope."
+commands.allow = ["organize_topic_notes"]
+
+[[permission]]
+identifier = "deny-organize-topic-notes"
+description = "Denies the organize_topic_notes command without any pre-configured scope."
+commands.deny = ["organize_topic_notes"]
