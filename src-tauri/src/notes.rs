@@ -2,7 +2,7 @@
 //! that join the organize index with the notes index.
 use crate::{ClientError,SharedStorage};
 use serde::Serialize;
-use std::fs;
+use std::{fs,path::{Path,PathBuf}};
 use zwen_core::notes::{Note,NoteMeta,NoteStore};
 use zwen_core::organize::{OrganizeStore,TopicAssignments};
 
@@ -51,9 +51,22 @@ pub async fn notes_delete(storage:tauri::State<'_,SharedStorage>,id:String)->Res
  tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(store(&storage)?.delete(&id)?)}).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]
-pub async fn notes_update(storage:tauri::State<'_,SharedStorage>,id:String,title:String,body:String)->Result<NoteMeta,ClientError>{
+pub async fn notes_update(storage:tauri::State<'_,SharedStorage>,id:String,title:String,body:String,source_title:Option<String>,source_url:Option<String>,source_loc:Option<String>)->Result<NoteMeta,ClientError>{
  let storage=storage.inner().clone();
- tauri::async_runtime::spawn_blocking(move||->Result<NoteMeta,ClientError>{Ok(store(&storage)?.update(&id,&title,&body)?)}).await.map_err(|_|ClientError::storage())?
+ tauri::async_runtime::spawn_blocking(move||->Result<NoteMeta,ClientError>{
+  let mut store=store(&storage)?;
+  let meta=store.update(&id,&title,&body)?;
+  store.update_source(&id,&zwen_core::notes::NoteMeta{id:id.clone(),title,created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,source_title,source_url,source_loc})?;
+  Ok(meta)
+ }).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
+pub async fn notes_update_source(storage:tauri::State<'_,SharedStorage>,id:String,source_title:Option<String>,source_url:Option<String>,source_loc:Option<String>)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{
+  store(&storage)?.update_source(&id,&zwen_core::notes::NoteMeta{id:id.clone(),title:String::new(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,source_title,source_url,source_loc})?;
+  Ok(())
+ }).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]
 pub async fn notes_rebuild(storage:tauri::State<'_,SharedStorage>)->Result<usize,ClientError>{
@@ -95,4 +108,70 @@ pub async fn organize_topic_notes(storage:tauri::State<'_,SharedStorage>,topic_i
 pub async fn organize_undo(storage:tauri::State<'_,SharedStorage>,batch_id:String)->Result<(),ClientError>{
  let storage=storage.inner().clone();
  tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.undo_batch(&batch_id)?)}).await.map_err(|_|ClientError::storage())?
+}
+
+/// Exports go to the user's Downloads folder; the .md is copied verbatim (the
+/// file is the authority). Returns the written path for the UI to display.
+pub fn export_target(stem:&str,id8:&str,home:&Path)->Result<PathBuf,ClientError>{
+ let dir=home.join("Downloads").join("Zwen导出");
+ let mut builder=fs::DirBuilder::new();builder.recursive(true);
+ #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
+ builder.create(&dir).map_err(|_|ClientError::storage())?;
+ let name=zwen_core::notes::sanitize_filename_export(stem);
+ Ok(dir.join(format!("{name}-{id8}.md")))
+}
+
+#[tauri::command]
+pub async fn note_export(storage:tauri::State<'_,SharedStorage>,id:String)->Result<String,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<String,ClientError>{
+  let note_store=NoteStore::open(dir_for(&storage)?.as_path())?;
+  let note=note_store.read(&id)?;
+  let home=std::env::var("HOME").map_err(|_|ClientError{code:"export_failed",message:"未找到用户主目录；无法导出".into()})?;
+  let target=export_target(&note.meta.title,&id[..8],Path::new(&home))?;
+  let document=format!("{}\n",String::from_utf8_lossy(&build_document(&note)));
+  fs::write(&target,document).map_err(|_|ClientError{code:"export_failed",message:"导出写入失败".into()})?;
+  Ok(target.to_string_lossy().into_owned())
+ }).await.map_err(|_|ClientError::storage())?
+}
+
+#[tauri::command]
+pub async fn notes_export_all(storage:tauri::State<'_,SharedStorage>)->Result<String,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||->Result<String,ClientError>{
+  let data_dir=dir_for(&storage)?;
+  let note_store=NoteStore::open(data_dir.as_path())?;
+  let home=std::env::var("HOME").map_err(|_|ClientError{code:"export_failed",message:"未找到用户主目录；无法导出".into()})?;
+  let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d|d.as_secs()).unwrap_or(0);
+  let target=Path::new(&home).join("Downloads").join(format!("Zwen导出-{stamp}"));
+  let mut builder=fs::DirBuilder::new();builder.recursive(true);
+  #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
+  builder.create(&target).map_err(|_|ClientError::storage())?;
+  for meta in note_store.list("")?{
+   let note=note_store.read(&meta.id)?;
+   let name=zwen_core::notes::sanitize_filename_export(&format!("{}-{}",meta.title,&meta.id[..8]));
+   let document=format!("{}\n",String::from_utf8_lossy(&build_document(&note)));
+   fs::write(target.join(format!("{name}.md")),document).map_err(|_|ClientError{code:"export_failed",message:"导出写入失败".into()})?;
+  }
+  Ok(target.to_string_lossy().into_owned())
+ }).await.map_err(|_|ClientError::storage())?
+}
+
+fn build_document(note:&Note)->Vec<u8>{
+ // Mirrors the stored file: front matter + body, produced from parsed metadata.
+ use zwen_core::notes::NoteMeta;
+ let meta=NoteMeta{id:note.meta.id.clone(),title:note.meta.title.clone(),created_at:note.meta.created_at,source:note.meta.source.clone(),model:note.meta.model.clone(),attachments:note.meta.attachments.clone(),request:note.meta.request.clone(),source_title:note.meta.source_title.clone(),source_url:note.meta.source_url.clone(),source_loc:note.meta.source_loc.clone()};
+ let mut out=zwen_core::notes::front_matter_text(&meta).into_bytes();
+ out.extend_from_slice(note.body.as_bytes());
+ out
+}
+
+/// External links open in the system browser. Only http(s) is allowed and the
+/// spawn is detached; the webview never navigates to the URL itself.
+#[tauri::command]
+pub fn open_external(url:String)->Result<(),ClientError>{
+ let ok=url.len()<=2048&&(url.starts_with("https://")||url.starts_with("http://"))&&url.bytes().all(|b|b.is_ascii_graphic());
+ if !ok{return Err(ClientError{code:"invalid_url",message:"仅支持 http(s) 链接".into()});}
+ std::process::Command::new("xdg-open").arg(url).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|_|ClientError{code:"open_failed",message:"系统浏览器打开失败".into()})?;
+ Ok(())
 }

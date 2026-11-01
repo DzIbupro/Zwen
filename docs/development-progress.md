@@ -118,3 +118,9 @@
     - 修复真实缺陷：`notes.rs` 的 `TEMP_COUNTER` 误声明为 `const`（每次使用都是新原子，ID 计数器失效）——警告驱动发现，改 `static`。
     - 验证：Rust 93 项、前端 74 项（+4 整理流）、`svelte-check` 0/0；knowledge smoke 扩展整理服务（断言提示词含笔记 id 与"只输出 JSON"指令）与整理→撤销全流程（批次 undone、成员清空、空 AI 主题移除），连续 3 次通过；**全套原生回归 10/10**。普通二进制 SHA256 见 ordinary-binary.sha256。
     - 教训（重发）：`include_str!` 驱动改动后必须重建；驱动 `wait(check,label,limit)` 参数顺序曾致立即超时假失败。
+21. **知识库收尾：来源元数据 + 导出 + 外链（2026-11-02）**：
+    - 来源元数据：front matter `source_title/source_url/source_loc`（URL 仅 http(s)、≤2048；其余 ≤200 无控制字符），编辑器内补全，详情页展示（URL 点击走系统浏览器）；`notes_update_source` / update 集成；手改非法值重建时丢弃。
+    - 导出：单篇与全部导出到 `~/Downloads/Zwen导出/`（0700，.md 原样复制）。
+    - 外链：`open_external` 仅 http(s)、xdg-open 分离进程；渲染区链接点击统一拦截（`lib/links.ts` + 三处 prose 接线），webview 不再自行导航。
+    - 验证：core 12 项 notes（+1 来源 roundtrip/拒绝/清除/重建保留）、前端 78 项（+2 links helper）、knowledge smoke 扩展来源编辑断言与导出（单篇+全部，文件内容校验）、javascript: URL 拒绝断言。
+22. 单元状态：Unit A 完成。下一步：Unit B（主题改名/合并/拆分/重归类+关系+锁定+自动增量）→ Unit C（SVG 图谱）→ Unit D（自动划词浮条）。

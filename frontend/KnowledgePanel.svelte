@@ -1,29 +1,39 @@
 <script lang="ts">
- import {renderMarkdown} from './lib/render';
+ import {renderMarkdown} from './lib/render';import {proseLinkClick} from './lib/links';import {openExternal} from './lib/bridge';
  import type {KnowledgeController,KnowledgeState} from './lib/knowledge';
- let {controller,info,onTrace,onSaveEdit,modelLabel}:{controller:KnowledgeController;info:KnowledgeState;onTrace:(requestId:string)=>void;onSaveEdit:(id:string,title:string,body:string)=>Promise<void>;modelLabel:string}=$props();
+ let {controller,info,onTrace,onSaveEdit,modelLabel}:{controller:KnowledgeController;info:KnowledgeState;onTrace:(requestId:string)=>void;onSaveEdit:(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null})=>Promise<void>;modelLabel:string}=$props();
  let armed: string|null = $state<string|null>(null);
  let editing: boolean = $state(false);
  let editTitle: string = $state('');
  let editBody: string = $state('');
  let editBusy: boolean = $state(false);
+ let srcTitle: string = $state('');
+ let srcUrl: string = $state('');
+ let srcLoc: string = $state('');
+ let exportMsg: string = $state('');
  const dateText=(value:number)=>new Date(value*1000).toLocaleString('zh-CN',{dateStyle:'short',timeStyle:'short'});
  const selectedCount=$derived(Object.keys(info.selected).length);
 </script>
 <section class="knowledge" data-knowledge aria-label="知识库">
  {#if info.current}
   <div class="note-detail" data-note-detail>
-   <div class="note-toolbar"><button onclick={()=>{armed=null;editing=false;controller.close();}}>← 返回列表</button>{#if info.current.meta.source||info.current.meta.model}<span class="note-meta">{info.current.meta.source}{info.current.meta.model?` · ${info.current.meta.model}`:''}</span>{/if}<button data-note-trace disabled={!info.current.meta.request} title={info.current.meta.request?'跳转到原始问答':'本笔记没有来源链接'} onclick={()=>{if(info.current?.meta.request)onTrace(info.current.meta.request);}}>查看原始问答</button><button data-note-edit onclick={()=>{editTitle=info.current!.meta.title;editBody=info.current!.body;editing=true;armed=null;}}>编辑</button><button data-note-delete onclick={()=>{if(armed===info.current?.meta.id){void controller.remove(info.current!.meta.id);armed=null;}else{armed=info.current!.meta.id;}}}>{armed===info.current?.meta.id?'确认删除':'删除'}</button></div>
+   <div class="note-toolbar"><button onclick={()=>{armed=null;editing=false;controller.close();}}>← 返回列表</button><button data-note-export disabled={info.busy} onclick={()=>void controller.exportNote(info.current!.meta.id).then(path=>{exportMsg=path?`已导出到 ${path}`:'';})}>{exportMsg?'已导出':'导出'}</button>{#if info.current.meta.source||info.current.meta.model}<span class="note-meta">{info.current.meta.source}{info.current.meta.model?` · ${info.current.meta.model}`:''}</span>{/if}<button data-note-trace disabled={!info.current.meta.request} title={info.current.meta.request?'跳转到原始问答':'本笔记没有来源链接'} onclick={()=>{if(info.current?.meta.request)onTrace(info.current.meta.request);}}>查看原始问答</button><button data-note-edit onclick={()=>{editTitle=info.current!.meta.title;editBody=info.current!.body;srcTitle=info.current!.meta.sourceTitle??'';srcUrl=info.current!.meta.sourceUrl??'';srcLoc=info.current!.meta.sourceLoc??'';editing=true;armed=null;}}>编辑</button><button data-note-delete onclick={()=>{if(armed===info.current?.meta.id){void controller.remove(info.current!.meta.id);armed=null;}else{armed=info.current!.meta.id;}}}>{armed===info.current?.meta.id?'确认删除':'删除'}</button></div>
    {#if editing}
     <div class="note-editor" data-note-editor>
      <label for="note-title-input">标题</label><input id="note-title-input" data-note-title-input maxlength="200" value={editTitle} oninput={e=>editTitle=e.currentTarget.value}/>
      <label for="note-body-input">正文（Markdown）</label>
      <textarea id="note-body-input" data-note-body-input rows="12" value={editBody} oninput={e=>editBody=e.currentTarget.value}></textarea>
-     <div class="editor-actions"><button disabled={editBusy} onclick={()=>{editing=false;}}>取消</button><button class="primary-edit" data-note-save-edit disabled={editBusy||!editTitle.trim()} onclick={()=>{editBusy=true;void onSaveEdit(info.current!.meta.id,editTitle,editBody).then(()=>{editBusy=false;editing=false;});}}>{editBusy?'正在保存…':'保存编辑'}</button></div>
+     <label for="note-source-title">来源标题（可选）</label><input id="note-source-title" data-note-source-title maxlength="200" value={srcTitle} oninput={e=>srcTitle=e.currentTarget.value}/>
+     <label for="note-source-url">来源 URL（可选）</label><input id="note-source-url" data-note-source-url maxlength="2048" value={srcUrl} oninput={e=>srcUrl=e.currentTarget.value}/>
+     <label for="note-source-loc">页码或位置（可选）</label><input id="note-source-loc" data-note-source-loc maxlength="200" value={srcLoc} oninput={e=>srcLoc=e.currentTarget.value}/>
+     <div class="editor-actions"><button disabled={editBusy} onclick={()=>{editing=false;}}>取消</button><button class="primary-edit" data-note-save-edit disabled={editBusy||!editTitle.trim()} onclick={()=>{editBusy=true;void onSaveEdit(info.current!.meta.id,editTitle,editBody,{sourceTitle:srcTitle||null,sourceUrl:srcUrl||null,sourceLoc:srcLoc||null}).then(()=>{editBusy=false;editing=false;srcTitle='';srcUrl='';srcLoc='';});}}>{editBusy?'正在保存…':'保存编辑'}</button></div>
     </div>
    {:else}
     <h2>{info.current.meta.title}</h2>
-    <div class="prose">{@html renderMarkdown(info.current.body)}</div>
+    {#if info.current.meta.sourceTitle||info.current.meta.sourceUrl||info.current.meta.sourceLoc}
+     <div class="note-source" data-note-source><span>来源：</span>{#if info.current.meta.sourceUrl}<a href={info.current.meta.sourceUrl} onclick={e=>{e.preventDefault();openExternal(info.current!.meta.sourceUrl!);}}>{info.current.meta.sourceTitle||info.current.meta.sourceUrl}</a>{:else if info.current.meta.sourceTitle}{info.current.meta.sourceTitle}{/if}{#if info.current.meta.sourceLoc}<span> · {info.current.meta.sourceLoc}</span>{/if}</div>
+    {/if}
+    <div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html renderMarkdown(info.current.body)}</div>
    {/if}
   </div>
  {:else if info.organizeMode}
@@ -53,8 +63,10 @@
    {#if info.notice}<div class="knowledge-notice" role="status">{info.notice}</div>{/if}
   </div>
  {:else}
+  {#if exportMsg}<div class="knowledge-notice" role="status">{exportMsg}</div>{/if}
   <div class="knowledge-bar">
    <input data-knowledge-search type="search" placeholder="搜索标题或正文…" value={info.query} oninput={e=>{void controller.refresh(e.currentTarget.value);}}/>
+   <button data-export-all disabled={info.busy} onclick={()=>void controller.exportAll().then(path=>{if(path)exportMsg=`已导出全部笔记到 ${path}`;})}>导出全部</button>
    <button data-organize-start disabled={info.busy} onclick={()=>{controller.enterOrganize();void controller.loadTopics();}}>AI 整理</button>
    <button data-knowledge-rebuild disabled={info.busy} title="从 Markdown 文件重建索引（正文是权威）" onclick={()=>void controller.rebuild()}>重建索引</button>
   </div>
@@ -103,5 +115,6 @@
  .organize-confirm p,.organize-result p{font-size:13px;line-height:1.9;color:#3c4738}
  .confirm-list{margin:8px 0;padding-left:20px;font-size:12px;color:#55634b;line-height:1.9}
  .organize-confirm,.organize-result{border:1px solid #dce2d2;border-radius:11px;background:#fbfcf6;padding:15px 17px}
+ .note-source{font-size:12px;color:#697663;margin:-6px 0 12px}.note-source a{color:#3b7350}
  .topic-view{border:1px solid #dce2d2;border-radius:11px;background:#fbfcf6;padding:13px 15px}
 </style>

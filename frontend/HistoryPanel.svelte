@@ -1,5 +1,5 @@
 <script lang="ts">
- import {onMount,untrack} from 'svelte';import {renderMarkdown} from './lib/render';import {HistoryController,type HistoryPort,type HistoryState} from './lib/history';import type {ChatReply} from './lib/chat';
+ import {onMount,untrack} from 'svelte';import {renderMarkdown} from './lib/render';import {proseLinkClick} from './lib/links';import {openExternal} from './lib/bridge';import {HistoryController,type HistoryPort,type HistoryState} from './lib/history';import type {ChatReply} from './lib/chat';
  let {port,canContinue,onContinue,focusRequestId,onFocusConsumed}:{port:HistoryPort;canContinue:boolean;onContinue:(reply:ChatReply)=>void;focusRequestId?:string|null;onFocusConsumed?:()=>void}=$props();
  let state=$state<HistoryState>({items:[],selected:null,page:0,hasMore:false,loading:false,error:null});
  const history=new HistoryController(untrack(()=>port),s=>state=s);
@@ -15,7 +15,7 @@
  <div class="history-grid">
   <div><div class="records" aria-label="问答记录列表">{#each state.items as item (item.requestId)}<button class:selected={state.selected?.requestId===item.requestId} disabled={state.loading} onclick={()=>void history.open(item.requestId)}><strong>{item.title}</strong><small>{labels[item.state]} · {item.model}</small></button>{/each}{#if !state.items.length&&!state.loading}<p>还没有问答记录。</p>{/if}</div>
   <div class="pagination"><button disabled={state.page===0||state.loading} onclick={()=>void history.load(state.page-1)}>上一页</button><span>{state.page+1}</span><button disabled={!state.hasMore||state.loading} onclick={()=>void history.load(state.page+1)}>下一页</button></div></div>
-  <div class="record-detail">{#if state.selected}<div class="record-meta"><span>{labels[state.selected.state]} · {new Date(state.selected.createdAt*1000).toLocaleString()}</span><button disabled={!canContinue||state.selected.state==='streaming'} onclick={()=>onContinue(state.selected!)}>继续此对话</button></div><h2>你问过</h2><p class="original-question">{state.selected.prompt}</p><div class="prose">{@html answer}</div>{#if state.selected.error}<p class="history-error">{state.selected.error}</p>{/if}{:else}<div class="empty-detail">{state.loading?'正在读取…':'选择左侧的一个问题。'}</div>{/if}</div>
+  <div class="record-detail">{#if state.selected}<div class="record-meta"><span>{labels[state.selected.state]} · {new Date(state.selected.createdAt*1000).toLocaleString()}</span><button disabled={!canContinue||state.selected.state==='streaming'} onclick={()=>onContinue(state.selected!)}>继续此对话</button></div><h2>你问过</h2><p class="original-question">{state.selected.prompt}</p><div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html answer}</div>{#if state.selected.error}<p class="history-error">{state.selected.error}</p>{/if}{:else}<div class="empty-detail">{state.loading?'正在读取…':'选择左侧的一个问题。'}</div>{/if}</div>
  </div>
 </section>
 <style>

@@ -19,10 +19,15 @@ static TEMP_COUNTER:AtomicU64=AtomicU64::new(0);
 
 #[derive(Clone,Debug,PartialEq,Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct NoteMeta{pub id:String,pub title:String,pub created_at:i64,pub source:String,pub model:String,pub attachments:Vec<String>,#[serde(skip_serializing_if="Option::is_none")] pub request:Option<String>}
+pub struct NoteMeta{pub id:String,pub title:String,pub created_at:i64,pub source:String,pub model:String,pub attachments:Vec<String>,#[serde(skip_serializing_if="Option::is_none")] pub request:Option<String>,#[serde(skip_serializing_if="Option::is_none")] pub source_title:Option<String>,#[serde(skip_serializing_if="Option::is_none")] pub source_url:Option<String>,#[serde(skip_serializing_if="Option::is_none")] pub source_loc:Option<String>}
 
 /// Chat request ids follow the journal's rules; anything else is dropped so a
 /// hand-edited front matter cannot smuggle arbitrary values into links.
+pub fn valid_text_field(value:&str,max:usize)->bool{!value.is_empty()&&value.len()<=max&&!value.chars().any(char::is_control)}
+pub fn valid_source_url(value:&str)->bool{
+ (value.starts_with("https://")||value.starts_with("http://"))&&value.len()<=2048&&value.bytes().all(|b|b.is_ascii_graphic())
+}
+pub fn sanitize_filename_export(name:&str)->String{let cleaned=sanitize_filename(name);if cleaned.is_empty(){"未命名".to_string()}else{cleaned}}
 pub fn valid_request(value:&str)->bool{!value.is_empty()&&value.len()<=100&&value.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'||b==b'_')}
 #[derive(Clone,Debug,Serialize)]
 #[serde(rename_all="camelCase")]
@@ -39,7 +44,8 @@ pub fn generate_id()->String{
 /// Whitelist filenames: ASCII alphanumerics, CJK, dot, dash, underscore. Anything
 /// else collapses to `_`; separators can never survive, so the value is safe to
 /// join under the note's attachment directory.
-pub fn sanitize_filename(name:&str)->String{
+pub fn sanitize_filename(name:&str)->String{sanitize_filename_inner(name)}
+fn sanitize_filename_inner(name:&str)->String{
  let mut out=String::new();
  for ch in name.chars(){
   if ch.is_ascii_alphanumeric()||matches!(ch,'.'|'-'|'_')||('\u{4e00}'..='\u{9fff}').contains(&ch){out.push(ch);}
@@ -50,10 +56,14 @@ pub fn sanitize_filename(name:&str)->String{
  if trimmed.is_empty(){"file".to_string()}else{trimmed}
 }
 
+pub fn front_matter_text(meta:&NoteMeta)->String{front_matter(meta)}
 fn front_matter(meta:&NoteMeta)->String{
  let list=serde_json::to_string(&meta.attachments).unwrap_or_else(|_|"[]".to_string());
  let request=meta.request.as_deref().map(|value|format!("\nrequest: {value}")).unwrap_or_default();
- format!("---\nid: {}\ncreated: {}\nsource: {}\nmodel: {}\ntitle: {}\nattachments: {}{}\n---\n",meta.id,meta.created_at,meta.source,meta.model,meta.title,list,request)
+ let source_title=meta.source_title.as_deref().map(|value|format!("\nsource_title: {value}")).unwrap_or_default();
+ let source_url=meta.source_url.as_deref().map(|value|format!("\nsource_url: {value}")).unwrap_or_default();
+ let source_loc=meta.source_loc.as_deref().map(|value|format!("\nsource_loc: {value}")).unwrap_or_default();
+ format!("---\nid: {}\ncreated: {}\nsource: {}\nmodel: {}\ntitle: {}\nattachments: {}{}{}{}{}\n---\n",meta.id,meta.created_at,meta.source,meta.model,meta.title,list,request,source_title,source_url,source_loc)
 }
 
 /// Splits the stored file into metadata and body. The body starts after the
@@ -62,7 +72,7 @@ fn split_file(id:&str,bytes:&[u8])->Result<(NoteMeta,String),Error>{
  let text=String::from_utf8(bytes.to_vec()).map_err(|_|Error::InvalidNote)?;
  if let Some(rest)=text.strip_prefix("---\n"){
   if let Some(end)=rest.find("\n---\n"){
-   let mut meta=NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None};
+   let mut meta=NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,source_title:None,source_url:None,source_loc:None};
    for line in rest[..end].lines(){
     let Some((key,value))=line.split_once(':')else{continue};
     match key{
@@ -74,6 +84,9 @@ fn split_file(id:&str,bytes:&[u8])->Result<(NoteMeta,String),Error>{
      "title"=>{let v=value.trim();if !v.is_empty()&&v.len()<=MAX_TITLE_BYTES{meta.title=v.to_string();}}
      "attachments"=>{if let Ok(list)=serde_json::from_str::<Vec<String>>(value.trim()){meta.attachments=list.into_iter().take(MAX_NOTE_ATTACHMENTS).collect();}}
      "request"=>{let v=value.trim();if valid_request(v){meta.request=Some(v.to_string());}}
+     "source_title"=>{let v=value.trim();if valid_text_field(v,200){meta.source_title=Some(v.to_string());}}
+     "source_url"=>{let v=value.trim();if valid_source_url(v){meta.source_url=Some(v.to_string());}}
+     "source_loc"=>{let v=value.trim();if valid_text_field(v,200){meta.source_loc=Some(v.to_string());}}
      _=>{}
     }
    }
@@ -81,7 +94,7 @@ fn split_file(id:&str,bytes:&[u8])->Result<(NoteMeta,String),Error>{
    return Ok((meta,body));
   }
  }
- Ok((NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None},text))
+ Ok((NoteMeta{id:id.to_string(),title:"未命名笔记".to_string(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,source_title:None,source_url:None,source_loc:None},text))
 }
 
 fn read_all(connection:&Connection)->Result<Vec<NoteMeta>,Error>{
@@ -92,7 +105,7 @@ fn read_all(connection:&Connection)->Result<Vec<NoteMeta>,Error>{
   let(id,title,created_at,source,model)=row?;
   let id=id.ok_or(Error::InvalidNote)?;
   if !valid_id(&id)||title.is_empty(){return Err(Error::InvalidNote);}
-  notes.push(NoteMeta{id,title,created_at,source:source.unwrap_or_default(),model:model.unwrap_or_default(),attachments:Vec::new(),request:None});
+  notes.push(NoteMeta{id,title,created_at,source:source.unwrap_or_default(),model:model.unwrap_or_default(),attachments:Vec::new(),request:None,source_title:None,source_url:None,source_loc:None});
  }
  Ok(notes)
 }
@@ -135,7 +148,7 @@ impl NoteStore{
   }
   let id=generate_id();
   let created_at=SystemTime::now().duration_since(UNIX_EPOCH).map(|d|d.as_secs() as i64).unwrap_or(0);
-  let meta=NoteMeta{id:id.clone(),title,created_at,source:source.to_string(),model:model.to_string(),attachments:files.iter().map(|(name,_)|format!("{id}-{name}")).collect(),request};
+  let meta=NoteMeta{id:id.clone(),title,created_at,source:source.to_string(),model:model.to_string(),attachments:files.iter().map(|(name,_)|format!("{id}-{name}")).collect(),request,source_title:None,source_url:None,source_loc:None};
   let mut names=Vec::new();
   for (name,bytes) in &files{
    let stored=format!("{id}-{name}");
@@ -220,6 +233,22 @@ impl NoteStore{
   tx.execute("UPDATE notes SET title=?1 WHERE id=?2",params![meta.title,id])?;
   tx.commit()?;
   Ok(meta)
+ }
+ /// Manual source metadata (title / URL / page-or-location). Unknown stays empty.
+ pub fn update_source(&mut self,id:&str,meta_in:&NoteMeta)->Result<(),Error>{
+  if !valid_id(id){return Err(Error::NoteMissing);}
+  let (mut meta,body)=self.load_file(id)?;
+  let validators:[(&mut Option<String>,Option<&str>,fn(&str)->bool);3]=[
+   (&mut meta.source_title,meta_in.source_title.as_deref(),|v|valid_text_field(v,200)),
+   (&mut meta.source_url,meta_in.source_url.as_deref(),valid_source_url),
+   (&mut meta.source_loc,meta_in.source_loc.as_deref(),|v|valid_text_field(v,200)),
+  ];
+  for (target,value,valid) in validators{
+   *target=match value{Some(v) if valid(v)=>Some(v.to_string()),Some(_)=>return Err(Error::InvalidNote),None=>None};
+  }
+  let mut document=front_matter(&meta).into_bytes();document.extend_from_slice(body.as_bytes());
+  write_atomic(&self.directory.join(format!("{id}.md")),&document)?;
+  Ok(())
  }
  /// Rebuilds the index from the files on disk. Orphan files are adopted (the
  /// .md is the authority); index rows whose file disappeared are dropped.

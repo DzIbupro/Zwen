@@ -158,3 +158,26 @@ fn meta_from(list:&[NoteMeta],index:usize)->NoteMeta{list[list.len()-1-index].cl
  assert_eq!(note.meta.request,None,"hand-edited invalid request must be dropped");
  assert_eq!(note.meta.title,"手改标题");
 }
+
+#[test] fn source_metadata_roundtrips_and_survives_rebuild(){
+ let scratch=Scratch::new();let mut store=NoteStore::open(&scratch.0).unwrap();
+ let meta=store.create("来源测试","正文","chat","m",&[],Some("turn_1")).unwrap();
+ store.update_source(&meta.id,&zwen_core::notes::NoteMeta{id:meta.id.clone(),title:String::new(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,
+  source_title:Some("某论文第三节".into()),source_url:Some("https://example.com/paper".into()),source_loc:Some("第 42 页".into())}).unwrap();
+ let note=store.read(&meta.id).unwrap();
+ assert_eq!(note.meta.source_title.as_deref(),Some("某论文第三节"));
+ assert_eq!(note.meta.source_url.as_deref(),Some("https://example.com/paper"));
+ assert_eq!(note.meta.source_loc.as_deref(),Some("第 42 页"));
+ store.rebuild_index().unwrap();
+ let note=store.read(&meta.id).unwrap();
+ assert_eq!(note.meta.source_url.as_deref(),Some("https://example.com/paper"));
+ // Invalid values are rejected without touching the file.
+ let before=std::fs::read(scratch.0.join("notes").join(format!("{}.md",meta.id))).unwrap();
+ assert!(matches!(store.update_source(&meta.id,&zwen_core::notes::NoteMeta{id:meta.id.clone(),title:String::new(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,
+  source_title:None,source_url:Some("javascript:alert(1)".into()),source_loc:None}),Err(Error::InvalidNote)));
+ assert_eq!(std::fs::read(scratch.0.join("notes").join(format!("{}.md",meta.id))).unwrap(),before);
+ // Clearing works (None erases the field).
+ store.update_source(&meta.id,&zwen_core::notes::NoteMeta{id:meta.id.clone(),title:String::new(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,
+  source_title:None,source_url:None,source_loc:None}).unwrap();
+ assert_eq!(store.read(&meta.id).unwrap().meta.source_url,None);
+}

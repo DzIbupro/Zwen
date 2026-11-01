@@ -21,7 +21,8 @@
   import {providerPort} from './lib/bridge';
   import Attachments from './Attachments.svelte';
   import {AttachmentController,type AttachmentState} from './lib/attachments';
-  import {attachmentPort} from './lib/bridge';
+  import {attachmentPort,openExternal} from './lib/bridge';
+  import {proseLinkClick} from './lib/links';
   import KnowledgePanel from './KnowledgePanel.svelte';
   import {KnowledgeController,type KnowledgeState} from './lib/knowledge';
   import {knowledgePort} from './lib/bridge';
@@ -76,7 +77,7 @@
     else pendingConsume=null;
   }
   function traceToHistory(requestId:string){traceRequestId=requestId;view='history';}
-  async function saveNoteEdit(id:string,title:string,body:string){await knowledge.saveEdit(id,title,body);}
+  async function saveNoteEdit(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}){await knowledge.saveEdit(id,title,body,source);}
   function newConversation(){if(chat.newConversation()){responseKind='model';view='ask';notice='已准备新对话，当前草稿保留';}}
   function continueHistory(reply:ChatReply){if(chat.adopt(reply)){responseKind='model';view='reply';notice='继续此会话将附带近期问答';}}
   function stopReply(){if(responseKind==='demo')demo.stop();else void chat.stop().catch(()=>{});}
@@ -168,7 +169,7 @@
         <section class="suggestions" aria-label="开始一个草稿"><button disabled={!draft.loaded} onclick={()=>fill('请帮我解释这段内容：\n\n')}><span class="suggestion-icon">Aa</span><strong>读懂一段内容</strong><span>换个角度，把意思讲清楚</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('我想理解这个公式：\n\n')}><span class="suggestion-icon">ƒ</span><strong>理解一个公式</strong><span>从符号到它背后的直觉</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('帮我梳理这个想法：\n\n')}><span class="suggestion-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c0 5-4 9-9 9 5 0 9 4 9 9 0-5 4-9 9-9-5 0-9-4-9-9Z"/></svg></span><strong>梳理一个想法</strong><span>先记下来，再找到联系</span><b>↗</b></button></section>
         <div class="connection-note"><span aria-hidden="true">◌</span><p>这里会成为你的问答空间。<br/><span>先连接你的模型。继续提问会附带本会话近期内容；切换服务请新建对话。</span></p></div>
       {:else}
-        <section class="answer"><div class="answer-label"><span class="assistant-dot"></span><strong>{view==='reply'&&responseKind==='model'?chatState.reply?.model||'模型回复':'阅读效果'}</strong><span>{view==='reply' ? `${replyLabel} · ${replyStatus}` : draft.text.trim() ? '草稿排版预览 · 非 AI 回答' : '内置示例 · 非 AI 回答'}</span></div>{#if view==='reply'&&responseKind==='model'&&chatState.reply}<details class="question-summary"><summary>本轮问题 · 上下文 {chatState.reply.contextTurns} 轮</summary><p>{chatState.reply.prompt}</p></details>{/if}<div class="prose">{@html preview}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{responseKind==='demo'?'停止演示':'停止生成'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save onclick={()=>void saveToKnowledge()}>收藏到知识库</button>{/if}{#if view==='reply'&&responseKind==='model'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
+        <section class="answer"><div class="answer-label"><span class="assistant-dot"></span><strong>{view==='reply'&&responseKind==='model'?chatState.reply?.model||'模型回复':'阅读效果'}</strong><span>{view==='reply' ? `${replyLabel} · ${replyStatus}` : draft.text.trim() ? '草稿排版预览 · 非 AI 回答' : '内置示例 · 非 AI 回答'}</span></div>{#if view==='reply'&&responseKind==='model'&&chatState.reply}<details class="question-summary"><summary>本轮问题 · 上下文 {chatState.reply.contextTurns} 轮</summary><p>{chatState.reply.prompt}</p></details>{/if}<div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html preview}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{responseKind==='demo'?'停止演示':'停止生成'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save onclick={()=>void saveToKnowledge()}>收藏到知识库</button>{/if}{#if view==='reply'&&responseKind==='model'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
       {/if}
     </main>
     <SelectionNotice state={selectionState} onRetry={()=>void selection.applyPending()} onDiscard={()=>void selection.discard()} onReload={()=>void selection.refresh()}/>

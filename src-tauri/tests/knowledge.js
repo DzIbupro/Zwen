@@ -45,9 +45,16 @@
   titleBox.value='编辑后的标题';titleBox.dispatchEvent(new Event('input',{bubbles:true}));
   const bodyBox=document.querySelector('[data-note-body-input]');
   bodyBox.value='编辑后的正文内容';bodyBox.dispatchEvent(new Event('input',{bubbles:true}));
+  const srcUrlBox=document.querySelector('[data-note-source-url]');
+  srcUrlBox.value='https://example.com/paper';srcUrlBox.dispatchEvent(new Event('input',{bubbles:true}));
+  const srcLocBox=document.querySelector('[data-note-source-loc]');
+  srcLocBox.value='第 42 页';srcLocBox.dispatchEvent(new Event('input',{bubbles:true}));
   document.querySelector('[data-note-save-edit]').click();
   await wait(()=>document.querySelector('[data-note-detail]')?.textContent.includes('编辑后的正文内容'));
-  await wait(async()=>{const view=await invoke('notes_read',{id:saved.id});return view.meta.title==='编辑后的标题'&&view.body==='编辑后的正文内容';});
+  await wait(()=>document.querySelector('[data-note-source]')?.textContent.includes('example.com'));
+  await wait(async()=>{const view=await invoke('notes_read',{id:saved.id});return view.meta.title==='编辑后的标题'&&view.body==='编辑后的正文内容'&&view.meta.sourceUrl==='https://example.com/paper'&&view.meta.sourceLoc==='第 42 页';});
+  let urlRejected=false;try{await invoke('open_external',{url:'javascript:alert(1)'});}catch{urlRejected=true;}
+  if(!urlRejected)throw Error('javascript URL accepted');
   stage='trace';
   const trace=document.querySelector('[data-note-trace]');
   if(trace.disabled)throw Error('Trace button disabled with a request link');
@@ -96,6 +103,10 @@
   await wait(async()=>(await invoke('organize_topics')).length===0,'topics after undo');
   // Undo is fast: the result view may already be replaced by the select list.
   await wait(()=>document.querySelector('[data-organize-panel]')&&!document.querySelector('[data-topic-chip]'));
-  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',v:DRIVER_VERSION,saved:true,rebuild:true,search:true,detail:true,deleted:true,organized:true,undone:true});
- }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'knowledge',stage,error:String(e),ui:document.body.innerText.slice(0,1500)});}
+  const exportPath=await invoke('note_export',{id:'abcdef0123456789abcdef0123456789'});
+  if(!String(exportPath).endsWith('.md'))throw Error('Export path invalid: '+exportPath);
+  const exportAllPath=await invoke('notes_export_all');
+  const exported=await invoke('notes_list',{query:''});
+  await api.event.emit('foundation-smoke',{ok:true,mode:'knowledge',v:DRIVER_VERSION,saved:true,rebuild:true,search:true,detail:true,deleted:true,organized:true,undone:true,exportPath:String(exportPath),exportAllPath:String(exportAllPath),exportedCount:exported.length});
+ }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'knowledge',stage,error:JSON.stringify(e),ui:document.body.innerText.slice(0,1200)});}
 })();

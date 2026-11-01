@@ -53,21 +53,25 @@ import type {HistoryPort,Summary} from './history';
 export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId})}:{list:async()=>[],get:async()=>null};
 
 import type {KnowledgePort,KnowledgeState} from './knowledge';
-import type {SaveNoteInput,Note,NoteMeta,TopicView,OrganizeSummaryView} from './knowledge';
+import type {SaveNoteInput,Note,NoteMeta,TopicView,OrganizeSummaryView,SourceMetaInput} from './knowledge';
 export const knowledgePort:KnowledgePort=isDesktop?{
  list:query=>command<NoteMeta[]>('notes_list',{query}),
  read:id=>command<Note>('notes_read',{id}),
  save:(input:SaveNoteInput)=>command<NoteMeta>('notes_save',{input}),
  remove:id=>command<void>('notes_delete',{id}),
- update:(id:string,title:string,body:string)=>command<NoteMeta>('notes_update',{id,title,body}),
+ update:(id:string,title:string,body:string,source:SourceMetaInput)=>command<NoteMeta>('notes_update',{id,title,body,sourceTitle:source.sourceTitle??null,sourceUrl:source.sourceUrl??null,sourceLoc:source.sourceLoc??null}),
+ updateSource:(id:string,source:SourceMetaInput)=>command<void>('notes_update_source',{id,sourceTitle:source.sourceTitle??null,sourceUrl:source.sourceUrl??null,sourceLoc:source.sourceLoc??null}),
+ exportNote:id=>command<string>('note_export',{id}),
+ exportAll:()=>command<string>('notes_export_all'),
  rebuild:()=>command<number>('notes_rebuild'),
  topics:()=>command<TopicView[]>('organize_topics'),
  topicNotes:topicId=>command<Note[]>('organize_topic_notes',{topicId}),
  run:noteIds=>command<OrganizeSummaryView>('organize_run',{noteIds}),
  undo:batchId=>command<void>('organize_undo',{batchId}),
-}:{list:async()=>[],read:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中使用知识库');},save:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中收藏');},remove:async()=>{},update:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中编辑');},topics:async()=>[],topicNotes:async()=>[],run:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中整理');},undo:async()=>{},rebuild:async()=>{throw Error('浏览器仅用于预览');}};
+}:{list:async()=>[],read:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中使用知识库');},save:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中收藏');},remove:async()=>{},update:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中编辑');},updateSource:async()=>{throw Error('浏览器仅用于预览');},exportNote:async()=>{throw Error('浏览器仅用于预览');},exportAll:async()=>{throw Error('浏览器仅用于预览');},topics:async()=>[],topicNotes:async()=>[],run:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中整理');},undo:async()=>{},rebuild:async()=>{throw Error('浏览器仅用于预览');}};
 
 import type {SelectionPort,SelectionItem} from './selection';
+export const openExternal=(url:string)=>command<void>('open_external',{url});
 export const selectionPort:SelectionPort=isDesktop?{claim:()=>command<{reading:boolean;item:SelectionItem|null}>('claim_selection'),acknowledge:id=>command<void>('acknowledge_selection',{id})}:{claim:async()=>({reading:false,item:null}),acknowledge:async()=>{}};
 
 import type {AttachmentPort,AttachmentView} from './attachments';

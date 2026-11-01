@@ -9,7 +9,10 @@ function fixture(initial:NoteMeta[]=[],fail?:{list?:boolean;remove?:boolean}){
   read:async id=>{if(saved&&saved.meta.id===id)return saved;const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');return{meta:{...m,attachments:[]},body:edits[id]??'正文'};},
   save:async input=>{const m=meta('b'.repeat(32));m.title=input.title;notes=[m,...notes];saved={meta:{...m},body:input.body};return {...m};},
   remove:async id=>{if(fail?.remove)throw Error('删除未完成');notes=notes.filter(n=>n.id!==id);if(saved?.meta.id===id)saved=null;},
-  update:async(id,title,body)=>{edits[id]=body;if(saved?.meta.id===id)saved={...saved,body};const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');m.title=title;return {...m};},
+  update:async(id,title,body,source)=>{edits[id]=body;if(saved?.meta.id===id)saved={...saved,body};const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');m.title=title;m.sourceTitle=source?.sourceTitle??null;m.sourceUrl=source?.sourceUrl??null;m.sourceLoc=source?.sourceLoc??null;return {...m};},
+  updateSource:async(id,source)=>{const m=notes.find(n=>n.id===id);if(!m)throw Error('笔记不存在或已被删除');m.sourceTitle=source.sourceTitle??null;m.sourceUrl=source.sourceUrl??null;m.sourceLoc=source.sourceLoc??null;},
+  exportNote:async id=>`/tmp/export-${id.slice(0,8)}.md`,
+  exportAll:async()=>'/tmp/export-all',
   rebuild:async()=>notes.length,
   topics:async()=>notes.map(n=>({topic:{id:`t-${n.id}`,name:`主题-${n.title}`,column:'',createdBy:'ai',batchId:'b1',createdAt:1},noteIds:[n.id],count:1})),
   topicNotes:async topicId=>{const t=notes.find(n=>`t-${n.id}`===topicId);return t?[{meta:{...t,attachments:[]},body:'主题笔记'}]:[];},
@@ -95,7 +98,7 @@ it('rebuild reports the adopted count',async()=>{
 it('saveEdit updates the note, refreshes the list and re-reads the body',async()=>{
  const f=fixture([meta()]);await f.controller.refresh();
  await f.controller.open(meta().id);
- const saved=await f.controller.saveEdit(meta().id,'编辑标题','编辑后的正文');
+ const saved=await f.controller.saveEdit(meta().id,'编辑标题','编辑后的正文',{sourceTitle:'来源',sourceUrl:null,sourceLoc:null});
  expect(saved?.title).toBe('编辑标题');
  expect(f.controller.state.current?.body).toBe('编辑后的正文');
  expect(f.controller.state.notes[0].title).toBe('编辑标题');
@@ -106,7 +109,7 @@ it('a failed edit reports and keeps the current note untouched',async()=>{
  const f=fixture([meta()]);await f.controller.refresh();
  await f.controller.open(meta().id);
  f.port.update=async()=>{throw Error('磁盘满');};
- const result=await f.controller.saveEdit(meta().id,'x','y');
+ const result=await f.controller.saveEdit(meta().id,'x','y',{sourceTitle:null,sourceUrl:null,sourceLoc:null});
  expect(result).toBeNull();
  expect(f.controller.state.notice).toContain('磁盘满');
  expect(f.controller.state.current?.body).toBe('正文');
