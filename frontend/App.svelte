@@ -24,7 +24,7 @@
   import {attachmentPort} from './lib/bridge';
   let notice=$state('');
   let view=$state<'ask'|'preview'|'reply'|'settings'|'history'>('ask');
-  let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY'},status:'loading',loaded:false,error:null});
+  let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,keySource:null,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'loading',loaded:false,error:null,secretSaving:false,secretNotice:null});
   const provider=new ProviderController(providerPort,s=>settings=s);
   let surface=$state<SurfaceInfo>({mode:'full',scaleFactor:1,generation:0,bounds:{width:480,initialHeight:96,maxHeight:594}});
   let responseKind=$state<'demo'|'model'>('model');let demoText=$state('');let demoRunning=$state(false);let switching=$state(false);let closing=false;
@@ -122,7 +122,7 @@
       {#if view==='history'}
         <HistoryPanel port={historyPort} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory}/>
       {:else if view==='settings'}
-        <ProviderSettings state={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()}/>
+        <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>
       {:else if view==='ask'}
         <section class="welcome"><div class="eyebrow">A LITTLE SPACE FOR CURIOSITY</div><h1>从一个问题开始<span>。</span></h1><p>留住阅读时的疑问，慢慢把知识连起来。</p><div class="orbit" aria-hidden="true"><span></span><span></span><span></span><b><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4v24M4 16h24M7.5 7.5l17 17m-17 0 17-17"/></svg></b></div></section>
         <section class="suggestions" aria-label="开始一个草稿"><button disabled={!draft.loaded} onclick={()=>fill('请帮我解释这段内容：\n\n')}><span class="suggestion-icon">Aa</span><strong>读懂一段内容</strong><span>换个角度，把意思讲清楚</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('我想理解这个公式：\n\n')}><span class="suggestion-icon">ƒ</span><strong>理解一个公式</strong><span>从符号到它背后的直觉</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('帮我梳理这个想法：\n\n')}><span class="suggestion-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c0 5-4 9-9 9 5 0 9 4 9 9 0-5 4-9 9-9-5 0-9-4-9-9Z"/></svg></span><strong>梳理一个想法</strong><span>先记下来，再找到联系</span><b>↗</b></button></section>

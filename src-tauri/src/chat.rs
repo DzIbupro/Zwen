@@ -59,7 +59,15 @@ pub async fn start_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStora
   if s.active.is_some(){return Err(error("chat_busy","当前请求尚未结束，请先停止"));}
   if s.revoked.contains(&request_id){return Err(error("chat_cancelled","此请求已取消"));}
   if s.last.as_ref().is_some_and(|r|!r.saved){return Err(error("chat_unsaved","上一条回答尚未保存，请先重试保存"));}
-  let config=provider::configured(&storage)?;let key=config.read_key()?;
+  let config=provider::configured(&storage)?;
+  // Environment wins (run-with-key and smoke paths); otherwise the keyring.
+  let key=match config.read_key(){
+   Ok(key)=>key,
+   Err(_)=>match crate::secret::read_model_key(){
+    Ok(Some(value))=>zwen_core::provider::ApiKey::new(&value).map_err(|_|error("invalid_provider","钥匙环中的密钥无效；请在设置中重新保存"))?,
+    _=>return Err(error("invalid_provider","未找到模型密钥；请在设置中保存到系统钥匙环，或用启动环境提供")),
+   },
+  };
   let dir=directory(&storage)?;
   let mut journal=Journal::open(&dir.join("chat.sqlite3"))?;
   let profile=serde_json::to_string(&config).map_err(|_|ClientError::storage())?;

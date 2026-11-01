@@ -37,7 +37,9 @@ import type {ProviderPort,ProviderView} from './provider';
 export const providerPort:ProviderPort=isDesktop?{
  load:()=>command<ProviderView>('load_provider'),
  save:(revision,config)=>command<ProviderView>('save_provider',{expectedRevision:revision,config}),
-}:{load:async()=>({config:null,revision:0,keyAvailable:false}),save:async()=>{throw Error('浏览器仅预览设置，请在桌面应用中保存');}};
+ saveSecret:value=>command<void>('save_model_secret',{secret:value}),
+ clearSecret:()=>command<void>('clear_model_secret'),
+}:{load:async()=>({config:null,revision:0,keyAvailable:false,keySource:null}),save:async()=>{throw Error('浏览器仅预览设置，请在桌面应用中保存');},saveSecret:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中保存密钥');},clearSecret:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中操作');}};
 
 import {listen} from '@tauri-apps/api/event';
 import type {ChatPort,ChatReply,Overview} from './chat';

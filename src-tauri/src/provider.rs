@@ -3,7 +3,7 @@ use zwen_core::{Error,provider::{ProviderConfig,ProviderSnapshot,ProviderStore}}
 use serde::Serialize;
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct View {#[serde(flatten)] snapshot:ProviderSnapshot,key_available:bool}
+pub struct View {#[serde(flatten)] snapshot:ProviderSnapshot,key_available:bool,key_source:Option<&'static str>}
 async fn work(storage:SharedStorage,op:impl FnOnce(&mut ProviderStore)->Result<ProviderSnapshot,Error>+Send+'static)->Result<View,ClientError>{
  tauri::async_runtime::spawn_blocking(move||{
   let dir=storage.directory.as_ref().map_err(Clone::clone)?;
@@ -15,8 +15,13 @@ async fn work(storage:SharedStorage,op:impl FnOnce(&mut ProviderStore)->Result<P
    *connection=Some(ProviderStore::open(&dir.join("provider.sqlite3"))?);
   }
   let snapshot=op(connection.as_mut().ok_or_else(ClientError::storage)?)?;
-  let key_available=snapshot.config.as_ref().is_some_and(|c|c.read_key().is_ok());
-  Ok(View{snapshot,key_available})
+  // Presence and source only: the key itself never crosses IPC.
+  let key_source=match snapshot.config.as_ref(){
+   Some(config) if config.read_key().is_ok()=>Some("environment"),
+   Some(_) if crate::secret::has_model_key().unwrap_or(false)=>Some("keyring"),
+   _=>None,
+  };
+  Ok(View{snapshot,key_source,key_available:key_source.is_some()})
  }).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]

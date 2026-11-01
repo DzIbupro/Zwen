@@ -97,7 +97,7 @@ Rust core 已增加有界 SSE 帧解码：输入块不大于64KiB、行与data�
 
 请求先落盘问题，一个受控后台请求线程拥有SQLite及当前线程异步runtime；首片段、收到内容时的500ms检查点、终态保存。帧带requestId/revision，迟到帧失效；停止pending调用也能撤销后到的start。保存故障保留NativeRAM快照，重建WebView仍可见；这不代表已经持久化。退出先停止并等待保存，失败留窗。显示层区分完成/停止/失败/中断，不让演示伪装模型输出。
 
-用户选择智谱：API根https://open.bigmodel.cn/api/paas/v4，文本glm-4.7-flash；视觉glm-4.6v-flash在模型设置中可选配置，本地截图附件与合成图片请求已实现，真实图片调用未验证。密钥暂由用户本机启动环境提供；Secret Service界面后续完善。当前没有自动划词、知识整理或图谱实现。详细证据见[本轮验证](validation/2026-10-30-provider-chat.md)、[截图验证](validation/2026-10-31-screenshot.md)与[视觉验证](validation/2026-10-31-vision.md)。
+用户选择智谱：API根https://open.bigmodel.cn/api/paas/v4，文本glm-4.7-flash；视觉glm-4.6v-flash在模型设置中可选配置，本地截图附件与合成图片请求已实现，真实图片调用未验证。密钥解析顺序为启动环境优先、系统钥匙环（Secret Service/gnome-keyring，2026-11-01 实现）兜底；密钥不进SQLite、不经IPC回传、不写日志。当前没有自动划词、知识整理或图谱实现。详细证据见[本轮验证](validation/2026-10-30-provider-chat.md)、[截图验证](validation/2026-10-31-screenshot.md)、[视觉验证](validation/2026-10-31-vision.md)与[钥匙环验证](validation/2026-11-01-keyring.md)。
 
 ## 2026-10-30 显式选区入口落实
 

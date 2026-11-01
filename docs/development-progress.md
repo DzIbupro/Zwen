@@ -7,7 +7,7 @@
 - `/home/dzibupro/Zwen/Zwen`；分支 `feat/desktop-foundation`，GitHub https://github.com/DzIbupro/Zwen ，草稿 PR1。
 - 交接基线 `9a3efc9f059ca51fd571d7a087ce2c7659459800`（与交接文档一致）；本轮本地提交依次为 `ea4ff0e`（交接文档）、`d1138db`（截图单元）、`40f6479`/`8da1453`（证据与哈希）、`2027846`（视觉模型路由）。
 - **推送状态：2026-10-31 已推送 `9a3efc9..4d9e5a1` 到远端 `feat/desktop-foundation`，草稿 PR1（OPEN）同步更新。** 推送经由用户在本机浏览器完成 GitHub CLI 设备流授权；`gh` 已以用户级方式安装到 `~/.local/bin`，令牌仅存于本机 `~/.config/gh`，未进入仓库或聊天。
-- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `cb053bc475d05d8aebeb5bff820680e06546ca1f1cd7ce917ef3143aa25ac4ad`（2026-11-01 残影修复版），同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
+- 普通程序 `artifacts/zwen`，不含 `desktop-smoke`；SHA256 `cc2d25f0d881fa7c260f5487f648c46a9b47e0f0258598a6b673df51c9e27256`（2026-11-01 钥匙环保存版），同时记录在 git-ignored `artifacts/validation/ordinary-binary.sha256`。
 - 新入口：`./artifacts/zwen screenshot`（兼容 `capture-screenshot`），胶囊也有截图按钮。**2026-11-01 用户确认后已在其 Niri 配置绑定 `Ctrl+Alt+A` → `spawn zwen screenshot`**（niri validate 通过，配置热重载生效；Niri 绑定不区分左右 Alt）。选区三个入口仍未绑定全局快捷键。
 - `scripts/run-with-key.sh` 规则不变：用户本机不回显输入，只进入应用环境；不读 `/proc` 环境，不要求把 Key 发到聊天。
 
@@ -47,6 +47,13 @@
    - 根因：`activate_if_current` 先 `show` 再发 `surface-changed`，页面在窗口可见后才切换布局；WebKitGTK 透明窗口在重映射瞬间把旧帧（完整窗口顶部条）画进胶囊帧，且 body 过渡态半透明。
    - 修复：`surface-changed` 改为**在 `show` 之前发出**并等待 120ms 让前端切到目标布局；show 前重查 intent，期间的用户操作仍优先。冷启动 `screenshot` 的 `decorations` 改为与胶囊面一致（`!capsule_surface(action)`）。
    - Rust 单元测试 79 项通过；普通二进制重建，SHA256 `cb053bc475d05d8aebeb5bff820680e06546ca1f1cd7ce917ef3143aa25ac4ad`。原生合成回归仍因用户实例运行未补跑。
+12. **模型密钥保存到系统钥匙环（2026-11-01，用户诉求驱动）**：
+   - 每次启动都要 `run-with-key.sh` 输密钥成为负担；按设计文档预留的 Secret Service 路径实现：设置页"模型密钥（可选，保存到系统钥匙环）"粘贴一次 → gnome-keyring 条目（属性 `xdg:schema=io.github.dzibupro.zwen`、`zwen-role=model-key`）→ 之后启动自动使用；提供"清除已保存密钥"。
+   - 解析顺序：启动环境优先（run-with-key.sh 与合成测试路径完全不变），钥匙环兜底；发送时环境缺失自动读钥匙环。
+   - 边界不变：密钥不进 SQLite、不经 IPC 回传、不写日志；界面只显示来源（environment/keyring/未检测到）。
+   - 实现细节：zbus 5.19 blocking 客户端（复用既有依赖树，未新增第三方 crate）；plain 会话仅走本用户私有总线；Secret 结构 content_type 按官方规范为字符串（首版误用 au，真实端到端测试抓出后修正）。
+   - 验证：**真实 gnome-keyring 端到端通过**（存合成值→读回→删除→确认空，无遗留）；Rust 79+2 项、前端 59 项、svelte-check 0/0；普通二进制 SHA256 `cc2d25f0d881fa7c260f5487f648c46a9b47e0f0258598a6b673df51c9e27256`。详见 `docs/validation/2026-11-01-keyring.md`。
+   - 待验证：用户用真实密钥在设置页保存后提问一次（即真实验证）；钥匙环锁定提示；原生 UI 回归待用户退出实例后补跑。
 
 ## 验证
 
