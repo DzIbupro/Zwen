@@ -38,6 +38,7 @@ export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null
  relations:RelationView[];auto:boolean}
 
 export class KnowledgeController {
+ topicsSnapshot():TopicView[]{return this.state.topics;}
  state:KnowledgeState={notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false};
  private disposed=false;
  constructor(private port:KnowledgePort,private changed:(s:KnowledgeState)=>void){}

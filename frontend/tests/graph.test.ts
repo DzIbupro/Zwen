@@ -1,0 +1,34 @@
+import {it,expect} from 'vitest';
+import {buildGraph,expandTopic} from '../lib/graph';
+import type {TopicView,RelationView} from '../lib/knowledge';
+function topic(id:string,name:string,count:number,locked=false):TopicView{
+ return{topic:{id,name,column:'',createdBy:'ai',batchId:null,createdAt:1,locked},noteIds:[],count};
+}
+const topics=[topic('t1','正则化',2),topic('t2','泛化',1,true),topic('t3','无关',0)];
+const relations:RelationView[]=[{id:'r1',fromTopic:'t1',toTopic:'t2',reason:'同源',evidence:'n1',addedBy:'ai'}];
+it('builds nodes on a circle and keeps only in-scope edges',()=>{
+ const graph=buildGraph(topics,relations,'');
+ expect(graph.nodes).toHaveLength(3);
+ expect(graph.edges).toHaveLength(1);
+ expect(graph.edges[0].from).toBe('t1');
+ expect(graph.nodes.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y))).toBe(true);
+});
+it('filter narrows nodes and drops their edges',()=>{
+ const graph=buildGraph(topics,relations,'正则');
+ expect(graph.nodes.map(n=>n.name)).toEqual(['正则化']);
+ expect(graph.edges).toHaveLength(0);
+});
+it('expand attaches bounded secondary note nodes near the host',()=>{
+ let graph=buildGraph(topics,relations,'');
+ const notes=[...Array(20).keys()].map(i=>({id:`n${i}`,title:`笔记${i}`}));
+ graph=expandTopic(graph,'t1',notes);
+ const attached=graph.nodes.filter(n=>n.id.startsWith('note:t1:'));
+ expect(attached).toHaveLength(12);
+ expect(graph.nodes.find(n=>n.id==='t1')).toBeDefined();
+});
+it('expand is idempotent per topic',()=>{
+ let graph=buildGraph(topics,relations,'');
+ graph=expandTopic(graph,'t1',[{id:'n1',title:'笔记'}]);
+ graph=expandTopic(graph,'t1',[{id:'n1',title:'笔记'}]);
+ expect(graph.nodes.filter(n=>n.id.startsWith('note:t1:'))).toHaveLength(1);
+});

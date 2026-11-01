@@ -129,3 +129,7 @@
     - shell：organize_rename/set_column/merge/split/set_locked/delete_topic/add_relation/remove_relation/list_relations/set_auto/get_auto 共 12 命令；UI 主题覆盖层加治理区（重命名/栏目/锁定/删除主题）与关系列表；整理面板加"自动整理新收藏"开关（持久化 meta）；收藏成功后 runAutoFor 静默增量。
     - 修复：organize_delete_topic 初版用哨兵合并写法被目标缺失阻断——改为专用 delete_topic；relations/meta 表首次建库重复声明去重。
     - 验证：core organize 5 项（+治理全链：改名/锁拒合并/合并删悬空关系/拆分移动/两侧行为证据关系/栏目/开关）；前端 80 项（+6）；knowledge smoke 治理段（rename/locked-skip/delete/auto 持久化）通过。
+24. **知识网络 SVG 图谱（2026-11-02）**：
+    - 阶段 5 落地：新"知识网络"标签页——主题节点（大小=归属数）、AI 关系为边（悬停看理由）；圆环布局（确定性，无第三方图依赖，设计文档的 Cytoscape 拟用改为手写 SVG 以避免新增依赖）；滚轮缩放/拖动平移/复位；搜索筛选（节点与边随查询收窄）；点主题节点按需展开成员笔记（≤12 个二级节点，幂等）；点笔记节点跳详情。
+    - `lib/graph.ts`：buildGraph（过滤+圆环布局+边过滤）、expandTopic（幂等展开）+4 项测试；KnowledgeGraph 组件（a11y：节点 role=button+键盘，stage 交互注释豁免）；App 新 tab 接线。
+    - 验证：前端 84 项（+4）、`svelte-check` 0/0；knowledge smoke 加图谱段（建主题→节点渲染→筛选→清空→恢复），全套原生回归 10/10。

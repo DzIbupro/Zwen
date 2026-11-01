@@ -24,10 +24,11 @@
   import {attachmentPort,openExternal} from './lib/bridge';
   import {proseLinkClick} from './lib/links';
   import KnowledgePanel from './KnowledgePanel.svelte';
+  import KnowledgeGraph from './KnowledgeGraph.svelte';
   import {KnowledgeController,type KnowledgeState} from './lib/knowledge';
   import {knowledgePort} from './lib/bridge';
   let notice=$state('');
-  let view=$state<'ask'|'preview'|'reply'|'settings'|'history'|'knowledge'>('ask');
+  let view=$state<'ask'|'preview'|'reply'|'settings'|'history'|'knowledge'|'graph'>('ask');
   let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,keySource:null,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'loading',loaded:false,error:null,secretSaving:false,secretNotice:null});
   const provider=new ProviderController(providerPort,s=>settings=s);
   let surface=$state<SurfaceInfo>({mode:'full',scaleFactor:1,generation:0,bounds:{width:480,initialHeight:96,maxHeight:594}});
@@ -156,10 +157,12 @@
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器交互预览 · 草稿仅保存在此浏览器；桌面版使用本机数据库</div>{/if}
   <div class="workspace">
-    <nav aria-label="面板视图"><div class="tabs"><button class:active={view==='ask'} aria-pressed={view==='ask'} onclick={()=>view='ask'}>提问</button><button data-preview class:active={view==='preview'} aria-pressed={view==='preview'} onclick={()=>view='preview'}>格式预览</button>{#if chatState.reply||chatState.running||chatState.error}<button aria-pressed={view==='reply'&&responseKind==='model'} class:active={view==='reply'&&responseKind==='model'} onclick={()=>{responseKind='model';view='reply';}}>模型回复</button>{/if}{#if demoText}<button aria-pressed={view==='reply'&&responseKind==='demo'} class:active={view==='reply'&&responseKind==='demo'} onclick={()=>{responseKind='demo';view='reply';}}>演示回复</button>{/if}<button class:active={view==='history'} aria-pressed={view==='history'} onclick={()=>view='history'}>历史</button><button class:active={view==='knowledge'} aria-pressed={view==='knowledge'} onclick={()=>{view='knowledge';void knowledge.refresh();}}>知识库</button><button disabled={chatState.running||chatState.stopping} onclick={newConversation}>新对话</button><button class:active={view==='settings'} aria-pressed={view==='settings'} onclick={()=>view='settings'}>模型设置</button></div><span class="model-status"><i></i> {settings.config?'模型已配置':'模型未配置'}</span></nav>
+    <nav aria-label="面板视图"><div class="tabs"><button class:active={view==='ask'} aria-pressed={view==='ask'} onclick={()=>view='ask'}>提问</button><button data-preview class:active={view==='preview'} aria-pressed={view==='preview'} onclick={()=>view='preview'}>格式预览</button>{#if chatState.reply||chatState.running||chatState.error}<button aria-pressed={view==='reply'&&responseKind==='model'} class:active={view==='reply'&&responseKind==='model'} onclick={()=>{responseKind='model';view='reply';}}>模型回复</button>{/if}{#if demoText}<button aria-pressed={view==='reply'&&responseKind==='demo'} class:active={view==='reply'&&responseKind==='demo'} onclick={()=>{responseKind='demo';view='reply';}}>演示回复</button>{/if}<button class:active={view==='history'} aria-pressed={view==='history'} onclick={()=>view='history'}>历史</button><button class:active={view==='knowledge'} aria-pressed={view==='knowledge'} onclick={()=>{view='knowledge';void knowledge.refresh();}}>知识库</button><button class:active={view==='graph'} aria-pressed={view==='graph'} onclick={()=>{view='graph';void knowledge.refresh();void knowledge.loadTopics();void knowledge.loadRelations();}}>知识网络</button><button disabled={chatState.running||chatState.stopping} onclick={newConversation}>新对话</button><button class:active={view==='settings'} aria-pressed={view==='settings'} onclick={()=>view='settings'}>模型设置</button></div><span class="model-status"><i></i> {settings.config?'模型已配置':'模型未配置'}</span></nav>
     <main>
       {#if view==='history'}
         <HistoryPanel port={historyPort} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
+      {:else if view==='graph'}
+        <KnowledgeGraph controller={knowledge} info={knowledgeState} onOpenNote={id=>void knowledge.open(id).then(()=>{view='knowledge';})} onOpenTopic={id=>{view='knowledge';void knowledge.openTopic(id);}}/>
       {:else if view==='knowledge'}
         <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
       {:else if view==='settings'}

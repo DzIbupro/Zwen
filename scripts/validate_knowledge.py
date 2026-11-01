@@ -78,6 +78,16 @@ try:
  remain=[p for p in (notes/'attachments').glob('*') if p.is_file()]
  assert not remain,f'note attachment copies remain: {remain}'
  assert (notes/f'{ORPHAN}.md').exists(),'orphan note was deleted'
+ assert len(requests)==3 and not server_errors,(requests,server_errors)
+ assert all(r['model']=='fixture-model' for r in requests),requests
+ db=sqlite3.connect(root/'organize.sqlite3')
+ statuses=[r[0] for r in db.execute('SELECT status FROM batches ORDER BY id').fetchall()]
+ assert statuses==['undone','applied','applied'],statuses
+ memberships=db.execute('SELECT note_id,topic_id,batch_id,added_by FROM memberships').fetchall()
+ assert len(memberships)==1,'graph-run membership must survive'
+ assert db.execute('SELECT count(*) FROM topics').fetchone()[0]==1,'graph-run topic must survive'
+ assert db.execute("SELECT value FROM meta WHERE key='auto_organize'").fetchone()[0]=='on'
+ db.close()
  db=sqlite3.connect(root/'attachment.sqlite3');assert db.execute('SELECT count(*) FROM attachments').fetchone()[0]==1;db.close()
  db=sqlite3.connect(root/'chat.sqlite3');assert db.execute("SELECT prompt,answer FROM turns WHERE request_id='seedturn0001'").fetchone()==('原始问题文本','原始回答内容');db.close()
  for path in root.glob('*.sqlite3*'):assert b'fixture-token' not in path.read_bytes() if path.exists() else True
