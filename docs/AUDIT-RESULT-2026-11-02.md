@@ -41,7 +41,7 @@
 - **9/9原生合成脚本通过**：desktop、capsule、selection、provider、chat、chat_fault、chat_image、screenshot、knowledge。
 - 普通程序`artifacts/zwen`已替换并记录SHA256；检查不含desktop-smoke标识。原生基础回归验证实际加载96px logo。
 - 结构化结果：git-ignored `artifacts/validation/audit-2026-11-02-native.json`。完整日志为本机`/tmp/zwen-audit-*.log`，不作为可移植长期证据；可用仓库测试重现。
-- 本次短时合成文字问答进程树峰值：PSS **289.13MiB**、RSS **533.59MiB**。不含完整GPU核算，不覆盖多图/大知识库/长期运行，不宣称成品资源达标。
+- 本次短时合成文字问答进程树峰值：PSS **288.54MiB**、RSS **533.41MiB**。不含完整GPU核算，不覆盖多图/大知识库/长期运行，不宣称成品资源达标。
 
 ## 测试驱动修正
 
@@ -61,3 +61,5 @@
 8. 模型结果目前过滤非法/越界条目以保护范围；质量审查应核对有效结果与未采纳内容，不能从合成JSON推断真实整理质量。
 
 本轮未读取真实用户笔记、剪贴板、进程环境或钥匙环，未上传用户材料，未修改生产密钥。唯一用户提供图片作为其明确指定的应用标识纳入资源。
+
+本轮功能提交：`baa5150`，已推送私有开发分支。完成后清理项目target约1.64GiB，保留普通程序、资源和选中依赖缓存。

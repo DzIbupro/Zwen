@@ -1,6 +1,6 @@
 # Zwen 当前进度（2026-11-02）
 
-状态：**unit-complete**。本轮依据用户授权完成独立审查、优先级缺陷修补与用户logo接入。审查基线6bb9e7d；详情见[审查结果](AUDIT-RESULT-2026-11-02.md)。Rust core/transport118、desktop16（另1个真实钥匙环测试ignored）、前端95均通过，Svelte0/0，原生合成9/9。普通程序已更新，无desktop-smoke；哈希见artifacts/validation/ordinary-binary.sha256。未对真实模型、真实跨应用/多屏或长期稳定性作新的通过宣称。下文保留之前轮次历史，若冲突以本段、最新审查报告和代码为准。
+状态：**unit-complete**。本轮依据用户授权完成独立审查、优先级缺陷修补与用户logo接入。审查基线6bb9e7d；详情见[审查结果](AUDIT-RESULT-2026-11-02.md)。Rust core/transport118、desktop16（另1个真实钥匙环测试ignored）、前端95均通过，Svelte0/0，原生合成9/9。功能提交baa5150已推送私有分支；普通程序已更新，无desktop-smoke，SHA256为1d5529692b4e33f431db5d278aa54af5f21be78546e29049207b6b5266a24727。已清理本轮target约1.64GiB，保留程序和选中依赖缓存。未对真实模型、真实跨应用/多屏或长期稳定性作新的通过宣称。下文保留之前轮次历史，若冲突以本段、最新审查报告和代码为准。
 
 用户logo：assets/brand/zwen-logo-original.png保留原图；前端96px、Tauri256px资源已接入。实测普通窗口app_id=zwen，用户级zwen.desktop和图标已更新；没有改动Niri快捷键。
 
