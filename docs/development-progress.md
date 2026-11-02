@@ -1,5 +1,7 @@
 # 2026-11-03 划词动作菜单
 
+2026-11-03 快捷键调整：按用户要求将本机 Niri 的 Zwen 截图快捷键从 Ctrl+Alt+A 改为 **Shift+Alt+S**，目标仍为 artifacts/zwen screenshot。配置已备份、niri validate通过，并调用load-config-file重载成功；尚未实际按键触发截图。以下旧快捷键记录属于历史。
+
 状态：**unit-complete**。用户确认的新需求已完成：问一问Zwen/翻译/详细解释/其他、自定义提示词设置与默认文档目录，完整回答后收藏并导出Markdown。详见[验证记录](validation/2026-11-03-selection-actions.md)与[实现计划](superpowers/plans/2026-11-03-selection-actions.md)。自动菜单需启动程序并在模型设置开启，来源应用需提供PRIMARY，不宣称任意页面都可读取。
 
 验证：前端111、核心/传输126、桌面26通过（另1真实钥匙环测试忽略）；actions串联驱动通过，原有selection/chat/knowledge驱动通过。仅临时库/合成选区/本机合成模型，无生产资料或真实服务请求。普通程序SHA256：88791a2dd5f7e84f29d8a33f939e402f529093f3b1ffba1013a2a7a38a22f9f0。普通构建无smoke标记。
