@@ -1,4 +1,9 @@
 <script lang="ts">
+  import ActionOutputNotice from './ActionOutputNotice.svelte';
+  import QuickActionSettings from './QuickActionSettings.svelte';
+  import {defaultQuickActions,type QuickActionConfig} from './lib/quick-actions';
+  import {ActionOutputController,type ActionOutputState} from './lib/action-output';
+  import {quickActionPort,actionOutputPort} from './lib/bridge';
   import {SendDraftCoordinator} from './lib/send-draft';
   import BrandLogo from './BrandLogo.svelte';
   import { onMount } from 'svelte';
@@ -29,6 +34,11 @@
   import KnowledgeGraph from './KnowledgeGraph.svelte';
   import {KnowledgeController,type KnowledgeState} from './lib/knowledge';
   import {knowledgePort} from './lib/bridge';
+  let quickConfig=$state<QuickActionConfig>({revision:0,actions:defaultQuickActions(),outputDirectory:''});
+  let actionBusy=$state(false);
+  let quickConfigLoaded=$state(false);
+  let actionOutputState=$state<ActionOutputState|null>(null);
+  const actionOutput=new ActionOutputController(actionOutputPort,s=>actionOutputState=s);
   let notice=$state('');
   let view=$state<'ask'|'preview'|'reply'|'settings'|'history'|'knowledge'|'graph'>('ask');
   let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,keySource:null,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'loading',loaded:false,error:null,secretSaving:false,secretNotice:null});
@@ -36,7 +46,7 @@
   let surface=$state<SurfaceInfo>({mode:'full',scaleFactor:1,generation:0,bounds:{width:480,initialHeight:96,maxHeight:594}});
   let responseKind=$state<'demo'|'model'>('model');let demoText=$state('');let demoRunning=$state(false);let switching=$state(false);let closing=false;
   let chatState=$state<ChatState>({answer:'',running:false,stopping:false,loaded:false,error:null,reply:null});
-  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;settlePendingSend();if(appeared&&view==='ask'){responseKind='model';view='reply';}});
+  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){responseKind='model';view='reply';}});
   const response=$derived(responseKind==='demo'?demoText:chatState.answer);
   const running=$derived(responseKind==='demo'?demoRunning:chatState.running);
   const replyStatus=$derived(responseKind==='demo'?(demoRunning?'演示中':'演示结束'):chatState.reply?({streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'}[chatState.reply.state]):chatState.running?'等待回复':'');
@@ -53,7 +63,8 @@
   // single token (429, network…) puts the question back for a one-press retry.
   function settlePendingSend(){sendDraft.reconcile(chatState);}
   async function send(){
-    if(chatState.running||chatState.stopping)return;
+    if(chatState.running||chatState.stopping||actionBusy)return;
+    if(actionOutputState&&actionOutputState.stage!=='saved'){notice='请先处理或取消文档自动保存';return;}
     if(selectionState.busy){notice='请等待选区处理完成';return;}
     if(attachmentState.pending){attachmentController.note('请等待截图完成');return;}
     if(attachmentState.items.length>0&&!imageModelOf(settings.config)){attachmentController.note('截图尚未接入模型；请先在模型设置中配置图片模型');return;}
@@ -64,6 +75,32 @@
     const ticket=sendDraft.begin(sentIds);if(!ticket)return;
     const accepted=await chat.send(sent,()=>controller.flush());
     if(accepted)sendDraft.accept(ticket,chatState);else sendDraft.cancel(ticket);
+  }
+  async function openQuickSettings(){await switchSurface('full');view='settings';setTimeout(()=>document.querySelector('[data-quick-action-settings]')?.scrollIntoView({block:'start'}),0);}
+  async function selectAction(id:string){
+    if(actionBusy||selectionState.busy||!selectionState.pending?.text)return;
+    if(chatState.running||chatState.stopping){notice='请先完成或停止当前回答，再执行划词操作';return;}
+    if(id==='ask'){
+      actionBusy=true;try{await selection.applyPending();if(!selectionState.pending){view='ask';await switchSurface('capsule');}}finally{actionBusy=false;}return;
+    }
+    if(!quickConfigLoaded){notice='快捷提示词尚未读入，请在设置中重新读取';return;}
+    const actionConfig=quickConfig;
+    const action=actionConfig.actions.find(a=>a.id===id&&a.enabled);if(!action){notice='该快捷动作未启用，请在设置中检查';return;}
+    if(draft.text.trim()||attachmentState.pending||attachmentState.items.length){notice='请先发送或清空当前草稿和截图，再执行快捷动作；选区已保留';return;}
+    if(actionOutputState&&actionOutputState.stage!=='saved'){notice='请先处理上次文档保存，或关闭其提示';return;}
+    if(!isDesktop){notice='浏览器仅预览，请在桌面程序中执行划词操作';return;}
+    if(!chatState.loaded||!settings.loaded||settings.status==='loading'){notice='正在读取本机模型配置，请稍后重试';return;}
+    if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥；选区已保留';await openQuickSettings();return;}
+    actionBusy=true;
+    try{
+      const item=await selection.freezePending();if(!item?.text)return;
+      const requestId=crypto.randomUUID();
+      if(!actionOutput.track({requestId,selection:item.text,actionId:action.id,actionName:action.name,output:action.output,outputDirectory:actionConfig.outputDirectory}))return;
+      demo.stop();responseKind='model';view='reply';
+      const accepted=await chat.sendSelection(requestId,item.text,action.id,actionConfig.revision);
+      if(accepted){await selection.acknowledgeFrozen(item.id);await switchSurface('capsule');}
+      else{actionOutput.dismiss();notice=chatState.error||'请求未开始，选区保留，请手动重试';}
+    }finally{actionBusy=false;}
   }
   async function onCandidateToggle(on:boolean){
     try{await invoke('candidate_set_enabled',{enabled:on});candidateEnabled=on;}
@@ -113,6 +150,7 @@
   async function save() { try { if(!draft.loaded){await controller.start();await selection.refresh();}else await controller.flush(); notice='草稿已保存'; } catch { /* error is visible in draft state */ } }
   async function leave(quit=false) {
     if (!isDesktop) { notice='这是浏览器预览，草稿保存在此浏览器；桌面收起功能请在应用中使用';return; }
+    if(quit&&(actionBusy||actionOutputState&&actionOutputState.stage!=='saved')){notice='请先完成或取消文档自动保存，再退出';return;}
     if(quit&&knowledge.pendingEditorId()){notice='知识库仍有编辑未完成，请先保存编辑或取消；切换页面会保留本次编辑';view='knowledge';void knowledge.open(knowledge.pendingEditorId()!);return;}
     if(quit&&(selectionState.busy||selectionState.pending)){notice='请先处理待导入选区，再退出';return;}
     if(quit&&attachmentState.pending){notice='请先取消等待截图，再退出';return;}
@@ -127,23 +165,24 @@
   onMount(()=>{
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
     void provider.load();void chat.load();
+    if(isDesktop)void quickActionPort.load().then(c=>{quickConfig=c;quickConfigLoaded=true;}).catch(error=>{notice=error instanceof Error?error.message:'快捷提示词读取失败';});
     void controller.start().then(()=>{input?.focus();void selection.refresh();}).catch(()=>{});
     void attachmentController.start();
     if(isDesktop)void invoke('candidate_get_enabled').then((value:unknown)=>{candidateEnabled=typeof value==='boolean'&&value;}).catch(()=>{});
     void getSurface().then(applySurface).catch(()=>{notice='窗口模式读取失败';});
     let disposed=false;const unlisteners:(()=>void)[]=[];
     if(isDesktop) void listen('selection-ready',()=>void selection.refresh()).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{notice='选区事件暂不可用，可重新读取状态';});
-    if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{applySurface(e.payload);if(e.payload.mode==='full'&&response)view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{applySurface(e.payload);if(e.payload.mode==='full'&&response&&view==='ask')view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>void leave(quit)).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{notice='关闭事件暂不可用，请使用面板按钮';});
     }
-    return ()=>{disposed=true;for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();demo.stop();resizeQueue.clear();};
+    return ()=>{disposed=true;for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();actionOutput.dispose();demo.stop();resizeQueue.clear();};
   });
 </script>
 
 <svelte:window onkeydown={keydown}/>
 {#if surface.mode==='capsule'}
-<Capsule {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+<Capsule quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
 {:else}
 <div class="shell">
   <header class="titlebar">
@@ -162,6 +201,7 @@
         <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
       {:else if view==='settings'}
         <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()} candidateEnabled={candidateEnabled} onCandidateToggle={onCandidateToggle}/>
+        <QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>
       {:else if view==='ask'}
         <section class="welcome"><div class="eyebrow">A LITTLE SPACE FOR CURIOSITY</div><h1>从一个问题开始<span>。</span></h1><p>留住阅读时的疑问，慢慢把知识连起来。</p><div class="orbit" aria-hidden="true"><span></span><span></span><span></span><b><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4v24M4 16h24M7.5 7.5l17 17m-17 0 17-17"/></svg></b></div></section>
         <section class="suggestions" aria-label="开始一个草稿"><button disabled={!draft.loaded} onclick={()=>fill('请帮我解释这段内容：\n\n')}><span class="suggestion-icon">Aa</span><strong>读懂一段内容</strong><span>换个角度，把意思讲清楚</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('我想理解这个公式：\n\n')}><span class="suggestion-icon">ƒ</span><strong>理解一个公式</strong><span>从符号到它背后的直觉</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('帮我梳理这个想法：\n\n')}><span class="suggestion-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c0 5-4 9-9 9 5 0 9 4 9 9 0-5 4-9 9-9-5 0-9-4-9-9Z"/></svg></span><strong>梳理一个想法</strong><span>先记下来，再找到联系</span><b>↗</b></button></section>
@@ -170,7 +210,8 @@
         <section class="answer"><div class="answer-label"><span class="assistant-dot"></span><strong>{view==='reply'&&responseKind==='model'?chatState.reply?.model||'模型回复':'阅读效果'}</strong><span>{view==='reply' ? `${replyLabel} · ${replyStatus}` : draft.text.trim() ? '草稿排版预览 · 非 AI 回答' : '内置示例 · 非 AI 回答'}</span></div>{#if view==='reply'&&responseKind==='model'&&chatState.reply}<details class="question-summary"><summary>本轮问题 · 上下文 {chatState.reply.contextTurns} 轮</summary><p>{chatState.reply.prompt}</p></details>{/if}<div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html preview}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{responseKind==='demo'?'停止演示':'停止生成'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save onclick={()=>void saveToKnowledge()}>收藏到知识库</button>{/if}{#if view==='reply'&&responseKind==='model'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
       {/if}
     </main>
-    <SelectionNotice state={selectionState} onRetry={()=>void selection.applyPending()} onDiscard={()=>void selection.discard()} onReload={()=>void selection.refresh()}/>
+    <ActionOutputNotice state={actionOutputState} onRetry={()=>void actionOutput.retry()} onDismiss={()=>actionOutput.dismiss()}/>
+        <SelectionNotice actions={quickConfig.actions} {actionBusy} onAction={id=>void selectAction(id)} onSettings={()=>void openQuickSettings()} state={selectionState} onRetry={()=>void selection.applyPending()} onDiscard={()=>void selection.discard()} onReload={()=>void selection.refresh()}/>
     {#if responseKind==='model'&&chatState.error}<div class="error" role="alert"><strong>{chatState.error}</strong>{#if !chatState.loaded}<button onclick={()=>void chat.load()}>重新读取对话</button>{/if}{#if chatState.reply&&!chatState.reply.saved&&!chatState.running}<button onclick={()=>void retryReplySave()}>重试保存回答</button>{/if}</div>{/if}
     {#if draft.error}<div class="error" role="alert"><strong>{draft.error}</strong><span>原有文件不会被自动替换。</span><button onclick={()=>draft.loaded ? save() : controller.start().then(()=>selection.refresh()).catch(()=>{})}>{draft.loaded ? '重试保存' : '重新读取'}</button></div>{/if}
     {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">

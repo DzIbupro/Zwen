@@ -1,6 +1,6 @@
 export interface ChatReply {requestId:string;conversationId:string;contextTurns:number;revision:number;answer:string;prompt:string;model:string;state:'streaming'|'complete'|'stopped'|'failed'|'interrupted'|'limited'|'filtered';error:string|null;saved:boolean;createdAt:number}
 export interface Overview {reply:ChatReply|null;activeRequestId:string|null}
-export interface ChatPort {listen(cb:(r:ChatReply)=>void):Promise<()=>void>;load():Promise<Overview>;start(id:string,prompt:string,conversationId?:string|null):Promise<ChatReply>;stop(id:string):Promise<ChatReply|null>;settle():Promise<ChatReply|null>}
+export interface ChatPort {startSelection?(id:string,selection:string,actionId:string,expectedRevision:number):Promise<ChatReply>;listen(cb:(r:ChatReply)=>void):Promise<()=>void>;load():Promise<Overview>;start(id:string,prompt:string,conversationId?:string|null):Promise<ChatReply>;stop(id:string):Promise<ChatReply|null>;settle():Promise<ChatReply|null>}
 export interface ChatState {answer:string;running:boolean;stopping:boolean;loaded:boolean;error:string|null;reply:ChatReply|null}
 export class ChatController {
  state:ChatState={answer:'',running:false,stopping:false,loaded:false,error:null,reply:null};
@@ -16,11 +16,16 @@ export class ChatController {
    const view=await this.port.load();if(this.disposed)return;this.active=view.activeRequestId??view.reply?.requestId??null;this.revision=-1;this.publish({loaded:true});if(view.reply)this.receive(view.reply);if(pending)this.receive(pending);
   }catch(e){this.publish({error:e instanceof Error?e.message:'对话读取失败，原有记录保留'});}
  }
- async send(prompt:string,save:()=>Promise<void>){
+ async send(prompt:string,save:()=>Promise<void>){return this.sendUsing(crypto.randomUUID(),prompt,save,id=>this.port.start(id,prompt,this.conversation));}
+ async sendSelection(requestId:string,selection:string,actionId:string,expectedRevision=0){
+  if(!this.port.startSelection){this.publish({error:'划词操作不可用，请更新桌面程序'});return false;}
+  return this.sendUsing(requestId,selection,async()=>{},id=>this.port.startSelection!(id,selection,actionId,expectedRevision));
+ }
+ private async sendUsing(id:string,prompt:string,save:()=>Promise<void>,start:(id:string)=>Promise<ChatReply>){
   if(this.state.reply&&!this.state.reply.saved&&!this.state.running){this.publish({error:'上一条回答尚未保存，请先重试保存'});return false;}
   if(!this.state.loaded||this.state.running||this.stopping||!prompt.trim())return;
-  const id=crypto.randomUUID();this.active=id;this.revision=-1;const operation=++this.operation;this.publish({answer:'',reply:null,running:true,error:null});
-  try {await save();if(this.disposed||operation!==this.operation)return;const reply=await this.port.start(id,prompt,this.conversation);if(operation!==this.operation)return false;this.receive(reply);return true;}
+  this.active=id;this.revision=-1;const operation=++this.operation;this.publish({answer:'',reply:null,running:true,error:null});
+  try {await save();if(this.disposed||operation!==this.operation)return;const reply=await start(id);if(operation!==this.operation)return false;this.receive(reply);return true;}
   catch(e){if(this.disposed||operation!==this.operation)return;try{const stopped=await this.port.stop(id);if(stopped)this.receive(stopped);}catch{}this.publish({running:false,error:e instanceof Error?e.message:'请求未开始，问题草稿保留'});return false;}
  }
  async stop(){

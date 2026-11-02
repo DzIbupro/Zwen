@@ -31,8 +31,8 @@
   {/if}
   <div class="state" role="status">{settings.status==='saving'?'正在保存…':settings.status==='loading'?'正在读取…':settings.status==='dirty'?'有未保存的修改':settings.config?settings.keyAvailable?'配置已保存 · 已检测到密钥，尚未验证联网':'配置已保存 · 未检测到有效密钥':'尚未配置模型'}</div>
   {#if desktop}
-   <label for="candidate-toggle">自动划词浮条</label>
-   <div class="candidate-row"><input id="candidate-toggle" type="checkbox" checked={candidateEnabled} onchange={e=>onCandidateToggle(e.currentTarget.checked)}/><span class="secret-state">选中文字后自动弹出候选浮条（本地呈现，不自动发送）</span></div>
+   <label for="candidate-toggle">自动划词菜单</label>
+   <div class="candidate-row"><input id="candidate-toggle" type="checkbox" checked={candidateEnabled} onchange={e=>onCandidateToggle(e.currentTarget.checked)}/><span class="secret-state">在支持选区的应用中弹出操作菜单；点击翻译、解释或自定义动作后才发送</span></div>
   {/if}
     {#if settings.error}<div class="failure" role="alert">{settings.error}</div>{/if}
   <div class="actions"><button type="button" disabled={busy} onclick={onReload}>重新读取</button><button class="primary" type="submit" disabled={!desktop||busy||!settings.loaded}>保存模型设置</button></div>

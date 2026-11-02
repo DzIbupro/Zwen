@@ -17,8 +17,13 @@ pub fn claim_selection(state:tauri::State<'_,Shared>)->Result<Snapshot,ClientErr
  Ok(Snapshot{reading:inbox.reading(),item:inbox.claim()})
 }
 #[tauri::command]
+pub fn freeze_selection(state:tauri::State<'_,Shared>,id:u32)->Result<Item,ClientError>{
+ state.lock().map_err(|_|ClientError::window())?.freeze(id).ok_or_else(selection_changed)
+}
+fn selection_changed()->ClientError{ClientError{code:"selection_changed",message:"待处理选区状态已改变，请重新读取".into()}}
+#[tauri::command]
 pub fn acknowledge_selection(state:tauri::State<'_,Shared>,id:u32)->Result<(),ClientError>{
- if state.lock().map_err(|_|ClientError::window())?.acknowledge(id){Ok(())}else{Err(ClientError{code:"selection_changed",message:"待处理选区状态已改变，请重新读取".into()})}
+ if state.lock().map_err(|_|ClientError::window())?.acknowledge(id){Ok(())}else{Err(selection_changed())}
 }
 /// Manage one owned PRIMARY watcher. Its child is killed and reaped when
 /// consent is revoked or the application exits. Callbacks carry its generation.
@@ -99,32 +104,69 @@ pub fn capture(app:tauri::AppHandle,mode:Mode){capture_guarded(app,mode,None);}
 fn candidate_allowed(token:&Option<String>)->bool{
  token.as_deref().is_none_or(|token|WATCHER.lock().is_ok_and(|mut watcher|watcher.accepts(Some(token))))
 }
+/// Niri's current owner overrides potentially stale WebView focus notifications.
+/// Other compositors fall back to the live window flag, never a cached popup
+/// state. PRIMARY is supplied by the source application; no global mouse events
+/// or whole-application text are inspected. Unknown focus suppresses candidates.
+fn external_focus(app:&tauri::AppHandle)->bool{
+ let focused=app.get_webview_window("main").and_then(|window|window.is_focused().ok());
+ let mut command=std::process::Command::new("niri");command.args(["msg","-j","focused-window"]);
+ let pid=zwen_core::selection::read_from(command,std::time::Duration::from_millis(150)).ok()
+  .and_then(|raw|serde_json::from_str::<serde_json::Value>(&raw).ok())
+  .and_then(|value|value.get("pid").and_then(serde_json::Value::as_u64))
+  .and_then(|pid|u32::try_from(pid).ok());
+ focus_is_external(focused,pid,std::process::id())
+}
+fn focus_is_external(window_focused:Option<bool>,compositor_pid:Option<u32>,own_pid:u32)->bool{
+ compositor_pid.map_or(window_focused==Some(false),|pid|pid!=own_pid)
+}
 fn capture_guarded(app:tauri::AppHandle,mode:Mode,token:Option<String>){
  let shared=app.state::<Shared>().inner().clone();
  let (id,reading)=match shared.lock(){Ok(mut inbox)=>{let id=inbox.begin(mode);(id,inbox.reading())},Err(_)=>(None,false)};
  if id.is_none()&&(reading||mode==Mode::Candidate){return;}
  let intent=crate::windows::new_intent();
- let _=app.emit("selection-ready",());
+ // Candidate changes are announced only after debounce and source checks.
+ if mode!=Mode::Candidate{let _=app.emit("selection-ready",());}
  tauri::async_runtime::spawn(async move{
   if let Some(id)=id{
-   let read_token=token.clone();
+   let read_token=token.clone();let read_shared=shared.clone();let read_app=app.clone();
    let worker=tauri::async_runtime::spawn_blocking(move||{
-    if !candidate_allowed(&read_token){return Err(zwen_core::selection::SelectionError::Unavailable);}
-    read_primary_text()
+    if mode==Mode::Candidate{std::thread::sleep(std::time::Duration::from_millis(200));}
+    if !candidate_allowed(&read_token)||!read_shared.lock().is_ok_and(|inbox|inbox.is_current_read(id))
+     ||(mode==Mode::Candidate&&!external_focus(&read_app)){return None;}
+    let result=read_primary_text();
+    // A cleared/no-owner PRIMARY commonly exits wl-paste with status 1; it
+    // must preserve the prior menu just like an empty text payload.
+    if mode==Mode::Candidate&&(!external_focus(&read_app)||matches!(result,Err(zwen_core::selection::SelectionError::InvalidText|zwen_core::selection::SelectionError::Unavailable))){return None;}
+    Some(result)
    }).await;
-   let result=worker.unwrap_or(Err(zwen_core::selection::SelectionError::Unavailable));
-   // Revalidate under the watcher lock at delivery. Disable/re-enable cannot
-   // publish an old generation's text or race a successful finish.
+   let result=worker.ok().flatten();
+   // Watcher generation + inbox ID are both checked at publication. An older
+   // read cannot finish, cancel, or activate a newer candidate's surface.
+   // Cancelling a suppressed self/empty capture restores the last completed
+   // candidate, keeping the existing menu's ID actionable.
    let delivered={
     let mut watcher=WATCHER.lock().ok();
     let allowed=token.as_deref().is_none_or(|token|watcher.as_mut().is_some_and(|watcher|watcher.accepts(Some(token))));
-    if let Ok(mut inbox)=shared.lock(){if allowed{inbox.finish(id,result);}else{inbox.cancel_read(id);}}
-    allowed
+    if let Ok(mut inbox)=shared.lock(){
+     if let Some(result)=result.filter(|_|allowed){inbox.finish(id,result)}else{inbox.cancel_read(id);false}
+    }else{false}
    };
    let _=app.emit("selection-ready",());
    if !delivered{return;}
   }
-  // Capture ends before any focus/activation request.
-  if candidate_allowed(&token){let _=crate::windows::activate_if_current(app,true,intent).await;}
+  // Check current source focus again immediately before requesting activation.
+  let focus_ok=if mode==Mode::Candidate{let app=app.clone();tauri::async_runtime::spawn_blocking(move||external_focus(&app)).await.unwrap_or(false)}else{true};
+  if focus_ok&&candidate_allowed(&token){let _=crate::windows::activate_if_current(app,true,intent).await;}
  });
+}
+#[cfg(test)]mod tests{
+ use super::focus_is_external;
+ #[test]fn compositor_focus_prevents_self_selection_and_allows_new_external_owner(){
+  assert!(!focus_is_external(Some(false),Some(77),77));
+  assert!(focus_is_external(Some(true),Some(88),77),"stale popup focus must not suppress a new external owner");
+  assert!(!focus_is_external(Some(true),None,77));
+  assert!(focus_is_external(Some(false),None,77));
+  assert!(!focus_is_external(None,None,77));
+ }
 }

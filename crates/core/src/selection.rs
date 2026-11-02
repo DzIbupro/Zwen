@@ -64,25 +64,44 @@ pub enum Mode{Raw,Explain,Translate,Candidate}
 #[derive(Clone,Serialize)]
 pub struct Item{pub id:u32,pub mode:Mode,pub text:Option<String>,pub error:Option<String>,pub claimed:bool}
 #[derive(Default)]
-pub struct Inbox{next:u32,reading:bool,item:Option<Item>}
+pub struct Inbox{next:u32,reading:bool,item:Option<Item>,previous_candidate:Option<Item>}
 impl Inbox{
  pub fn is_pending(&self)->bool{self.item.is_some()}
  pub fn reading(&self)->bool{self.reading}
  pub fn begin(&mut self,mode:Mode)->Option<u32>{
-  if self.item.is_some(){return None;}
-  self.next=self.next.checked_add(1)?;self.reading=true;
+  if self.item.as_ref().is_some_and(|item|mode!=Mode::Candidate||item.mode!=Mode::Candidate||item.claimed){return None;}
+  self.next=self.next.checked_add(1)?;
+  // A candidate is provisional until its source/text checks finish. Keep the
+  // last completed candidate through superseding reads so self/empty events
+  // can be suppressed without invalidating the menu already on screen.
+  if mode==Mode::Candidate&&!self.reading{self.previous_candidate=self.item.clone();}
+  self.reading=true;
   self.item=Some(Item{id:self.next,mode,text:None,error:None,claimed:false});Some(self.next)
  }
- /// Revoke only an unfinished matching capture; never discard another item.
+ /// Revoke only a matching unfinished capture, restoring its completed candidate.
  pub fn cancel_read(&mut self,id:u32)->bool{
   if !self.reading||!self.item.as_ref().is_some_and(|item|item.id==id){return false;}
-  self.item=None;self.reading=false;true
+  self.item=self.previous_candidate.take();self.reading=false;true
  }
  pub fn finish(&mut self,id:u32,result:Result<String,SelectionError>)->bool{
   let Some(item)=self.item.as_mut().filter(|s|s.id==id&&self.reading)else{return false;};
   match result.and_then(|text|validate(text.into_bytes())){Ok(text)=>item.text=Some(text),Err(e)=>item.error=Some(e.to_string())};
-  self.reading=false;true
+  self.previous_candidate=None;self.reading=false;true
  }
- pub fn claim(&mut self)->Option<Item>{if self.reading{return None;}let item=self.item.as_mut()?;let result=item.clone();item.claimed=true;Some(result)}
- pub fn acknowledge(&mut self,id:u32)->bool{if self.reading||!self.item.as_ref().is_some_and(|s|s.id==id&&s.claimed){return false;}self.item=None;true}
+ /// Preview candidates repeatedly; only explicit/manual imports retain legacy
+ /// claim-on-read semantics. Choosing an action must call freeze with its ID.
+ pub fn claim(&mut self)->Option<Item>{if self.reading{return None;}let item=self.item.as_mut()?;let result=item.clone();if item.mode!=Mode::Candidate{item.claimed=true;}Some(result)}
+ /// Atomically bind an action to the current completed text. Retrying an
+ /// already frozen ID is safe; stale IDs and failed captures are rejected.
+ pub fn freeze(&mut self,id:u32)->Option<Item>{
+  if self.reading{return None;}
+  let item=self.item.as_mut().filter(|item|item.id==id&&item.error.is_none()&&item.text.is_some())?;
+  item.claimed=true;Some(item.clone())
+ }
+ pub fn frozen_text(&self)->Option<&str>{
+  if self.reading{return None;}
+  self.item.as_ref().filter(|item|item.claimed&&item.error.is_none())?.text.as_deref()
+ }
+ pub fn is_current_read(&self,id:u32)->bool{self.reading&&self.item.as_ref().is_some_and(|item|item.id==id)}
+ pub fn acknowledge(&mut self,id:u32)->bool{if self.reading||!self.item.as_ref().is_some_and(|s|s.id==id&&(s.claimed||s.mode==Mode::Candidate)){return false;}self.item=None;true}
 }

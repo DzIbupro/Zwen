@@ -1,6 +1,6 @@
 import type {DraftController} from './draft';
 export interface SelectionItem{id:number;mode:'raw'|'explain'|'translate'|'candidate';text:string|null;error:string|null;claimed:boolean}
-export interface SelectionPort{claim():Promise<{reading:boolean;item:SelectionItem|null}>;acknowledge(id:number):Promise<void>}
+export interface SelectionPort{freeze?(id:number):Promise<SelectionItem>;claim():Promise<{reading:boolean;item:SelectionItem|null}>;acknowledge(id:number):Promise<void>}
 export interface SelectionState{busy:boolean;pending:SelectionItem|null;inserted:boolean;notice:string}
 export class SelectionController{
  state:SelectionState={busy:false,pending:null,inserted:false,notice:''};
@@ -23,16 +23,31 @@ export class SelectionController{
     if(this.state.pending?.id===item.id)continue;
     this.publish({pending:item,inserted:false});
     if(item.error){this.publish({notice:item.error});await this.discard(false);continue;}
+    if(item.mode==='candidate'){this.publish({notice:'选中文字后，选择要执行的操作；点击前不会发送'});continue;}
     if(item.claimed){this.publish({notice:'上次导入未确认，请先检查草稿，再决定重新添加或丢弃待处理选区'});continue;}
-    if(item.mode==='candidate'){this.publish({notice:'检测到选区，仅在本机候选区显示；点击添加后才写入草稿'});continue;}
     await this.applyPending();
    }catch(e){if(this.mutating){this.again=true;return;}this.publish({busy:false,notice:e instanceof Error?e.message:'选区状态读取失败，请重试'});}
   }while(this.again&&!this.disposed);
+ }
+ async freezePending():Promise<SelectionItem|null>{
+  const item=this.state.pending;if(this.disposed||this.state.busy||!item?.text)return null;
+  this.mutating=true;this.publish({busy:true});
+  try{const frozen=this.port.freeze?await this.port.freeze(item.id):{...item,claimed:true};if(this.disposed)return null;this.publish({pending:frozen});return frozen;}
+  catch(error){this.publish({notice:error instanceof Error?error.message:'选区已变化，请重新读取'});return null;}
+  finally{this.mutating=false;this.publish({busy:false});}
+ }
+ async acknowledgeFrozen(id:number){
+  if(this.state.pending?.id!==id)return;
+  this.mutating=true;this.publish({busy:true});
+  try{await this.port.acknowledge(id);if(this.state.pending?.id===id)this.publish({pending:null,inserted:false,notice:'选区操作已开始'});}
+  catch(error){this.publish({notice:error instanceof Error?error.message:'选区确认未完成'});}
+  finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
  }
  async applyPending(){
   const item=this.state.pending;if(this.disposed||this.state.busy||!item?.text)return;
   this.mutating=true;this.publish({busy:true});
   try{
+   if(this.port.freeze){const frozen=await this.port.freeze(item.id);if(this.disposed)return;this.publish({pending:frozen});}
    await this.draft.flush();if(this.disposed)return;
    if(!this.state.inserted){
     const label={candidate:'选区：',raw:'选区：',explain:'请解释以下选区：',translate:'请将以下选区翻译成中文：'}[item.mode];

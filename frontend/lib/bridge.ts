@@ -45,7 +45,7 @@ import {listen} from '@tauri-apps/api/event';
 import type {ChatPort,ChatReply,Overview} from './chat';
 export const chatPort:ChatPort=isDesktop?{
  listen:cb=>listen<ChatReply>('chat-update',e=>cb(e.payload)),
- load:()=>command<Overview>('get_chat'),start:(requestId,prompt,conversationId)=>command<ChatReply>('start_chat',{requestId,prompt,conversationId:conversationId??null}),
+ load:()=>command<Overview>('get_chat'),startSelection:(requestId,selection,actionId,expectedRevision)=>command<ChatReply>('start_selection_chat',{requestId,selection,actionId,expectedRevision}),start:(requestId,prompt,conversationId)=>command<ChatReply>('start_chat',{requestId,prompt,conversationId:conversationId??null}),
  stop:requestId=>command<ChatReply|null>('stop_chat',{requestId}),settle:()=>command<ChatReply|null>('settle_chat'),
 }:{listen:async()=>()=>{},load:async()=>({reply:null,activeRequestId:null}),start:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中发送');},stop:async()=>null,settle:async()=>null};
 
@@ -84,7 +84,7 @@ export const knowledgePort:KnowledgePort=isDesktop?{
 import type {SelectionPort,SelectionItem} from './selection';
 export const openExternal=(url:string)=>command<void>('open_external',{url});
 export const invokeRaw=invoke;
-export const selectionPort:SelectionPort=isDesktop?{claim:()=>command<{reading:boolean;item:SelectionItem|null}>('claim_selection'),acknowledge:id=>command<void>('acknowledge_selection',{id})}:{claim:async()=>({reading:false,item:null}),acknowledge:async()=>{}};
+export const selectionPort:SelectionPort=isDesktop?{freeze:id=>command<SelectionItem>('freeze_selection',{id}),claim:()=>command<{reading:boolean;item:SelectionItem|null}>('claim_selection'),acknowledge:id=>command<void>('acknowledge_selection',{id})}:{claim:async()=>({reading:false,item:null}),acknowledge:async()=>{}};
 
 import type {AttachmentPort,AttachmentView} from './attachments';
 export const attachmentPort:AttachmentPort=isDesktop?{
@@ -94,3 +94,11 @@ export const attachmentPort:AttachmentPort=isDesktop?{
  remove:id=>command<void>('remove_attachment',{id}),
  listen:cb=>listen('attachments-changed',()=>cb()),
 }:{list:async()=>({items:[],capture:{state:'idle',requestId:null,replaceId:null},notice:null,max:3}),capture:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中截图');},cancel:async()=>{},remove:async()=>{},listen:async()=>()=>{}};
+
+import type {QuickActionPort} from './quick-actions';
+import type {ActionOutputPort} from './action-output';
+export const quickActionPort:QuickActionPort={
+ load:()=>command('load_quick_actions'),
+ save:(expectedRevision,actions,outputDirectory)=>command('save_quick_actions',{expectedRevision,actions,outputDirectory}),
+};
+export const actionOutputPort:ActionOutputPort={save:({requestId,selection,actionId,actionName,outputDirectory})=>command('save_action_document',{requestId,selection,actionId,actionName,outputDirectory})};

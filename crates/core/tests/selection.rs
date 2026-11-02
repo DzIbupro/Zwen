@@ -21,3 +21,82 @@ fn run(script:&str,ms:u64)->Result<String,SelectionError>{let mut c=Command::new
  assert!(!inbox.cancel_read(new),"completed material requires explicit acknowledgement");
  assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("explicit text"));
 }
+
+#[test]fn candidate_preview_does_not_claim_or_prevent_replacement(){
+ let mut inbox=Inbox::default();let first=inbox.begin(Mode::Candidate).unwrap();
+ assert!(inbox.finish(first,Ok("first".into())));
+ assert!(!inbox.claim().unwrap().claimed);
+ assert!(!inbox.claim().unwrap().claimed,"preview must not freeze a candidate");
+ let latest=inbox.begin(Mode::Candidate).expect("new candidate replaces preview");
+ assert!(latest>first);assert!(inbox.finish(latest,Ok("latest".into())));
+ assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("latest"));
+}
+#[test]fn latest_candidate_supersedes_ongoing_read_without_late_delivery(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ let latest=inbox.begin(Mode::Candidate).expect("replace ongoing candidate capture");
+ assert!(!inbox.finish(old,Ok("stale private text".into())));
+ assert!(!inbox.cancel_read(old));assert!(inbox.reading());
+ assert!(inbox.finish(latest,Ok("new selection".into())));
+ assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("new selection"));
+}
+#[test]fn automatic_candidates_never_replace_manual_material(){
+ for mode in [Mode::Raw,Mode::Explain,Mode::Translate]{
+  let mut inbox=Inbox::default();let id=inbox.begin(mode).unwrap();
+  assert!(inbox.begin(Mode::Candidate).is_none());
+  assert!(inbox.finish(id,Ok("manual text".into())));
+  assert!(inbox.begin(Mode::Candidate).is_none());
+  inbox.claim();assert!(inbox.begin(Mode::Candidate).is_none());
+  assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("manual text"));
+ }
+}
+
+#[test]fn freeze_checks_current_id_and_preserves_frozen_candidate(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ assert!(inbox.freeze(old).is_none(),"reading text cannot be frozen");
+ assert!(inbox.finish(old,Ok("old".into())));
+ let latest=inbox.begin(Mode::Candidate).unwrap();
+ assert!(inbox.finish(latest,Ok("frozen selection".into())));
+ assert!(inbox.freeze(old).is_none(),"stale action cannot freeze a new selection");
+ assert!(inbox.frozen_text().is_none());
+ let frozen=inbox.freeze(latest).unwrap();assert!(frozen.claimed);
+ assert_eq!(frozen.text.as_deref(),Some("frozen selection"));
+ assert_eq!(inbox.frozen_text(),Some("frozen selection"));
+ assert!(inbox.freeze(latest).unwrap().claimed,"retry keeps same frozen item");
+ assert!(inbox.begin(Mode::Candidate).is_none());assert!(inbox.begin(Mode::Raw).is_none());
+ assert_eq!(inbox.claim().unwrap().id,latest);
+ assert!(inbox.acknowledge(latest));assert!(inbox.begin(Mode::Candidate).is_some());
+}
+#[test]fn failed_candidate_cannot_be_frozen_as_action_material(){
+ let mut inbox=Inbox::default();let id=inbox.begin(Mode::Candidate).unwrap();
+ inbox.finish(id,Err(SelectionError::InvalidText));
+ assert!(inbox.freeze(id).is_none());assert!(inbox.frozen_text().is_none());
+}
+#[test]fn candidate_dismiss_requires_latest_completed_id_but_not_action_freeze(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ assert!(!inbox.acknowledge(old));inbox.finish(old,Ok("old".into()));
+ let current=inbox.begin(Mode::Candidate).unwrap();
+ inbox.finish(current,Err(SelectionError::InvalidText));
+ assert!(!inbox.acknowledge(old));assert!(inbox.acknowledge(current));assert!(!inbox.is_pending());
+}
+#[test]fn suppressed_candidate_capture_preserves_the_last_external_selection(){
+ // Native focus suppression and empty PRIMARY captures both cancel their read.
+ for suppressed_source in ["self-focused PRIMARY event","empty PRIMARY event"]{
+  let mut inbox=Inbox::default();let external=inbox.begin(Mode::Candidate).unwrap();
+  assert!(inbox.finish(external,Ok("external selected text".into())));
+  let suppressed=inbox.begin(Mode::Candidate).unwrap();
+  assert!(inbox.cancel_read(suppressed),"{suppressed_source}");assert!(!inbox.reading());
+  let frozen=inbox.freeze(external).expect("suppression must leave old rendered candidate actionable");
+  assert_eq!(frozen.id,external);assert_eq!(frozen.text.as_deref(),Some("external selected text"));
+  assert!(!inbox.finish(suppressed,Ok("late self selection".into())));
+ }
+}
+#[test]fn candidate_rollback_tracks_only_the_latest_completed_generation(){
+ let mut inbox=Inbox::default();let first=inbox.begin(Mode::Candidate).unwrap();
+ inbox.finish(first,Ok("first".into()));
+ let pending=inbox.begin(Mode::Candidate).unwrap();let superseding=inbox.begin(Mode::Candidate).unwrap();
+ assert!(!inbox.cancel_read(pending));assert!(inbox.cancel_read(superseding));
+ assert_eq!(inbox.claim().unwrap().id,first,"replacing a pending read must keep completed backup");
+ let latest=inbox.begin(Mode::Candidate).unwrap();inbox.finish(latest,Ok("latest".into()));
+ let suppressed=inbox.begin(Mode::Candidate).unwrap();inbox.cancel_read(suppressed);
+ assert!(inbox.freeze(first).is_none());assert_eq!(inbox.freeze(latest).unwrap().text.as_deref(),Some("latest"));
+}

@@ -352,9 +352,9 @@ fn create_dir(path:&Path)->Result<(),Error>{
 }
 
 fn write_atomic(path:&Path,bytes:&[u8])->Result<(),Error>{
- let mut temporary=path.as_os_str().to_os_string();
- temporary.push(format!(".{}.tmp",TEMP_COUNTER.fetch_add(1,Ordering::Relaxed)));
- let temporary=PathBuf::from(temporary);
+ // Keep the staging filename bounded independently of the destination name.
+ // Appending a counter to a valid near-NAME_MAX CJK filename can exceed 255 bytes.
+ let temporary=path.parent().ok_or(Error::InvalidNote)?.join(format!(".zwen-note-{}-{}.tmp",std::process::id(),TEMP_COUNTER.fetch_add(1,Ordering::Relaxed)));
  let mut options=fs::OpenOptions::new();options.write(true).create_new(true);
  #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;options.mode(0o600);}
  let mut file=options.open(&temporary)?;file.write_all(bytes)?;file.sync_all()?;drop(file);
