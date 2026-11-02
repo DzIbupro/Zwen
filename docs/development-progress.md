@@ -105,7 +105,7 @@
 18. **知识库：来源回看与应用内编辑（2026-11-02）**：
     - 收藏记录来源 `request:`（front matter，校验与聊天记录一致，手改非法值重建时静默丢弃）；详情页"查看原始问答"跳转历史详情（HistoryPanel 聚焦接口；`load` 不再清除已选详情）。
     - 应用内编辑：`notes_update` 改标题+正文，原子写回，身份/创建时间/来源/附件保留；编辑器含取消与保存中禁用。
-    - 验证：Rust 89 项（+2）、前端 70 项（+2）、`svelte-check` 0/0；knowledge smoke 扩展编辑流+跳转流，**全套原生回归 10/10 通过**（追加段见 native-suite.log）。普通二进制 SHA256 `ddd09430644310dcd2ea2a97573499e9cd6f83593423946b92ff74bf20304545`。
+    - 验证：Rust 89 项（+2）、前端 70 项（+2）、`svelte-check` 0/0；knowledge smoke 扩展编辑流+跳转流，**全套原生回归 9/9（9 个 validate_*.py 脚本） 通过**（追加段见 native-suite.log）。普通二进制 SHA256 `ddd09430644310dcd2ea2a97573499e9cd6f83593423946b92ff74bf20304545`。
     - 调试记录：跳转后知识面板保留原详情视图属预期 UX，驱动初版误假设返回列表——"测试失败"两小时后定位为驱动假设错误，产品代码无此缺陷；教训与选择器一致：断言前先确认视图状态。
 19. **AI 整理地基（2026-11-02）**：
     - `organize.sqlite3` schema1 + `OrganizeStore`：apply_batch（原子、changeset、范围强校验）、undo_batch（只删本批）、list_topics、note_ids、stale_assignments（note_hash 对比）、content_hash（FNV-1a，无新依赖）。
@@ -116,7 +116,7 @@
     - 知识库页新增"AI 整理"：勾选 1–8 篇 → **确认视图明示模型名、篇数与"正文将发送"**（每次整理都确认，满足"初次启用明确模型与范围"）→ 结果摘要 → **一键撤销本批**；主题条（名称+归属数）常驻列表上方，点主题看成员笔记并可跳详情。
     - 后端新增 `organize_topics` / `organize_topic_notes`（跨库联表取成员笔记）/ `organize_undo` 命令与权限；`TopicAssignments.note_ids` 改为序列化输出。
     - 修复真实缺陷：`notes.rs` 的 `TEMP_COUNTER` 误声明为 `const`（每次使用都是新原子，ID 计数器失效）——警告驱动发现，改 `static`。
-    - 验证：Rust 93 项、前端 74 项（+4 整理流）、`svelte-check` 0/0；knowledge smoke 扩展整理服务（断言提示词含笔记 id 与"只输出 JSON"指令）与整理→撤销全流程（批次 undone、成员清空、空 AI 主题移除），连续 3 次通过；**全套原生回归 10/10**。普通二进制 SHA256 见 ordinary-binary.sha256。
+    - 验证：Rust 93 项、前端 74 项（+4 整理流）、`svelte-check` 0/0；knowledge smoke 扩展整理服务（断言提示词含笔记 id 与"只输出 JSON"指令）与整理→撤销全流程（批次 undone、成员清空、空 AI 主题移除），连续 3 次通过；**全套原生回归 9/9（9 个 validate_*.py 脚本）**。普通二进制 SHA256 见 ordinary-binary.sha256。
     - 教训（重发）：`include_str!` 驱动改动后必须重建；驱动 `wait(check,label,limit)` 参数顺序曾致立即超时假失败。
 21. **知识库收尾：来源元数据 + 导出 + 外链（2026-11-02）**：
     - 来源元数据：front matter `source_title/source_url/source_loc`（URL 仅 http(s)、≤2048；其余 ≤200 无控制字符），编辑器内补全，详情页展示（URL 点击走系统浏览器）；`notes_update_source` / update 集成；手改非法值重建时丢弃。
@@ -132,9 +132,20 @@
 24. **知识网络 SVG 图谱（2026-11-02）**：
     - 阶段 5 落地：新"知识网络"标签页——主题节点（大小=归属数）、AI 关系为边（悬停看理由）；圆环布局（确定性，无第三方图依赖，设计文档的 Cytoscape 拟用改为手写 SVG 以避免新增依赖）；滚轮缩放/拖动平移/复位；搜索筛选（节点与边随查询收窄）；点主题节点按需展开成员笔记（≤12 个二级节点，幂等）；点笔记节点跳详情。
     - `lib/graph.ts`：buildGraph（过滤+圆环布局+边过滤）、expandTopic（幂等展开）+4 项测试；KnowledgeGraph 组件（a11y：节点 role=button+键盘，stage 交互注释豁免）；App 新 tab 接线。
-    - 验证：前端 84 项（+4）、`svelte-check` 0/0；knowledge smoke 加图谱段（建主题→节点渲染→筛选→清空→恢复），全套原生回归 10/10。
+    - 验证：前端 82 项（+4）、`svelte-check` 0/0；knowledge smoke 加图谱段（建主题→节点渲染→筛选→清空→恢复），全套原生回归 9/9（9 个 validate_*.py 脚本）。
 25. **自动划词浮条 + Unit D 收官（2026-11-02）**：
     - 设置页新增"自动划词浮条"开关（持久化 `settings.sqlite3` schema1，启动时恢复）；开启后派生 `wl-paste --primary --watch <self> candidate-callback` 监听 PRIMARY——选中文字后自动弹出胶囊并以候选材料呈现（复用选区单槽收件箱，本地呈现，**不自动发送**）。
     - candidate-callback 入口（CLI + 单实例路由）；_mode=Candidate 与既有解释/翻译同路。
-    - 验证：knowledge smoke 候选段（fake wl-paste 触发 + 开关持久化 + get_enabled）通过；**全套原生回归 10/10**；Rust 95 项、前端 84 项、`svelte-check` 0/0。
+    - 验证：knowledge smoke 候选段（fake wl-paste 触发 + 开关持久化 + get_enabled）通过；**全套原生回归 9/9（9 个 validate_*.py 脚本）**；Rust 95 项、前端 82 项、`svelte-check` 0/0。
     - 边界：浮条位置当前跟随既有胶囊顶部锚点（不跟鼠标）；跨应用 PRIMARY 支持矩阵仍未验收；真实鼠标划词场景需真机验证。
+## 数字勘误（2026-11-02 核对）
+
+- 原生回归脚本为 **9 个**（desktop/capsule/selection/provider/chat/chat_fault/chat_image/screenshot/knowledge），此前若干段落写作"10/10"是笔误；以 `scripts/validate_*.py` 实际数量与 `native-suite.log` 为准。
+- 前端测试当前实测 **82 项**（vitest 14 个文件）；此前"84 项"为笔误。Rust 当前实测 **95 项**。
+- 各单元提交时的小计数字可能因当时统计口径不同而有出入；**审查时请以当前 HEAD 的实测输出为准**，并以 git 历史逐提交复核。
+
+26. **接线审计与守卫（2026-11-02，面向外部审查）**：
+    - 发现并修复：`notes_update_source` 在 build.rs 与权限中声明、却漏注册进 `invoke_handler`（前端只在编辑时合并保存来源，故未暴露）。已补注册，普通二进制重建为 `190d8176…2554cc`。
+    - 新增 `src-tauri/src/main.rs::wiring_tests::commands_permissions_and_handler_agree`：解析 build.rs COMMANDS、capabilities allow-* 与 invoke_handler，三方集合必须相等；**已实测临时移除注册时该测试失败并点名缺失命令**，可作新增命令的强制门禁。
+    - 新增面向审查 AI 的交接文档 `docs/AUDIT-HANDOFF-2026-11-02.md`（含逐单元代码地图、证据边界、自查失误、P0–P3 待审清单与复现命令）。
+    - 勘误：原生回归脚本实为 9 个、前端当前 82 项、Rust 为 95（core+transport）+7（desktop）。

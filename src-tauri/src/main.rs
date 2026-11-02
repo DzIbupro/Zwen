@@ -100,7 +100,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action); }
         }))
-        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled])
+        .invoke_handler(tauri::generate_handler![load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -140,4 +140,41 @@ fn main() {
         eprintln!("Zwen 启动失败；本地数据未被删除。请检查显示会话及系统依赖。");
         std::process::exit(1);
     }
+}
+
+#[cfg(test)]
+mod wiring_tests{
+ /// Guards the three lists that must stay in sync: build.rs COMMANDS, the
+ /// capabilities allow-* entries, and invoke_handler registration.
+ #[test] fn commands_permissions_and_handler_agree(){
+  fn quoted(source:&str)->std::collections::BTreeSet<String>{
+   source.split('"').skip(1).step_by(2).map(str::to_owned).collect()
+  }
+  let build=include_str!("../build.rs");
+  let commands_block=build.split("const COMMANDS").nth(1).unwrap_or("")
+   .split("];").next().unwrap_or("");
+  let cmds:std::collections::BTreeSet<String>=quoted(commands_block).into_iter()
+   .filter(|name|!name.is_empty()&&name.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'_')).collect();
+  let capabilities=include_str!("../capabilities/main.json");
+  let perms:std::collections::BTreeSet<String>=capabilities
+   .split("\"allow-").skip(1)
+   .map(|chunk|chunk.split('"').next().unwrap_or("").replace('-',"_"))
+   .filter(|name|!name.is_empty())
+   .collect();
+  let handler=include_str!("main.rs");
+  let handler_region=handler.split("tauri::generate_handler![").nth(1).unwrap_or("")
+   .split(']').next().unwrap_or("");
+  let handled:std::collections::BTreeSet<String>=handler_region.split(',')
+   .map(|entry|entry.trim().rsplit("::").next().unwrap_or("").to_string())
+   .filter(|name|!name.is_empty())
+   .collect();
+  let missing_perms:Vec<_>=cmds.difference(&perms).cloned().collect();
+  let extra_perms:Vec<_>=perms.difference(&cmds).cloned().collect();
+  let missing_handler:Vec<_>=cmds.difference(&handled).cloned().collect();
+  let extra_handler:Vec<_>=handled.difference(&cmds).cloned().collect();
+  assert!(missing_perms.is_empty(),"commands without permission: {missing_perms:?}");
+  assert!(extra_perms.is_empty(),"permissions without command: {extra_perms:?}");
+  assert!(missing_handler.is_empty(),"declared but not registered: {missing_handler:?}");
+  assert!(extra_handler.is_empty(),"registered but not declared: {extra_handler:?}");
+ }
 }
