@@ -21,6 +21,7 @@
   let root:HTMLDivElement;let answer=$state<HTMLDivElement>();let stick=true;
   let dpr=$state(devicePixelRatio);
   const ratio=$derived(isDesktop?cssToLogicalRatio(dpr,surface.scaleFactor):1);
+  const selectionOnly=$derived(selectionState.pending?.mode==='candidate');
   const html=$derived(response?renderMarkdown(response):'');
   const loaded=$derived(draft.loaded);
   $effect(()=>{if(loaded)void tick().then(()=>root?.querySelector('textarea')?.focus());});
@@ -40,15 +41,17 @@
 <svelte:window onresize={()=>{dpr=devicePixelRatio;}}/>
 <div bind:this={root} data-capsule class="capsule-root" style={`--capsule-max:${surface.bounds.maxHeight/ratio}px;--capsule-width:${surface.bounds.width/ratio}px;min-height:${surface.bounds.initialHeight/ratio}px`}>
   <div class="capsule-compose">
-    <div class="capsule-head"><span class="capsule-brand"><BrandLogo compact/> Zwen <small>{modelStatus}</small></span><div class="capsule-actions"><button data-demo disabled={busy} onclick={running?onStop:onDemo}>{running?'停止':'演示'}</button><button aria-label="展开完整窗口" title="转到完整窗口，保留内容" disabled={busy} onclick={onExpand}>↗</button><button aria-label="收起胶囊" onclick={onHide}>×</button></div></div>
+    <div class="capsule-head"><span class="capsule-brand"><BrandLogo compact/> Zwen <small>{modelStatus}</small></span><div class="capsule-actions">{#if !selectionOnly||running}<button data-demo disabled={busy} onclick={running?onStop:onDemo}>{running?'停止':'演示'}</button>{/if}<button aria-label="展开完整窗口" title="转到完整窗口，保留内容" disabled={busy} onclick={onExpand}>↗</button><button aria-label="收起胶囊" onclick={onHide}>×</button></div></div>
+    {#if !selectionOnly}
     <div class="capsule-input-row"><label class="sr-only" for="capsule-question">问题草稿</label><textarea id="capsule-question" aria-label="问题草稿" rows="1" disabled={!draft.loaded} value={draft.text} oninput={e=>onEdit(e.currentTarget.value)} placeholder="输入问题，或粘贴一段文字……"></textarea><button data-capture aria-label="附加截图" title="附加截图；不会自动发送" disabled={!draft.loaded||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={onAttachmentCapture}>▣</button><button aria-label="保存草稿" title="保存到本机，不发送模型" disabled={!draft.loaded} onclick={onSave}>✓</button><button data-send aria-label="发送问题" title="发送给已配置模型" disabled={!canSend||!draft.loaded||!draft.text.trim()||attachments.pending} onclick={onSend}>↑</button></div>
     <Attachments state={attachments} onCancel={onAttachmentCancel} onRemove={onAttachmentRemove} onRetake={onAttachmentRetake} disabled={busy}/>
     <ActionOutputNotice state={actionOutputState} onRetry={onActionOutputRetry} onDismiss={onActionOutputDismiss}/>
+    {/if}
     <SelectionNotice actions={quickActions} {actionBusy} onAction={onSelectionAction} onSettings={onQuickSettings} state={selectionState} onRetry={onSelectionRetry} onDiscard={onSelectionDiscard} onReload={onSelectionReload}/>
     {#if notice}<div class="capsule-error" role="status">{notice}{#if unsaved}<button onclick={onRetrySave}>重试保存</button>{/if}</div>{/if}
-    {#if draft.error}<div class="capsule-error" role="alert">{draft.error}<button onclick={onSave}>重试</button></div>{/if}
+    {#if draft.error&&!selectionOnly}<div class="capsule-error" role="alert">{draft.error}<button onclick={onSave}>重试</button></div>{/if}
   </div>
-  {#if response}
+  {#if response&&!selectionOnly}
     <div class="capsule-response-label">{replyLabel} <span>{replyStatus}</span></div>
     <div bind:this={answer} data-capsule-answer class="capsule-answer prose" onscroll={e=>{const box=e.currentTarget;stick=box.scrollHeight-box.scrollTop-box.clientHeight<32;}}>{@html html}</div>
   {/if}

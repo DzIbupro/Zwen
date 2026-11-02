@@ -81,7 +81,8 @@
     if(actionBusy||selectionState.busy||!selectionState.pending?.text)return;
     if(chatState.running||chatState.stopping){notice='请先完成或停止当前回答，再执行划词操作';return;}
     if(id==='ask'){
-      actionBusy=true;try{await selection.applyPending();if(!selectionState.pending){view='ask';await switchSurface('capsule');}}finally{actionBusy=false;}return;
+      if(chatState.reply&&!chatState.reply.saved){notice='请先保存上一次回答，再添加新的选区问题';return;}
+      actionBusy=true;try{await selection.applyPending();if(!selectionState.pending){chat.newConversation();responseKind='model';view='ask';await switchSurface('capsule');}}finally{actionBusy=false;}return;
     }
     if(!quickConfigLoaded){notice='快捷提示词尚未读入，请在设置中重新读取';return;}
     const actionConfig=quickConfig;
@@ -136,7 +137,7 @@
   const controller = new DraftController(draftPort, s=>draft=s);
   const sendDraft=new SendDraftCoordinator(controller,ids=>{void attachmentController.removeSent(ids);});
   let selectionState=$state<SelectionState>({busy:false,pending:null,inserted:false,notice:''});
-  const selection=new SelectionController(selectionPort,controller,s=>selectionState=s);
+  const selection=new SelectionController(selectionPort,controller,s=>{if(s.pending?.mode==='candidate'&&s.pending.id!==selectionState.pending?.id)notice='';selectionState=s;});
   let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
   const attachmentController=new AttachmentController(attachmentPort,s=>attachmentState=s);
   let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false});
@@ -183,7 +184,7 @@
 
 <svelte:window onkeydown={keydown}/>
 {#if surface.mode==='capsule'}
-<Capsule quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+<Capsule quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching} onEdit={s=>controller.edit(s)} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
 {:else}
 <div class="shell">
   <header class="titlebar">
