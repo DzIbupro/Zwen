@@ -3,6 +3,9 @@ use std::sync::{Arc,Mutex};
 use tauri::{Emitter,Manager};
 use zwen_core::selection::{Inbox,Item,Mode,read_primary_text};
 use crate::{ClientError,SharedStorage};
+#[path="selection_bar_router.rs"] mod bar;
+pub use bar::{bar_is_current,anchor_is_current,toolbar_action};
+pub fn dismiss_bar(app:&tauri::AppHandle){bar::dismiss(app);}
 pub type Shared=Arc<Mutex<Inbox>>;
 #[path="candidate_watcher.rs"] mod watcher;
 static WATCHER:Mutex<watcher::Watcher>=Mutex::new(watcher::Watcher::new());
@@ -22,8 +25,9 @@ pub fn freeze_selection(state:tauri::State<'_,Shared>,id:u32)->Result<Item,Clien
 }
 fn selection_changed()->ClientError{ClientError{code:"selection_changed",message:"待处理选区状态已改变，请重新读取".into()}}
 #[tauri::command]
-pub fn acknowledge_selection(state:tauri::State<'_,Shared>,id:u32)->Result<(),ClientError>{
- if state.lock().map_err(|_|ClientError::window())?.acknowledge(id){Ok(())}else{Err(selection_changed())}
+pub fn acknowledge_selection(app:tauri::AppHandle,state:tauri::State<'_,Shared>,id:u32)->Result<(),ClientError>{
+ let acknowledged=state.lock().map_err(|_|ClientError::window())?.acknowledge(id);
+ if acknowledged{bar::dismiss_id(&app,id);Ok(())}else{Err(selection_changed())}
 }
 /// Manage one owned PRIMARY watcher. Its child is killed and reaped when
 /// consent is revoked or the application exits. Callbacks carry its generation.
@@ -33,7 +37,7 @@ pub fn acknowledge_selection(state:tauri::State<'_,Shared>,id:u32)->Result<(),Cl
 pub fn candidate_set_enabled(app:tauri::AppHandle,enabled:bool)->Result<bool,ClientError>{
  let mut watcher=WATCHER.lock().map_err(|_|ClientError::window())?;
  // Revoke consent immediately, even if persisting the new setting fails.
- if !enabled{watcher.stop();crate::windows::new_intent();}
+ if !enabled{bar::dismiss(&app);watcher.stop();crate::windows::new_intent();}
  let state=app.state::<crate::SharedStorage>();
  let dir=state.directory.as_ref().map_err(Clone::clone)?;
  let mut builder=std::fs::DirBuilder::new();builder.recursive(true);
@@ -108,6 +112,14 @@ fn candidate_allowed(token:&Option<String>)->bool{
 /// Other compositors fall back to the live window flag, never a cached popup
 /// state. PRIMARY is supplied by the source application; no global mouse events
 /// or whole-application text are inspected. Unknown focus suppresses candidates.
+#[derive(Clone,Copy,PartialEq,Eq)]
+struct FocusSource{pid:u32,window_id:u64}
+fn external_source()->Option<FocusSource>{
+ let mut command=std::process::Command::new("niri");command.args(["msg","-j","focused-window"]);
+ let raw=zwen_core::selection::read_from(command,std::time::Duration::from_millis(150)).ok()?;
+ let value:serde_json::Value=serde_json::from_str(&raw).ok()?;
+ Some(FocusSource{pid:u32::try_from(value.get("pid")?.as_u64()?).ok()?,window_id:value.get("id")?.as_u64()?})
+}
 fn external_focus(app:&tauri::AppHandle)->bool{
  let focused=app.get_webview_window("main").and_then(|window|window.is_focused().ok());
  let mut command=std::process::Command::new("niri");command.args(["msg","-j","focused-window"]);
@@ -124,23 +136,36 @@ fn capture_guarded(app:tauri::AppHandle,mode:Mode,token:Option<String>){
  let shared=app.state::<Shared>().inner().clone();
  let (id,reading)=match shared.lock(){Ok(mut inbox)=>{let id=inbox.begin(mode);(id,inbox.reading())},Err(_)=>(None,false)};
  if id.is_none()&&(reading||mode==Mode::Candidate){return;}
- let intent=crate::windows::new_intent();
+ let candidate_generation=bar::generation();
+ let intent=if mode==Mode::Candidate{0}else{crate::windows::new_intent()};
  // Candidate changes are announced only after debounce and source checks.
  if mode!=Mode::Candidate{let _=app.emit("selection-ready",());}
  tauri::async_runtime::spawn(async move{
   if let Some(id)=id{
+   let bar_epoch=bar::current_epoch();
    let read_token=token.clone();let read_shared=shared.clone();let read_app=app.clone();
    let worker=tauri::async_runtime::spawn_blocking(move||{
-    if mode==Mode::Candidate{std::thread::sleep(std::time::Duration::from_millis(200));}
-    if !candidate_allowed(&read_token)||!read_shared.lock().is_ok_and(|inbox|inbox.is_current_read(id))
-     ||(mode==Mode::Candidate&&!external_focus(&read_app)){return None;}
+    if !candidate_allowed(&read_token)||!read_shared.lock().is_ok_and(|inbox|inbox.is_current_read(id)){return None;}
+    let source=if mode==Mode::Candidate{
+     let source=external_source()?;if source.pid==std::process::id(){return None;}
+     bar::prime(&read_app,id,source.pid,candidate_generation?);
+     std::thread::sleep(std::time::Duration::from_millis(200));
+     if !candidate_allowed(&read_token)||!read_shared.lock().is_ok_and(|inbox|inbox.is_current_read(id)){return None;}
+     Some(source)
+    }else{None};
     let result=read_primary_text();
     // A cleared/no-owner PRIMARY commonly exits wl-paste with status 1; it
     // must preserve the prior menu just like an empty text payload.
-    if mode==Mode::Candidate&&(!external_focus(&read_app)||matches!(result,Err(zwen_core::selection::SelectionError::InvalidText|zwen_core::selection::SelectionError::Unavailable))){return None;}
-    Some(result)
+    if mode==Mode::Candidate{
+     if external_source()!=source{return None;}
+     if matches!(result,Err(zwen_core::selection::SelectionError::InvalidText|zwen_core::selection::SelectionError::Unavailable)){
+      if read_shared.lock().is_ok_and(|inbox|inbox.is_current_read(id)){if let Some(epoch)=bar_epoch{bar::revoke_epoch(&read_app,epoch);}}
+      return None;
+     }
+    }
+    Some((result,source))
    }).await;
-   let result=worker.ok().flatten();
+   let (result,source)=worker.ok().flatten().map(|(result,source)|(Some(result),source)).unwrap_or((None,None));
    // Watcher generation + inbox ID are both checked at publication. An older
    // read cannot finish, cancel, or activate a newer candidate's surface.
    // Cancelling a suppressed self/empty capture restores the last completed
@@ -153,8 +178,10 @@ fn capture_guarded(app:tauri::AppHandle,mode:Mode,token:Option<String>){
     }else{false}
    };
    let _=app.emit("selection-ready",());
-   if !delivered{return;}
+   if !delivered{if mode==Mode::Candidate{bar::discard_prime(&app,id);}return;}
+   if mode==Mode::Candidate{if let Some(source)=source{if let Some(generation)=candidate_generation{bar::present(app,id,token,source,generation).await;}}return;}
   }
+  if mode==Mode::Candidate{return;}
   // Check current source focus again immediately before requesting activation.
   let focus_ok=if mode==Mode::Candidate{let app=app.clone();tauri::async_runtime::spawn_blocking(move||external_focus(&app)).await.unwrap_or(false)}else{true};
   if focus_ok&&candidate_allowed(&token){let _=crate::windows::activate_if_current(app,true,intent).await;}

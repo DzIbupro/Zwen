@@ -20,6 +20,7 @@ pub fn snapshot(app:&tauri::AppHandle)->Result<Snapshot,ClientError>{
  let shared=app.state::<Shared>();let guard=shared.lock().map_err(|_|ClientError::window())?;Ok(guard.snapshot(&window))
 }
 pub fn activate(app:tauri::AppHandle,capsule:bool)->impl std::future::Future<Output=Result<Snapshot,ClientError>>{
+ crate::selection::dismiss_bar(&app);
  let intent=new_intent();activate_if_current(app,capsule,intent)
 }
 pub async fn activate_if_current(app:tauri::AppHandle,capsule:bool,intent:u64)->Result<Snapshot,ClientError>{

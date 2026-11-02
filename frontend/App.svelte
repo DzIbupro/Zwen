@@ -21,7 +21,8 @@
   import type {ChatReply} from './lib/chat';
   import {shouldSendQuestion} from './lib/keyboard';
   import SelectionNotice from './SelectionNotice.svelte';
-  import {SelectionController,type SelectionState} from './lib/selection';
+  import {SelectionCommandCoordinator,selectionActionBlock,type SelectionCommand} from './lib/selection-command';
+  import {SelectionController,type SelectionItem,type SelectionState} from './lib/selection';
   import {selectionPort} from './lib/bridge';
   import ProviderSettings from './ProviderSettings.svelte';
   import {ProviderController,imageModelOf,type SettingsState} from './lib/provider';
@@ -77,29 +78,31 @@
     if(accepted)sendDraft.accept(ticket,chatState);else sendDraft.cancel(ticket);
   }
   async function openQuickSettings(){await switchSurface('full');view='settings';setTimeout(()=>document.querySelector('[data-quick-action-settings]')?.scrollIntoView({block:'start'}),0);}
-  async function selectAction(id:string){
+  async function selectAction(id:string,expected?:{item:SelectionItem;config:QuickActionConfig}){
+    if(appDisposed)return;
+    if(expected&&(selectionState.pending?.id!==expected.item.id||selectionState.pending.text!==expected.item.text))return;
     if(actionBusy||selectionState.busy||!selectionState.pending?.text)return;
-    if(chatState.running||chatState.stopping){notice='请先完成或停止当前回答，再执行划词操作';return;}
+    const blocked=selectionActionBlock({text:draft.text,attachmentCount:attachmentState.items.length,attachmentPending:attachmentState.pending,loaded:draft.loaded&&attachmentState.loaded&&chatState.loaded,unsaved:!!chatState.reply&&!chatState.reply.saved,running:chatState.running||chatState.stopping});
+    if(blocked){notice=blocked;return;}
     if(id==='ask'){
-      if(chatState.reply&&!chatState.reply.saved){notice='请先保存上一次回答，再添加新的选区问题';return;}
-      actionBusy=true;try{await selection.applyPending();if(!selectionState.pending){chat.newConversation();responseKind='model';view='ask';await switchSurface('capsule');}}finally{actionBusy=false;}return;
+      actionBusy=true;try{await selection.applyPending(expected?.item);if(!appDisposed&&!selectionState.pending){chat.newConversation();responseKind='model';view='ask';await switchSurface('capsule');}}finally{actionBusy=false;}return;
     }
     if(!quickConfigLoaded){notice='快捷提示词尚未读入，请在设置中重新读取';return;}
-    const actionConfig=quickConfig;
+    const actionConfig=expected?.config??quickConfig;
     const action=actionConfig.actions.find(a=>a.id===id&&a.enabled);if(!action){notice='该快捷动作未启用，请在设置中检查';return;}
-    if(draft.text.trim()||attachmentState.pending||attachmentState.items.length){notice='请先发送或清空当前草稿和截图，再执行快捷动作；选区已保留';return;}
     if(actionOutputState&&actionOutputState.stage!=='saved'){notice='请先处理上次文档保存，或关闭其提示';return;}
     if(!isDesktop){notice='浏览器仅预览，请在桌面程序中执行划词操作';return;}
     if(!chatState.loaded||!settings.loaded||settings.status==='loading'){notice='正在读取本机模型配置，请稍后重试';return;}
     if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥；选区已保留';await openQuickSettings();return;}
     actionBusy=true;
     try{
-      const item=await selection.freezePending();if(!item?.text)return;
+      const item=await selection.freezePending(expected?.item);if(appDisposed||!item?.text)return;
       const requestId=crypto.randomUUID();
       if(!actionOutput.track({requestId,selection:item.text,actionId:action.id,actionName:action.name,output:action.output,outputDirectory:actionConfig.outputDirectory}))return;
       demo.stop();responseKind='model';view='reply';
       const accepted=await chat.sendSelection(requestId,item.text,action.id,actionConfig.revision);
-      if(accepted){await selection.acknowledgeFrozen(item.id);await switchSurface('capsule');}
+      if(appDisposed)return;
+      if(accepted){await selection.acknowledgeFrozen(item.id);if(!appDisposed)await switchSurface('capsule');}
       else{actionOutput.dismiss();notice=chatState.error||'请求未开始，选区保留，请手动重试';}
     }finally{actionBusy=false;}
   }
@@ -136,8 +139,22 @@
   let draft = $state<Snapshot>({text:'',revision:0,status:'loading',error:null,loaded:false});
   const controller = new DraftController(draftPort, s=>draft=s);
   const sendDraft=new SendDraftCoordinator(controller,ids=>{void attachmentController.removeSent(ids);});
+  let appDisposed=false;
+  let draftReady:Promise<void>|undefined;
   let selectionState=$state<SelectionState>({busy:false,pending:null,inserted:false,notice:''});
   const selection=new SelectionController(selectionPort,controller,s=>{if(s.pending?.mode==='candidate'&&s.pending.id!==selectionState.pending?.id)notice='';selectionState=s;});
+  const selectionCommands=new SelectionCommandCoordinator({
+    refresh:async()=>{if(!draft.loaded)await (draftReady??controller.start());if(!appDisposed)await selection.refresh();},
+    pending:()=>selectionState.pending,
+    freeze:item=>selection.freezePending(item),
+    loadConfig:()=>quickActionPort.load(),
+    configChanged:config=>{if(!appDisposed){quickConfig=config;quickConfigLoaded=true;}},
+    execute:async(command,item,config)=>{
+      if(appDisposed)return;
+      quickConfig=config;quickConfigLoaded=true;
+      await selectAction(command.actionId,{item,config});
+    }
+  });
   let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
   const attachmentController=new AttachmentController(attachmentPort,s=>attachmentState=s);
   let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false});
@@ -164,21 +181,23 @@
     if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s') {e.preventDefault();void save();}
   }
   onMount(()=>{
+    let disposed=false;const unlisteners:(()=>void)[]=[];
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
     void provider.load();void chat.load();
-    if(isDesktop)void quickActionPort.load().then(c=>{quickConfig=c;quickConfigLoaded=true;}).catch(error=>{notice=error instanceof Error?error.message:'快捷提示词读取失败';});
-    void controller.start().then(()=>{input?.focus();void selection.refresh();}).catch(()=>{});
+    if(isDesktop)void quickActionPort.load().then(c=>{if(disposed)return;quickConfig=c;quickConfigLoaded=true;}).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'快捷提示词读取失败';});
+    draftReady=controller.start();
+    void draftReady.then(()=>{if(disposed)return;input?.focus();void selection.refresh();}).catch(()=>{});
     void attachmentController.start();
-    if(isDesktop)void invoke('candidate_get_enabled').then((value:unknown)=>{candidateEnabled=typeof value==='boolean'&&value;}).catch(()=>{});
-    void getSurface().then(applySurface).catch(()=>{notice='窗口模式读取失败';});
-    let disposed=false;const unlisteners:(()=>void)[]=[];
-    if(isDesktop) void listen('selection-ready',()=>void selection.refresh()).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{notice='选区事件暂不可用，可重新读取状态';});
-    if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{applySurface(e.payload);if(e.payload.mode==='full'&&response&&view==='ask')view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
-    if(isDesktop)void listen('request-settings',()=>{view='settings';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop)void invoke('candidate_get_enabled').then((value:unknown)=>{if(disposed)return;candidateEnabled=typeof value==='boolean'&&value;}).catch(()=>{});
+    void getSurface().then(value=>{if(!disposed)applySurface(value);}).catch(()=>{if(!disposed)notice='窗口模式读取失败';});
+    if(isDesktop) void listen<SelectionCommand>('selection-command',e=>{if(!disposed)void selectionCommands.handle(e.payload).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'选区操作未开始；材料已保留';});}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='选区命令事件暂不可用，请手动打开面板重试';});
+    if(isDesktop) void listen('selection-ready',()=>{if(!disposed)void selection.refresh();}).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{if(!disposed)notice='选区事件暂不可用，可重新读取状态';});
+    if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{if(disposed)return;applySurface(e.payload);if(e.payload.mode==='full'&&response&&view==='ask')view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop)void listen('request-settings',()=>{if(!disposed)view='settings';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
-      void listen(event,()=>void leave(quit)).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{notice='关闭事件暂不可用，请使用面板按钮';});
+      void listen(event,()=>{if(!disposed)void leave(quit);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='关闭事件暂不可用，请使用面板按钮';});
     }
-    return ()=>{disposed=true;for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();actionOutput.dispose();demo.stop();resizeQueue.clear();};
+    return ()=>{disposed=true;appDisposed=true;selectionCommands.dispose();for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();actionOutput.dispose();demo.stop();resizeQueue.clear();};
   });
 </script>
 

@@ -4,7 +4,7 @@
 
 旧方案“候选直接弹固定胶囊”的解释已被用户撤回，不能继续视为已满足需求。独立操作条需验证真实词句/选区边界定位，鼠标结束点附近只能作为明确标注的近似，不能谎称准确选区右上角；不能擅自退回屏幕固定位置。
 
-实现现状：后台选区和动作请求/文档功能已有；独立操作条尚未实现。现有候选样式/旧回答修补仅为未部署的中间代码，不是本次纠正的交付。
+实现现状：已接入原生独立操作条，候选不激活主窗口，点击命令后才打开胶囊。锚点为预先捕获的划词结束位置附近近似坐标，未宣称精确词句几何。详见docs/validation/2026-11-03-independent-selection-bar.md；合成GTK真人输入复验3/3，用户确认定位准确。
 
 定位验证：本机Niri26.04 msg help无cursor位置接口；缓存tao0.37.2 platform_impl/linux/util.rs 的Wayland cursor_position返回(0,0)，不可用来定位。libgtk-layer-shell.so.0、libatspi.so和Python Atspi2.0 introspection本机可用。下一步用合成选区验证AT-SPI范围边界及独立layer-shell操作条；仍需检查Codex/Electron、浏览器PDF和Markdown阅读器是否暴露有效范围，不能把检测到PRIMARY文字等同于知道选区几何。不得使用全屏截屏/OCR或全局原始输入权限来悄悄绕过这一问题。
 

@@ -19,7 +19,7 @@ export class SelectionController{
     const {reading,item}=await this.port.claim();if(this.disposed)return;
     if(this.mutating){this.again=true;return;}
     this.publish({busy:reading});
-    if(!item)continue;
+    if(!item){if(!reading&&this.state.pending?.mode==='candidate'&&!this.state.inserted)this.publish({pending:null,notice:''});continue;}
     if(this.state.pending?.id===item.id)continue;
     this.publish({pending:item,inserted:false});
     if(item.error){this.publish({notice:item.error});await this.discard(false);continue;}
@@ -29,10 +29,10 @@ export class SelectionController{
    }catch(e){if(this.mutating){this.again=true;return;}this.publish({busy:false,notice:e instanceof Error?e.message:'选区状态读取失败，请重试'});}
   }while(this.again&&!this.disposed);
  }
- async freezePending():Promise<SelectionItem|null>{
-  const item=this.state.pending;if(this.disposed||this.state.busy||!item?.text)return null;
+ async freezePending(expected?:Pick<SelectionItem,'id'|'text'>):Promise<SelectionItem|null>{
+  const item=this.state.pending;if(this.disposed||this.state.busy||!item?.text||(expected&&(item.id!==expected.id||item.text!==expected.text)))return null;
   this.mutating=true;this.publish({busy:true});
-  try{const frozen=this.port.freeze?await this.port.freeze(item.id):{...item,claimed:true};if(this.disposed)return null;this.publish({pending:frozen});return frozen;}
+  try{const frozen=this.port.freeze?await this.port.freeze(item.id):{...item,claimed:true};if(this.disposed)return null;if(frozen.id!==item.id||frozen.text!==item.text||frozen.error)throw Error('选区已变化，请重新读取');this.publish({pending:frozen});return frozen;}
   catch(error){this.publish({notice:error instanceof Error?error.message:'选区已变化，请重新读取'});return null;}
   finally{this.mutating=false;this.publish({busy:false});}
  }
@@ -43,11 +43,11 @@ export class SelectionController{
   catch(error){this.publish({notice:error instanceof Error?error.message:'选区确认未完成'});}
   finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
  }
- async applyPending(){
-  const item=this.state.pending;if(this.disposed||this.state.busy||!item?.text)return;
+ async applyPending(expected?:Pick<SelectionItem,'id'|'text'>){
+  const item=this.state.pending;if(this.disposed||this.state.busy||!item?.text||(expected&&(item.id!==expected.id||item.text!==expected.text)))return;
   this.mutating=true;this.publish({busy:true});
   try{
-   if(this.port.freeze){const frozen=await this.port.freeze(item.id);if(this.disposed)return;this.publish({pending:frozen});}
+   if(this.port.freeze){const frozen=await this.port.freeze(item.id);if(this.disposed)return;if(frozen.id!==item.id||frozen.text!==item.text||frozen.error)throw Error('选区已变化，请重新读取');this.publish({pending:frozen});}
    await this.draft.flush();if(this.disposed)return;
    if(!this.state.inserted){
     const label={candidate:'选区：',raw:'选区：',explain:'请解释以下选区：',translate:'请将以下选区翻译成中文：'}[item.mode];

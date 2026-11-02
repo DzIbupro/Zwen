@@ -102,6 +102,10 @@ impl Inbox{
   if self.reading{return None;}
   self.item.as_ref().filter(|item|item.claimed&&item.error.is_none())?.text.as_deref()
  }
+ pub fn candidate_exists(&self,id:u32)->bool{
+  let matches=|item:&Item|item.id==id&&item.mode==Mode::Candidate&&item.error.is_none()&&item.text.is_some();
+  self.item.as_ref().is_some_and(matches)||(self.reading&&self.previous_candidate.as_ref().is_some_and(matches))
+ }
  pub fn is_current_read(&self,id:u32)->bool{self.reading&&self.item.as_ref().is_some_and(|item|item.id==id)}
  pub fn acknowledge(&mut self,id:u32)->bool{if self.reading||!self.item.as_ref().is_some_and(|s|s.id==id&&(s.claimed||s.mode==Mode::Candidate)){return false;}self.item=None;true}
 }

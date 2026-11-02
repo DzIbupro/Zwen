@@ -23,7 +23,7 @@ class Service(BaseHTTPRequestHandler):
 server=ThreadingHTTPServer(('127.0.0.1',0),Service);threading.Thread(target=server.serve_forever,daemon=True).start()
 try:
  with tempfile.TemporaryDirectory(prefix='zwen-actions-native-') as folder:
-  root=Path(folder);fake=root/'bin';fake.mkdir();selection=root/'selection';selection.write_text('')
+  root=Path(folder);fake=root/'bin';fake.mkdir();selection=root/'selection';selection.write_text('');source=root/'source-window';source.write_text('100')
   helper=fake/'wl-paste';helper.write_text('''#!/usr/bin/python3
 import os,sys,time,subprocess
 from pathlib import Path
@@ -35,14 +35,17 @@ if '--watch' in sys.argv:
   if current!=last:
    last=current;subprocess.run(sys.argv[sys.argv.index('--watch')+1:],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   time.sleep(.02)
-else:sys.stdout.write(p.read_text())
+else:
+ current=p.read_text()
+ if current.startswith('focus-race'):time.sleep(.5)
+ sys.stdout.write(current)
 ''');helper.chmod(0o755)
   real_niri=shutil.which('niri');assert real_niri
-  niri=fake/'niri';niri.write_text('#!/usr/bin/python3\nimport os,sys,json\nif sys.argv[1:]==["msg","-j","focused-window"]:print(json.dumps({"pid":999999}))\nelse:os.execv('+repr(real_niri)+',["niri"]+sys.argv[1:])\n');niri.chmod(0o755)
+  niri=fake/'niri';niri.write_text('#!/usr/bin/python3\nimport os,sys,json\nfrom pathlib import Path\nif sys.argv[1:]==["msg","-j","focused-window"]:print(json.dumps({"pid":999999,"id":int(Path(os.environ["ZWEN_ACTIONS_FIXTURE_SOURCE_FILE"]).read_text())}))\nelse:os.execv('+repr(real_niri)+',["niri"]+sys.argv[1:])\n');niri.chmod(0o755)
   # Seed prior chat; assertions at the local server forbid leaking it to actions.
   db=sqlite3.connect(root/'chat.sqlite3');db.executescript("CREATE TABLE turns(id INTEGER PRIMARY KEY,request_id TEXT NOT NULL UNIQUE,conversation_id TEXT NOT NULL,provider_profile TEXT NOT NULL,context_turns INTEGER NOT NULL,prompt TEXT NOT NULL,model TEXT NOT NULL,answer TEXT NOT NULL DEFAULT '',revision INTEGER NOT NULL DEFAULT 0 CHECK(revision>=0),state TEXT NOT NULL DEFAULT 'streaming',error TEXT,created_at INTEGER NOT NULL DEFAULT (unixepoch()));PRAGMA user_version=2;")
   db.execute("INSERT INTO turns(request_id,conversation_id,provider_profile,context_turns,prompt,model,answer,revision,state) VALUES('prior','prior','p',0,'must-not-send-old-context','fixture-model','old-answer',1,'complete')");db.commit();db.close()
-  env=os.environ.copy();env.update(ZWEN_DATA_DIR=folder,ZWEN_SMOKE='actions',ZWEN_SMOKE_TIMEOUT_SECS='70',ZWEN_PROVIDER_TEST_KEY='fixture-token',ZWEN_PROVIDER_TEST_BASE=f'http://127.0.0.1:{server.server_port}/v1',ZWEN_ACTIONS_FIXTURE_SELECTION_FILE=str(selection),ZWEN_ACTIONS_FIXTURE_OUTPUT_DIR=str(root/'output'),PATH=str(fake)+':'+env['PATH'])
+  env=os.environ.copy();env.update(ZWEN_DATA_DIR=folder,ZWEN_SMOKE='actions',ZWEN_SMOKE_TIMEOUT_SECS='70',ZWEN_PROVIDER_TEST_KEY='fixture-token',ZWEN_PROVIDER_TEST_BASE=f'http://127.0.0.1:{server.server_port}/v1',ZWEN_ACTIONS_FIXTURE_SOURCE_FILE=str(source),ZWEN_ACTIONS_FIXTURE_SELECTION_FILE=str(selection),ZWEN_ACTIONS_FIXTURE_OUTPUT_DIR=str(root/'output'),PATH=str(fake)+':'+env['PATH'])
   p=subprocess.Popen([str(binary)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
   try:stdout,stderr=p.communicate(timeout=80)
   except subprocess.TimeoutExpired:

@@ -100,3 +100,12 @@ fn run(script:&str,ms:u64)->Result<String,SelectionError>{let mut c=Command::new
  let suppressed=inbox.begin(Mode::Candidate).unwrap();inbox.cancel_read(suppressed);
  assert!(inbox.freeze(first).is_none());assert_eq!(inbox.freeze(latest).unwrap().text.as_deref(),Some("latest"));
 }
+
+#[test]fn native_bar_identity_can_be_checked_without_claiming_or_losing_rollback(){
+ let mut b=Inbox::default();let first=b.begin(Mode::Candidate).unwrap();b.finish(first,Ok("first".into()));
+ assert!(b.candidate_exists(first));assert!(!b.claim().unwrap().claimed);
+ let next=b.begin(Mode::Candidate).unwrap();assert!(b.candidate_exists(first));assert!(!b.candidate_exists(next));
+ b.cancel_read(next);assert!(b.candidate_exists(first));
+ b.freeze(first);assert!(b.candidate_exists(first));b.acknowledge(first);assert!(!b.candidate_exists(first));
+ let manual=b.begin(Mode::Raw).unwrap();b.finish(manual,Ok("manual".into()));assert!(!b.candidate_exists(manual));assert!(!b.claim().unwrap().claimed);
+}

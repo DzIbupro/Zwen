@@ -2,7 +2,11 @@
  const api=window.__TAURI__,invoke=api.core.invoke;
  const wait=async(check,label='actions timeout')=>{for(let i=0;i<240;i++){if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error(label);};
  const clickTab=name=>[...document.querySelectorAll('nav button')].find(b=>b.textContent===name).click();
- const choose=async(text)=>{await api.event.emit('actions-fixture-selection',text);await wait(()=>document.querySelector('[data-selection-menu]')&&document.querySelector('[data-selection-state] pre')?.textContent===text,'selection '+text);};
+ let bar=null;await api.event.listen('selection-bar-state',e=>bar=e.payload);
+ const inspect=async()=>{bar=null;await api.event.emit('selection-bar-test','inspect');await wait(()=>bar!==null,'native bar inspect');return bar;};
+ const choose=async(text)=>{const before=(await inspect()).selectionId;await api.event.emit('actions-fixture-selection',text);await wait(async()=>{const b=await inspect();return b.visible&&b.selectionId!==before&&b.height>0;},'native selection '+text);if(bar.mainVisible)throw Error('candidate opened main window');};
+ const hide=async()=>{await invoke('hide_window');await new Promise(r=>setTimeout(r,250));};
+ const click=async id=>{await api.event.emit('selection-bar-test','click:'+id);};
  let stage='boot';
  try{
   await wait(()=>document.querySelector('.shell'));
@@ -12,26 +16,30 @@
   clickTab('模型设置');await wait(()=>document.querySelector('[data-quick-action-settings] form'));
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();
   await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
-  document.querySelector('#candidate-toggle').click();
-  await wait(async()=>await invoke('candidate_get_enabled'));
-  stage='replace-candidate';await choose('first candidate');await choose('latest candidate');
-  stage='ask';document.querySelector('[data-selection-action="ask"]').click();
-  await wait(()=>document.querySelector('#capsule-question')?.value.includes('latest candidate'));
-  if((await invoke('get_chat')).reply?.prompt==='latest candidate')throw Error('ask auto-sent');
+  document.querySelector('#candidate-toggle').click();await wait(async()=>await invoke('candidate_get_enabled'));
+  await hide();
+  stage='replace-candidate';await choose('first candidate');const first=bar.selectionId;await choose('latest candidate');if(bar.selectionId===first)throw Error('candidate ID did not replace');
+  if(bar.keyboardMode!=='none'||bar.exclusiveZone!==0||bar.width>500||bar.height>100)throw Error('not a compact independent bar');
+  stage='same-process-window-switch';await api.event.emit('actions-fixture-source-window',101);
+  await wait(async()=>!(await inspect()).visible,'source window switch did not dismiss');
+  if(bar.mainVisible)throw Error('source dismissal opened main');
+  stage='close-candidate';await choose('close fixture');await click('__dismiss');await wait(async()=>!(await inspect()).visible,'close button did not dismiss');await wait(async()=>(await invoke('claim_selection')).item===null,'closed candidate remained pending');if(bar.mainVisible)throw Error('close opened main');
+  stage='focus-race';await api.event.emit('actions-fixture-selection','focus-race fixture');await new Promise(r=>setTimeout(r,350));await api.event.emit('actions-fixture-source-window',102);await new Promise(r=>setTimeout(r,650));if((await inspect()).visible)throw Error('late read followed focus to wrong source');
+  stage='cleared-selection';await choose('clear fixture');await api.event.emit('actions-fixture-selection','');await wait(async()=>!(await inspect()).visible,'cleared selection left stale bar');
+  stage='ask';await choose('ask fixture');await click('ask');
+  await wait(()=>document.querySelector('#capsule-question')?.value.includes('ask fixture'));
+  if(document.querySelector('[data-capsule-answer]'))throw Error('ask retained previous reply');
+  if((await invoke('get_chat')).reply?.prompt==='ask fixture')throw Error('ask auto-sent');
   const draft=document.querySelector('#capsule-question');draft.value='';draft.dispatchEvent(new Event('input',{bubbles:true}));
-  stage='translate';await choose('translate fixture');
-  document.querySelector('[data-selection-action="translate"]').click();
+  await hide();stage='translate';await choose('translate fixture');await click('translate');
   await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('Translated fixture'),'translate answer');
   await wait(()=>!document.querySelector('[data-selection-menu]'));
-  stage='other-settings';await choose('document fixture');
-  const other=document.querySelector('.other-actions');other.open=true;
-  document.querySelector('[data-selection-settings]').click();
+  await hide();stage='other-settings';await choose('settings fixture');await click('__other');
+  await wait(async()=>(await inspect()).buttons.some(b=>b.id==='__settings'&&b.mapped),'other expansion');await click('__settings');
   await wait(()=>document.querySelector('[data-quick-action-settings] form'));
-  await wait(()=>document.querySelector('#model-name'));
-  // Return to the frozen candidate; settings entry must preserve its material.
-  document.querySelector('.capsule-launch').click();
-  await wait(()=>document.querySelector('[data-selection-action="document"]'));
-  stage='document';document.querySelector('.other-actions').open=true;document.querySelector('[data-selection-action="document"]').click();
+  if(!(await inspect()).mainVisible)throw Error('settings did not open main');
+  await hide();stage='document';await choose('document fixture');await click('__other');
+  await wait(async()=>(await inspect()).buttons.some(b=>b.id==='document'&&b.mapped),'custom action visible');await click('document');
   await wait(()=>document.querySelector('[data-action-output-path]'),'saved output');
   const path=document.querySelector('[data-action-output-path]').textContent;
   if(!path.startsWith(window.__ZWEN_ACTION_OUTPUT_DIR__)||!path.endsWith('.md'))throw Error('unexpected export path');
@@ -40,7 +48,11 @@
   const turn=(await invoke('get_chat')).reply;
   const again=await invoke('save_action_document',{requestId:turn.requestId,selection:'document fixture',actionId:'document',actionName:'整理成文档',outputDirectory:config.outputDirectory});
   if(again.path!==path)throw Error('repeat save created duplicate export');
-  await invoke('candidate_set_enabled',{enabled:false});
-  await api.event.emit('foundation-smoke',{ok:true,mode:'actions',replaced:true,ask:true,translate:true,settings:true,document:true,idempotent:true,path,noteId:notes[0].id});
- }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'actions',stage,error:String(e?.message||e),ui:document.body.innerText.slice(0,2000)});}
+  stage='disable';await hide();await choose('cancel fixture');await invoke('candidate_set_enabled',{enabled:false});
+  await wait(async()=>!(await inspect()).visible,'bar survived disable');
+  if(bar.mainVisible)throw Error('disable opened main');
+  await api.event.emit('actions-fixture-selection','must-not-show-after-disabled');await new Promise(r=>setTimeout(r,400));
+  if((await inspect()).visible)throw Error('late candidate resurrected disabled bar');
+  await api.event.emit('foundation-smoke',{ok:true,mode:'actions',independentBar:true,noCandidatePopup:true,sourceWindowSwitch:true,replaced:true,ask:true,translate:true,settings:true,document:true,idempotent:true,disable:true,path,noteId:notes[0].id});
+ }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'actions',stage,error:String(e?.message||e),bar,ui:document.body.innerText.slice(0,2000)});}
 })();

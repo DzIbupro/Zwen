@@ -9,6 +9,7 @@ mod notes;
 mod organize_job;
 mod quick_actions;
 mod tray;
+mod selection_bar;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 use zwen_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
@@ -72,7 +73,7 @@ async fn resize_capsule(app:tauri::AppHandle,height:f64,generation:u64)->Result<
 fn launch(app:&tauri::AppHandle, action:LaunchAction,token:Option<&str>) {
     if let LaunchAction::Selection(mode)=action {selection::capture(app.clone(),mode);return;}
     if let LaunchAction::CandidateCallback=action {selection::candidate_callback(app.clone(),token);return;}
-    if action==LaunchAction::Screenshot {attachment::start_from_app(app,None);return;}
+    if action==LaunchAction::Screenshot {selection::dismiss_bar(app);attachment::start_from_app(app,None);return;}
     if action == LaunchAction::Quit {
         if let Some(window)=app.get_webview_window("main") {
             let _=window.show();

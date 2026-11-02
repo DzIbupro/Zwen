@@ -47,6 +47,10 @@ fn save_config(dir:&Path,default_dir:&str,expected:u64,actions:Vec<QuickAction>,
 pub async fn load_quick_actions(storage:tauri::State<'_,SharedStorage>)->Result<QuickActionConfig,ClientError>{let storage=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||{let dir=storage.directory.as_ref().map_err(Clone::clone)?;read_config(&connection(dir)?,&default_directory()?) }).await.map_err(|_|ClientError::storage())?}
 #[tauri::command]
 pub async fn save_quick_actions(storage:tauri::State<'_,SharedStorage>,expected_revision:u64,actions:Vec<QuickAction>,output_directory:String)->Result<QuickActionConfig,ClientError>{let storage=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||save_config(storage.directory.as_ref().map_err(Clone::clone)?,&default_directory()?,expected_revision,actions,output_directory)).await.map_err(|_|ClientError::storage())?}
+pub fn config_for_bar(storage:&SharedStorage)->Result<QuickActionConfig,ClientError>{
+ let dir=storage.directory.as_ref().map_err(Clone::clone)?;
+ read_config(&connection(dir)?,&default_directory()?)
+}
 /// Called only by the independent selection request path, before Journal::begin.
 pub fn prepare_request(storage:&SharedStorage,request_id:&str,selection:&str,action_id:&str,expected_revision:u64)->Result<String,ClientError>{
  let dir=storage.directory.as_ref().map_err(Clone::clone)?;prepare_checked(dir,&default_directory()?,request_id,selection,action_id,Some(expected_revision))
