@@ -113,6 +113,7 @@
   async function save() { try { if(!draft.loaded){await controller.start();await selection.refresh();}else await controller.flush(); notice='草稿已保存'; } catch { /* error is visible in draft state */ } }
   async function leave(quit=false) {
     if (!isDesktop) { notice='这是浏览器预览，草稿保存在此浏览器；桌面收起功能请在应用中使用';return; }
+    if(quit&&knowledge.pendingEditorId()){notice='知识库仍有编辑未完成，请先保存编辑或取消；切换页面会保留本次编辑';view='knowledge';void knowledge.open(knowledge.pendingEditorId()!);return;}
     if(quit&&(selectionState.busy||selectionState.pending)){notice='请先处理待导入选区，再退出';return;}
     if(quit&&attachmentState.pending){notice='请先取消等待截图，再退出';return;}
     if(closing)return;closing=true;try {if(quit)await chat.settle();await controller.leave(quit ? quitApp : hideWindow);} catch(e){notice=e instanceof Error?e.message:'退出未完成，当前内容已保留';}finally{closing=false;}

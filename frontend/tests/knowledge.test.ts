@@ -199,3 +199,15 @@ it('initial refresh restores the persisted auto preference',async()=>{
 });
 it('refresh reflects revoked automatic consent after model configuration changes',async()=>{const f=fixture();let consent=true;f.port.getAuto=async()=>consent;await f.controller.refresh();expect(f.controller.state.auto).toBe(true);consent=false;await f.controller.refresh();expect(f.controller.state.auto).toBe(false);});
 it('keeps the latest typed search while an earlier query is pending',async()=>{const f=fixture([meta()]);const seen:string[]=[];let release!:(notes:NoteMeta[])=>void;f.port.list=async q=>{seen.push(q);if(seen.length===1)return new Promise(r=>release=r);return q==='正则化'?[meta()]:[];};const first=f.controller.refresh('正');const last=f.controller.refresh('正则化');expect(f.controller.state.query).toBe('正则化');release([]);await Promise.all([first,last]);expect(seen).toEqual(['正','正则化']);expect(f.controller.state.notes[0]?.title).toBe('正则化笔记');expect(f.controller.state.busy).toBe(false);});
+it('a save completing after return-to-list must not reopen the old note',async()=>{const f=fixture([meta()]);await f.controller.open(meta().id);let release!:()=>void;const update=f.port.update;f.port.update=async(...args)=>{await new Promise<void>(r=>release=r);return update(...args);};const saving=f.controller.saveEdit(meta().id,'已保存标题','已保存正文',{});f.controller.close();release();await saving;expect(f.controller.state.current).toBe(null);});
+
+it('successful edit clears its cached draft while failure retains it',async()=>{
+ const f=fixture([meta()]);await f.controller.open(meta().id);
+ const draft={title:'待保存',body:'编辑正文',sourceTitle:'',sourceUrl:'',sourceLoc:''};
+ f.controller.rememberEditorDraft(meta().id,draft);
+ const update=f.port.update;f.port.update=async()=>{throw new Error('写入失败');};
+ expect(await f.controller.saveEdit(meta().id,draft.title,draft.body,{})).toBe(null);
+ expect(f.controller.getEditorDraft(meta().id)).toEqual(draft);
+ f.port.update=update;expect(await f.controller.saveEdit(meta().id,draft.title,draft.body,{})).not.toBe(null);
+ expect(f.controller.pendingEditorId()).toBeUndefined();
+});

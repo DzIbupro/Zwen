@@ -30,3 +30,28 @@ it('relation activation exposes reason and opens evidence note',async()=>{
  (target.querySelector('[data-relation-evidence]') as HTMLButtonElement).click();expect(onOpenNote).toHaveBeenCalledWith('n1');
  await unmount(app);target.remove();
 });
+it('unsaved note editing survives leaving and remounting the knowledge view',async()=>{
+ const meta={id:'n1',title:'原标题',createdAt:1,source:'chat',model:'m',attachments:[]};
+ const controller=new KnowledgeController({} as KnowledgePort,()=>{});controller.state.current={meta,body:'原正文'};
+ const target=document.createElement('div');document.body.append(target);
+ const props={controller,info:controller.state,onTrace:()=>{},onSaveEdit:async()=>null,modelLabel:'测试模型'};
+ let app=mount(KnowledgePanel,{target,props});flushSync();(target.querySelector('[data-note-edit]') as HTMLButtonElement).click();flushSync();
+ const input=target.querySelector('[data-note-body-input]') as HTMLTextAreaElement;input.value='切换视图前未保存的修改';input.dispatchEvent(new Event('input',{bubbles:true}));flushSync();
+ await unmount(app);app=mount(KnowledgePanel,{target,props:{...props,info:controller.state}});await settle();
+ expect((target.querySelector('[data-note-body-input]') as HTMLTextAreaElement)?.value).toBe('切换视图前未保存的修改');
+ await unmount(app);target.remove();controller.dispose();
+});
+
+it('a pending edit save locks fields until completion',async()=>{
+ const meta={id:'pending',title:'标题',createdAt:1,source:'chat',model:'m',attachments:[]};
+ const controller=new KnowledgeController({} as KnowledgePort,()=>{});controller.state.current={meta,body:'正文'};
+ const target=document.createElement('div');document.body.append(target);
+ let finish!:(value:null)=>void;
+ const app=mount(KnowledgePanel,{target,props:{controller,info:controller.state,onTrace:()=>{},onSaveEdit:()=>new Promise<null>(resolve=>finish=resolve),modelLabel:'测试'}});
+ flushSync();(target.querySelector('[data-note-edit]') as HTMLButtonElement).click();flushSync();
+ (target.querySelector('[data-note-save-edit]') as HTMLButtonElement).click();flushSync();
+ expect((target.querySelector('[data-note-body-input]') as HTMLTextAreaElement).disabled).toBe(true);
+ finish(null);await settle();
+ expect((target.querySelector('[data-note-body-input]') as HTMLTextAreaElement).disabled).toBe(false);
+ await unmount(app);target.remove();controller.dispose();
+});

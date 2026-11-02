@@ -37,7 +37,15 @@ export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null
  lastBatch:string|null;lastSummary:OrganizeSummaryView|null;topicView:{id:string;title:string;notes:Note[]}|null;
  relations:RelationView[];auto:boolean}
 
+export interface NoteEditDraft {title:string;body:string;sourceTitle:string;sourceUrl:string;sourceLoc:string}
+
 export class KnowledgeController {
+ private navigation=0;
+ private editorDrafts=new Map<string,NoteEditDraft>();
+ pendingEditorId():string|undefined {return this.editorDrafts.keys().next().value;}
+ getEditorDraft(id:string):NoteEditDraft|undefined {const draft=this.editorDrafts.get(id);return draft?{...draft}:undefined;}
+ rememberEditorDraft(id:string,draft:NoteEditDraft):void {this.editorDrafts.set(id,{...draft});}
+ discardEditorDraft(id:string):void {this.editorDrafts.delete(id);}
  topicsSnapshot():TopicView[]{return this.state.topics;}
  state:KnowledgeState={notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false};
  private disposed=false;
@@ -84,12 +92,13 @@ export class KnowledgeController {
   }
   finally{this.publish({busy:false});}
  }
- close():void{this.publish({current:null});}
+ close():void{this.navigation++;this.publish({current:null});}
  async remove(id:string){
   if(this.disposed||this.state.busy)return;
   this.publish({busy:true});
   try{
    await this.port.remove(id);
+   this.discardEditorDraft(id);
    this.publish({current:null,notice:''});
   }
   catch(error){
@@ -116,11 +125,14 @@ export class KnowledgeController {
  }
  async saveEdit(id:string,title:string,body:string,source:SourceMetaInput):Promise<NoteMeta|null>{
   if(this.disposed||this.state.busy)return null;
+  const navigation=this.navigation;
+  const draft=this.getEditorDraft(id);
   this.publish({busy:true});
   try{
    const meta=await this.port.update(id,title,body,source);
    const note=await this.port.read(id);
-   this.publish({current:note,notice:''});
+   if(navigation===this.navigation&&this.state.current?.meta.id===id)this.publish({current:note,notice:''});
+   if(draft&&JSON.stringify(this.getEditorDraft(id))===JSON.stringify(draft))this.discardEditorDraft(id);
    this.publish({busy:false});
    await this.refresh();
    return meta;

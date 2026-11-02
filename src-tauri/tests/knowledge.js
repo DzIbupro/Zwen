@@ -1,7 +1,7 @@
 (async()=>{
  window.__ZWEN_LOADS__=(window.__ZWEN_LOADS__||0)+1;
  const api=window.__TAURI__,invoke=api.core.invoke;
- const DRIVER_VERSION=6;
+ const DRIVER_VERSION=7;
  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const wait=async(check,label='Knowledge fixture timeout',limit=200)=>{for(let i=0;i<limit;i++){if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error(label);};
  const items=async()=>[...document.querySelectorAll('[data-note-item]')];
@@ -49,6 +49,12 @@
   srcUrlBox.value='https://example.com/paper';srcUrlBox.dispatchEvent(new Event('input',{bubbles:true}));
   const srcLocBox=document.querySelector('[data-note-source-loc]');
   srcLocBox.value='第 42 页';srcLocBox.dispatchEvent(new Event('input',{bubbles:true}));
+  stage='edit-navigation';
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='历史').click();
+  await wait(()=>document.querySelector('.history'));
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='知识库').click();
+  await wait(()=>document.querySelector('[data-note-editor]'));
+  if(document.querySelector('[data-note-body-input]').value!=='编辑后的正文内容'||document.querySelector('[data-note-title-input]').value!=='编辑后的标题'||document.querySelector('[data-note-source-loc]').value!=='第 42 页')throw Error('Unsaved editor lost after tab navigation');
   document.querySelector('[data-note-save-edit]').click();
   await wait(()=>document.querySelector('[data-note-detail]')?.textContent.includes('编辑后的正文内容'));
   await wait(()=>document.querySelector('[data-note-source]')?.textContent.includes('example.com'));
