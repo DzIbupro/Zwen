@@ -1,7 +1,7 @@
 <script lang="ts">
  import {renderMarkdown} from './lib/render';import {proseLinkClick} from './lib/links';import {openExternal} from './lib/bridge';
- import type {KnowledgeController,KnowledgeState} from './lib/knowledge';
- let {controller,info,onTrace,onSaveEdit,modelLabel}:{controller:KnowledgeController;info:KnowledgeState;onTrace:(requestId:string)=>void;onSaveEdit:(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null})=>Promise<void>;modelLabel:string}=$props();
+ import type {KnowledgeController,KnowledgeState,NoteMeta} from './lib/knowledge';
+ let {controller,info,onTrace,onSaveEdit,modelLabel}:{controller:KnowledgeController;info:KnowledgeState;onTrace:(requestId:string)=>void;onSaveEdit:(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null})=>Promise<NoteMeta|null>;modelLabel:string}=$props();
  let armed: string|null = $state<string|null>(null);
  let editing: boolean = $state(false);
  let editTitle: string = $state('');
@@ -20,6 +20,7 @@
 <section class="knowledge" data-knowledge aria-label="知识库">
  {#if info.current}
   <div class="note-detail" data-note-detail>
+   {#if info.notice}<div class="knowledge-notice" role="status">{info.notice}</div>{/if}
    <div class="note-toolbar"><button onclick={()=>{armed=null;editing=false;controller.close();}}>← 返回列表</button><button data-note-export disabled={info.busy} onclick={()=>void controller.exportNote(info.current!.meta.id).then(path=>{exportMsg=path?`已导出到 ${path}`:'';})}>{exportMsg?'已导出':'导出'}</button>{#if info.current.meta.source||info.current.meta.model}<span class="note-meta">{info.current.meta.source}{info.current.meta.model?` · ${info.current.meta.model}`:''}</span>{/if}<button data-note-trace disabled={!info.current.meta.request} title={info.current.meta.request?'跳转到原始问答':'本笔记没有来源链接'} onclick={()=>{if(info.current?.meta.request)onTrace(info.current.meta.request);}}>查看原始问答</button><button data-note-edit onclick={()=>{editTitle=info.current!.meta.title;editBody=info.current!.body;srcTitle=info.current!.meta.sourceTitle??'';srcUrl=info.current!.meta.sourceUrl??'';srcLoc=info.current!.meta.sourceLoc??'';editing=true;armed=null;}}>编辑</button><button data-note-delete onclick={()=>{if(armed===info.current?.meta.id){void controller.remove(info.current!.meta.id);armed=null;}else{armed=info.current!.meta.id;}}}>{armed===info.current?.meta.id?'确认删除':'删除'}</button></div>
    {#if editing}
     <div class="note-editor" data-note-editor>
@@ -29,7 +30,7 @@
      <label for="note-source-title">来源标题（可选）</label><input id="note-source-title" data-note-source-title maxlength="200" value={srcTitle} oninput={e=>srcTitle=e.currentTarget.value}/>
      <label for="note-source-url">来源 URL（可选）</label><input id="note-source-url" data-note-source-url maxlength="2048" value={srcUrl} oninput={e=>srcUrl=e.currentTarget.value}/>
      <label for="note-source-loc">页码或位置（可选）</label><input id="note-source-loc" data-note-source-loc maxlength="200" value={srcLoc} oninput={e=>srcLoc=e.currentTarget.value}/>
-     <div class="editor-actions"><button disabled={editBusy} onclick={()=>{editing=false;}}>取消</button><button class="primary-edit" data-note-save-edit disabled={editBusy||!editTitle.trim()} onclick={()=>{editBusy=true;void onSaveEdit(info.current!.meta.id,editTitle,editBody,{sourceTitle:srcTitle||null,sourceUrl:srcUrl||null,sourceLoc:srcLoc||null}).then(()=>{editBusy=false;editing=false;srcTitle='';srcUrl='';srcLoc='';});}}>{editBusy?'正在保存…':'保存编辑'}</button></div>
+     <div class="editor-actions"><button disabled={editBusy} onclick={()=>{editing=false;}}>取消</button><button class="primary-edit" data-note-save-edit disabled={editBusy||!editTitle.trim()} onclick={()=>{editBusy=true;void onSaveEdit(info.current!.meta.id,editTitle,editBody,{sourceTitle:srcTitle||null,sourceUrl:srcUrl||null,sourceLoc:srcLoc||null}).then(saved=>{if(saved){editing=false;srcTitle='';srcUrl='';srcLoc='';}}).catch(()=>{}).finally(()=>{editBusy=false;});}}>{editBusy?'正在保存…':'保存编辑'}</button></div>
     </div>
    {:else}
     <h2>{info.current.meta.title}</h2>
@@ -56,7 +57,7 @@
     </div>
    {:else}
     <p class="organize-hint">勾选 1–8 篇笔记（它们将被发送给 {modelLabel} 归纳主题）：</p>
-    <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏（收藏后自动为该笔记归纳主题）</label>
+    <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏（开启即同意将以后新收藏的标题与正文发送给当前模型 {modelLabel} 归纳主题；更换模型后需重新开启）</label>
     <ul class="note-list organize-select">
      {#each info.notes as note (note.id)}
       <li><label class="organize-row"><input type="checkbox" data-select={note.id} checked={info.selected[note.id]===true} onchange={()=>controller.toggleSelect(note.id)}/><span><strong>{note.title}</strong><small>{dateText(note.createdAt)}</small></span></label></li>

@@ -12,3 +12,12 @@ fn run(script:&str,ms:u64)->Result<String,SelectionError>{let mut c=Command::new
 #[test] fn failed_capture_is_a_safe_claimable_notice(){let mut b=Inbox::default();let id=b.begin(Mode::Raw).unwrap();assert!(b.finish(id,Err(SelectionError::Timeout)));let s=b.claim().unwrap();assert!(s.text.is_none());assert!(s.error.unwrap().contains("超时"));assert!(b.acknowledge(id));}
 #[test] fn selection_cli_actions_are_explicit(){use zwen_core::cli::{parse_action,LaunchAction};for (s,m) in [("select",Mode::Raw),("explain-selection",Mode::Explain),("translate-selection",Mode::Translate)]{assert_eq!(parse_action(&[s]),Ok(LaunchAction::Selection(m)));}assert!(parse_action(&["select","private text"]).is_err());}
 #[test] fn pending_capture_must_block_exit_until_explicit_acknowledgement(){let mut b=Inbox::default();assert!(!b.is_pending());let id=b.begin(Mode::Raw).unwrap();assert!(b.is_pending());assert!(!b.acknowledge(id));b.finish(id,Ok("text".into()));assert!(b.is_pending());b.claim();b.acknowledge(id);assert!(!b.is_pending());}
+
+#[test]fn revoked_read_cannot_deliver_or_clear_another_capture(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ assert!(!inbox.cancel_read(old+1));assert!(inbox.reading());assert!(inbox.cancel_read(old));
+ assert!(!inbox.is_pending());assert!(!inbox.finish(old,Ok("revoked private text".into())));
+ let new=inbox.begin(Mode::Raw).unwrap();assert!(!inbox.cancel_read(old));assert!(inbox.finish(new,Ok("explicit text".into())));
+ assert!(!inbox.cancel_read(new),"completed material requires explicit acknowledgement");
+ assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("explicit text"));
+}

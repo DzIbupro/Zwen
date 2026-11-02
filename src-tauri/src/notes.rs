@@ -55,8 +55,8 @@ pub async fn notes_update(storage:tauri::State<'_,SharedStorage>,id:String,title
  let storage=storage.inner().clone();
  tauri::async_runtime::spawn_blocking(move||->Result<NoteMeta,ClientError>{
   let mut store=store(&storage)?;
-  let meta=store.update(&id,&title,&body)?;
-  store.update_source(&id,&zwen_core::notes::NoteMeta{id:id.clone(),title,created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,source_title,source_url,source_loc})?;
+  let source=zwen_core::notes::NoteMeta{id:id.clone(),title:title.clone(),created_at:0,source:String::new(),model:String::new(),attachments:Vec::new(),request:None,source_title,source_url,source_loc};
+  let meta=store.update_with_source(&id,&title,&body,Some(&source))?;
   Ok(meta)
  }).await.map_err(|_|ClientError::storage())?
 }
@@ -71,7 +71,7 @@ pub async fn notes_update_source(storage:tauri::State<'_,SharedStorage>,id:Strin
 #[tauri::command]
 pub async fn notes_rebuild(storage:tauri::State<'_,SharedStorage>)->Result<usize,ClientError>{
  let storage=storage.inner().clone();
- tauri::async_runtime::spawn_blocking(move||->Result<usize,ClientError>{Ok(store(&storage)?.rebuild_index()?)}).await.map_err(|_|ClientError::storage())?
+ tauri::async_runtime::spawn_blocking(move||->Result<usize,ClientError>{Ok(NoteStore::rebuild_from_files(&dir_for(&storage)?)?)}).await.map_err(|_|ClientError::storage())?
 }
 
 pub fn organize_store(storage:&SharedStorage)->Result<OrganizeStore,ClientError>{
@@ -128,9 +128,10 @@ pub async fn note_export(storage:tauri::State<'_,SharedStorage>,id:String)->Resu
   let note_store=NoteStore::open(dir_for(&storage)?.as_path())?;
   let note=note_store.read(&id)?;
   let home=std::env::var("HOME").map_err(|_|ClientError{code:"export_failed",message:"未找到用户主目录；无法导出".into()})?;
-  let target=export_target(&note.meta.title,&id[..8],Path::new(&home))?;
-  let document=format!("{}\n",String::from_utf8_lossy(&build_document(&note)));
+  let target=export_target(&note.meta.title,&id,Path::new(&home))?;
+  let document=note_store.document(&note.meta.id)?;
   fs::write(&target,document).map_err(|_|ClientError{code:"export_failed",message:"导出写入失败".into()})?;
+  copy_note_attachments(&dir_for(&storage)?,target.parent().ok_or_else(ClientError::storage)?,&note)?;
   Ok(target.to_string_lossy().into_owned())
  }).await.map_err(|_|ClientError::storage())?
 }
@@ -142,28 +143,34 @@ pub async fn notes_export_all(storage:tauri::State<'_,SharedStorage>)->Result<St
   let data_dir=dir_for(&storage)?;
   let note_store=NoteStore::open(data_dir.as_path())?;
   let home=std::env::var("HOME").map_err(|_|ClientError{code:"export_failed",message:"未找到用户主目录；无法导出".into()})?;
-  let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d|d.as_secs()).unwrap_or(0);
+  let stamp=zwen_core::notes::generate_id();
   let target=Path::new(&home).join("Downloads").join(format!("Zwen导出-{stamp}"));
   let mut builder=fs::DirBuilder::new();builder.recursive(true);
   #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
   builder.create(&target).map_err(|_|ClientError::storage())?;
-  for meta in note_store.list("")?{
-   let note=note_store.read(&meta.id)?;
-   let name=zwen_core::notes::sanitize_filename_export(&format!("{}-{}",meta.title,&meta.id[..8]));
-   let document=format!("{}\n",String::from_utf8_lossy(&build_document(&note)));
+  for id in note_store.all_ids()?{
+   let note=note_store.read(&id)?;
+   let name=format!("{}-{}",zwen_core::notes::sanitize_filename_export(&note.meta.title),id);
+   let document=note_store.document(&note.meta.id)?;
    fs::write(target.join(format!("{name}.md")),document).map_err(|_|ClientError{code:"export_failed",message:"导出写入失败".into()})?;
+   copy_note_attachments(&data_dir,&target,&note)?;
   }
   Ok(target.to_string_lossy().into_owned())
  }).await.map_err(|_|ClientError::storage())?
 }
 
-fn build_document(note:&Note)->Vec<u8>{
- // Mirrors the stored file: front matter + body, produced from parsed metadata.
- use zwen_core::notes::NoteMeta;
- let meta=NoteMeta{id:note.meta.id.clone(),title:note.meta.title.clone(),created_at:note.meta.created_at,source:note.meta.source.clone(),model:note.meta.model.clone(),attachments:note.meta.attachments.clone(),request:note.meta.request.clone(),source_title:note.meta.source_title.clone(),source_url:note.meta.source_url.clone(),source_loc:note.meta.source_loc.clone()};
- let mut out=zwen_core::notes::front_matter_text(&meta).into_bytes();
- out.extend_from_slice(note.body.as_bytes());
- out
+fn copy_note_attachments(data_dir:&Path,target:&Path,note:&Note)->Result<(),ClientError>{
+ let source=data_dir.join("notes/attachments");
+ if fs::symlink_metadata(&source).map_err(|_|ClientError::storage())?.file_type().is_symlink(){return Err(ClientError::storage());}
+ let dest=target.join("attachments");
+ if !note.meta.attachments.is_empty(){fs::create_dir_all(&dest).map_err(|_|ClientError::storage())?;}
+ for name in &note.meta.attachments{
+  let path=source.join(name);
+  let meta=fs::symlink_metadata(&path).map_err(|_|ClientError::storage())?;
+  if !meta.is_file()||meta.file_type().is_symlink(){return Err(ClientError::storage());}
+  fs::copy(path,dest.join(name)).map_err(|_|ClientError::storage())?;
+ }
+ Ok(())
 }
 
 /// External links open in the system browser. Only http(s) is allowed and the
@@ -224,10 +231,23 @@ pub async fn organize_list_relations(storage:tauri::State<'_,SharedStorage>)->Re
 #[tauri::command]
 pub async fn organize_set_auto(storage:tauri::State<'_,SharedStorage>,on:bool)->Result<(),ClientError>{
  let storage=storage.inner().clone();
- tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.set_auto_organize(on)?)}).await.map_err(|_|ClientError::storage())?
+ tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{
+  let mut store=organize_store(&storage)?;
+  if !on{return Ok(store.set_auto_organize(false)?);}
+  let profile=organize_profile(&storage)?;
+  Ok(store.set_auto_organize_for(true,&profile)?)
+ }).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]
 pub async fn organize_get_auto(storage:tauri::State<'_,SharedStorage>)->Result<bool,ClientError>{
  let storage=storage.inner().clone();
- tauri::async_runtime::spawn_blocking(move||->Result<bool,ClientError>{Ok(organize_store(&storage)?.auto_organize()?)}).await.map_err(|_|ClientError::storage())?
+ tauri::async_runtime::spawn_blocking(move||->Result<bool,ClientError>{
+  let store=organize_store(&storage)?;
+  let Ok(profile)=organize_profile(&storage)else{return Ok(false)};
+  Ok(store.auto_organize_for(&profile)?)
+ }).await.map_err(|_|ClientError::storage())?
+}
+
+pub fn organize_profile(storage:&SharedStorage)->Result<String,ClientError>{
+ serde_json::to_string(&crate::provider::configured(storage)?).map_err(|_|ClientError::storage())
 }

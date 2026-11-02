@@ -15,10 +15,12 @@ root=pathlib.Path(__file__).resolve().parent.parent
 mode=(root/'mode').read_text().strip() if (root/'mode').exists() else 'success'
 args=sys.argv[1:]
 if args[:2]==['msg','event-stream']:
+    if mode=='subscribe-slow':time.sleep(5)
     print('{"ConfigLoaded":{}}',flush=True)
     time.sleep(30)
     sys.exit(0)
 if args[:3]==['msg','action','screenshot']:
+    (root/'action-called').write_text('yes')
     if mode=='fail':sys.exit(1)
     path=args[-1]
     if mode=='late':
@@ -100,4 +102,16 @@ fn incoming(root:&Path,id:&str)->PathBuf{
  let short=directory.join("abc.png");fs::write(&short,b"x").unwrap();
  assert_eq!(cleanup_incoming(&directory,Duration::ZERO),1);
  assert!(!ours.exists());assert!(other.exists());assert!(short.exists());
+}
+
+#[test] fn already_cancelled_capture_never_launches_helper(){
+ let scratch=Scratch::new();let path=incoming(&scratch.0,&"1".repeat(32));
+ assert_eq!(capture_with(Path::new("/zwen-nonexistent-niri"),&path,Duration::from_millis(200),||true),Err(CaptureError::Cancelled));
+}
+
+#[test] fn cancelled_subscription_does_not_launch_screenshot(){
+ let scratch=Scratch::new();let program=fixture(&scratch.0,"subscribe-slow");let path=incoming(&scratch.0,&"2".repeat(32));
+ let began=Instant::now();
+ assert_eq!(capture_with(&program,&path,Duration::from_secs(2),||began.elapsed()>=Duration::from_millis(100)),Err(CaptureError::Cancelled));
+ assert!(!scratch.0.join("action-called").exists());assert!(began.elapsed()<Duration::from_secs(1));
 }

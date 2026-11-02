@@ -4,6 +4,13 @@ use tauri::{Emitter, Listener, Manager};
 static LOADS:AtomicUsize=AtomicUsize::new(0);
 pub fn setup(app:&tauri::App) {
     if std::env::var("ZWEN_SMOKE").is_err() {return;}
+    if let Some(path)=std::env::var_os("ZWEN_SCREENSHOT_FIXTURE_MODE_FILE") {
+        app.listen("screenshot-fixture-mode",move|e|{
+            if let Ok(mode)=serde_json::from_str::<String>(e.payload()) {
+                if ["normal","cancel","timeout"].contains(&mode.as_str()){let _=std::fs::write(&path,mode);}
+            }
+        });
+    }
     let fault_app=app.handle().clone();
     app.listen("fault-stage",move|_|{
         println!("FAULT_STAGE:unsaved");let h=fault_app.clone();

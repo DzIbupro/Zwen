@@ -113,14 +113,12 @@ fn read_draft(connection:&Connection)->Result<Draft,Error> {
     }
 
 pub fn open_private_database(path:&Path,initialize:impl FnOnce(&mut Connection)->Result<(),Error>)->Result<Connection,Error> {
-        #[cfg(unix)] {
-            use std::os::unix::fs::OpenOptionsExt;
-            match std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path) {
-                Ok(_) => (),
-                Err(error) if error.kind()==std::io::ErrorKind::AlreadyExists => (),
-                Err(error) => return Err(Error::Io(error)),
-            }
-        }
+        // Cross-thread/process first-open serialization. Schema callbacks still
+        // use their own SQLite transactions; normal connection use is unlocked.
+        let mut options=std::fs::OpenOptions::new();options.read(true).write(true).create(true);
+        #[cfg(unix)] {use std::os::unix::fs::OpenOptionsExt;options.mode(0o600);}
+        let initialization_lock=options.open(path).map_err(Error::Io)?;
+        initialization_lock.lock().map_err(Error::Io)?;
         let mut connection = Connection::open(path)?;
         connection.busy_timeout(Duration::from_secs(2))?;
         connection.set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH, 1024*1024)?;

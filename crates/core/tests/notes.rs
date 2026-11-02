@@ -181,3 +181,107 @@ fn meta_from(list:&[NoteMeta],index:usize)->NoteMeta{list[list.len()-1-index].cl
   source_title:None,source_url:None,source_loc:None}).unwrap();
  assert_eq!(store.read(&meta.id).unwrap().meta.source_url,None);
 }
+
+#[test] fn untrusted_attachment_paths_cannot_delete_other_files(){
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();
+ let meta=store.create("n","b","","",&[],None).unwrap();
+ let victim=s.0.join("victim");std::fs::write(&victim,"keep").unwrap();
+ let path=s.0.join("notes").join(format!("{}.md",meta.id));
+ let text=std::fs::read_to_string(&path).unwrap().replace("attachments: []","attachments: [\"../../victim\"]");
+ std::fs::write(path,text).unwrap();store.delete(&meta.id).unwrap();
+ assert!(victim.exists());
+}
+#[test] fn failed_markdown_delete_keeps_index(){
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();
+ let meta=store.create("n","b","","",&[],None).unwrap();
+ let path=s.0.join("notes").join(format!("{}.md",meta.id));
+ std::fs::remove_file(&path).unwrap();std::fs::create_dir(&path).unwrap();
+ assert!(store.delete(&meta.id).is_err());assert_eq!(store.list("").unwrap().len(),1);
+}
+#[cfg(unix)]
+#[test] fn symlinked_note_and_attachment_directory_are_rejected(){
+ use std::os::unix::fs::symlink;
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();
+ let meta=store.create("n","b","","",&[],None).unwrap();
+ let path=s.0.join("notes").join(format!("{}.md",meta.id));
+ let outside=s.0.join("outside");std::fs::write(&outside,"keep").unwrap();
+ std::fs::remove_file(&path).unwrap();symlink(&outside,&path).unwrap();
+ assert!(store.read(&meta.id).is_err());assert!(store.update(&meta.id,"x","x").is_err());
+ let attachments=s.0.join("notes/attachments");std::fs::remove_dir(&attachments).unwrap();symlink(&s.0,&attachments).unwrap();
+ assert!(NoteStore::open(&s.0).is_err());assert_eq!(std::fs::read_to_string(outside).unwrap(),"keep");
+}
+
+#[test] fn edited_deleted_and_external_evidence_is_reconciled_preserving_manual_memberships(){
+ use zwen_core::organize::{OrganizeStore,content_hash};
+ let s=Scratch::new();let mut notes=NoteStore::open(&s.0).unwrap();
+ let note=notes.create("n","old","","",&[],None).unwrap();
+ let mut org=OrganizeStore::open(&s.0).unwrap();
+ org.apply_batch_details("m",&[note.id.clone()],&[(note.id.clone(),content_hash(b"old"),vec!["X".into(),"Y".into()])],&[],&[("X".into(),"Y".into(),"why".into(),note.id.clone())]).unwrap();
+ notes.update(&note.id,"n","new").unwrap();
+ assert!(org.list_relations().unwrap().is_empty());
+ assert!(org.list_topics().unwrap().iter().all(|t|t.count==0));
+ org.apply_batch_details("m",&[note.id.clone()],&[(note.id.clone(),content_hash(b"new"),vec!["X".into(),"Y".into()])],&[],&[("X".into(),"Y".into(),"why".into(),note.id.clone())]).unwrap();
+ notes.delete(&note.id).unwrap();assert!(org.list_relations().unwrap().is_empty());assert!(org.list_topics().unwrap().iter().all(|t|t.count==0));
+ let external=notes.create("external","old","","",&[],None).unwrap();
+ org.apply_batch("m",&[external.id.clone()],&[(external.id.clone(),content_hash(b"old"),vec!["X".into()])]).unwrap();
+ let path=s.0.join("notes").join(format!("{}.md",external.id));
+ std::fs::write(path,"external edit").unwrap();drop(org);
+ let org=OrganizeStore::open(&s.0).unwrap();assert!(org.list_topics().unwrap().iter().all(|t|t.count==0));
+}
+
+#[test] fn header_values_cannot_inject_front_matter(){
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();
+ for (title,source,model) in [("x\n---\nfake","",""),("n","chat\nid: forged",""),("n","","model\nattachments: []")]{
+  assert!(store.create(title,"body",source,model,&[],None).is_err());
+ }
+ let note=store.create("n","body","","",&[],None).unwrap();assert!(store.update(&note.id,"x\n---\nfake","b").is_err());
+}
+
+#[test] fn complete_export_enumeration_exceeds_ui_limit_and_keeps_original_document_bytes(){
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();
+ for _ in 0..205{store.create("same title","body","","",&[],None).unwrap();}
+ assert_eq!(store.list("").unwrap().len(),200);assert_eq!(store.all_ids().unwrap().len(),205);
+ let id=store.all_ids().unwrap()[0].clone();let path=s.0.join("notes").join(format!("{id}.md"));
+ let bytes=std::fs::read_to_string(&path).unwrap().replace("title: same title","title: same title\ncustom_external_field: preserve me");std::fs::write(&path,&bytes).unwrap();
+ assert_eq!(store.document(&id).unwrap(),bytes.as_bytes());
+}
+
+#[test] fn explicit_rebuild_preserves_corrupt_index_and_recovers_authoritative_markdown(){
+ let s=Scratch::new();let id={let mut store=NoteStore::open(&s.0).unwrap();store.create("saved","body","","",&[],None).unwrap().id};
+ let corrupt=b"not a sqlite database";std::fs::write(s.0.join("notes.sqlite3"),corrupt).unwrap();
+ assert!(NoteStore::open(&s.0).is_err());assert_eq!(NoteStore::rebuild_from_files(&s.0).unwrap(),1);
+ assert_eq!(NoteStore::open(&s.0).unwrap().read(&id).unwrap().body,"body");
+ let backups:Vec<_>=std::fs::read_dir(&s.0).unwrap().map(|v|v.unwrap().path()).filter(|p|p.file_name().unwrap().to_string_lossy().starts_with("notes.sqlite3.corrupt-")).collect();
+ assert_eq!(backups.len(),1);assert_eq!(std::fs::read(&backups[0]).unwrap(),corrupt);
+}
+#[test] fn explicit_rebuild_never_replaces_unknown_future_schema(){
+ let s=Scratch::new();let store=NoteStore::open(&s.0).unwrap();drop(store);
+ let db=rusqlite::Connection::open(s.0.join("notes.sqlite3")).unwrap();db.pragma_update(None,"user_version",99).unwrap();drop(db);
+ assert!(matches!(NoteStore::rebuild_from_files(&s.0),Err(Error::UnsupportedSchema)));
+ let db=rusqlite::Connection::open(s.0.join("notes.sqlite3")).unwrap();assert_eq!(db.pragma_query_value(None,"user_version",|r|r.get::<_,i64>(0)).unwrap(),99);
+}
+#[test] fn invalid_source_cannot_partially_replace_body(){
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();let mut meta=store.create("saved","old","","",&[],None).unwrap();
+ meta.source_url=Some("invalid".into());assert!(store.update_with_source(&meta.id,"changed","new",Some(&meta)).is_err());
+ assert_eq!(store.read(&meta.id).unwrap().body,"old");
+}
+
+#[test] fn sparse_oversized_markdown_is_rejected_by_reads_export_search_and_rebuild(){
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();let note=store.create("oversized","body","","",&[],None).unwrap();
+ let path=s.0.join("notes").join(format!("{}.md",note.id));
+ let file=std::fs::File::create(&path).unwrap();file.set_len(64*1024*1024).unwrap();drop(file);
+ assert!(store.read(&note.id).is_err());assert!(store.document(&note.id).is_err());
+ assert!(store.list("oversized").is_err());assert!(store.list("body probe").unwrap().is_empty());
+ assert_eq!(store.rebuild_index().unwrap(),0,"oversized external files must never enter the derived index");
+ assert_eq!(std::fs::metadata(path).unwrap().len(),64*1024*1024,"authority is retained");
+}
+#[test] fn maximum_body_and_valid_front_matter_roundtrip_through_every_read_path(){
+ let s=Scratch::new();let mut store=NoteStore::open(&s.0).unwrap();
+ let body=format!("{}needle", "x".repeat(MAX_NOTE_BYTES-6));
+ let files:Vec<_>=(0..MAX_NOTE_ATTACHMENTS).map(|i|(format!("{}{}.png","字".repeat(70),i),b"png".to_vec())).collect();
+ let mut note=store.create(&"t".repeat(200),&body,&"s".repeat(64),&"m".repeat(200),&files,Some(&"r".repeat(100))).unwrap();
+ note.source_title=Some("t".repeat(200));note.source_loc=Some("l".repeat(200));note.source_url=Some(format!("https://example.test/{}","a".repeat(2027)));
+ store.update_source(&note.id,&note).unwrap();
+ assert_eq!(store.read(&note.id).unwrap().body,body);assert_eq!(store.list("needle").unwrap().len(),1);
+ assert!(store.document(&note.id).unwrap().ends_with(body.as_bytes()));assert_eq!(store.rebuild_index().unwrap(),1);
+}

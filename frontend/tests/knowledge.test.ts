@@ -180,3 +180,21 @@ it('governance wrappers refresh topics and report failures',async()=>{
  await f.controller.renameTopic('t-'+meta().id,'x');
  expect(f.controller.state.notice).toContain('重命名未完成');
 });
+
+it('save failure releases busy so retry can succeed',async()=>{
+ const f=fixture();const save=f.port.save;
+ f.port.save=async()=>{throw Error('磁盘满');};
+ const input={title:'重试',body:'正文',source:'chat',model:'m',attachmentIds:[]};
+ await f.controller.save(input);expect(f.controller.state.busy).toBe(false);
+ f.port.save=save;expect((await f.controller.save(input))?.id).toBe('b'.repeat(32));
+});
+it('save returns persisted metadata even with duplicate titles and a filtered list',async()=>{
+ const old=meta();const f=fixture([old]);await f.controller.refresh('不匹配');
+ const result=await f.controller.save({title:old.title,body:'新正文',source:'chat',model:'m',attachmentIds:[]});
+ expect(result?.id).toBe('b'.repeat(32));expect(f.controller.state.notes).toEqual([]);
+});
+it('initial refresh restores the persisted auto preference',async()=>{
+ const f=fixture();f.port.getAuto=async()=>true;await f.controller.refresh();
+ expect(f.controller.state.auto).toBe(true);
+});
+it('refresh reflects revoked automatic consent after model configuration changes',async()=>{const f=fixture();let consent=true;f.port.getAuto=async()=>consent;await f.controller.refresh();expect(f.controller.state.auto).toBe(true);consent=false;await f.controller.refresh();expect(f.controller.state.auto).toBe(false);});

@@ -3,7 +3,7 @@ use crate::{Error,open_private_database};
 use png::{BitDepth,ColorType,Decoder,Encoder,Limits,Transformations};
 use rusqlite::{Connection,OptionalExtension,TransactionBehavior,params};
 use serde::Serialize;
-use std::{fs,io::{Cursor,Write},path::{Path,PathBuf},sync::atomic::{AtomicU64,Ordering}};
+use std::{fs,io::{Cursor,Read,Write},path::{Path,PathBuf},sync::atomic::{AtomicU64,Ordering}};
 
 pub const MAX_ATTACHMENTS:usize=3;
 pub const MAX_IMAGE_BYTES:u64=24*1024*1024;
@@ -59,7 +59,7 @@ impl AttachmentStore {
   if !valid_id(id)||replaced.is_some_and(|old|!valid_id(old)||old==id){return Err(Error::InvalidImage);}
   let meta=fs::metadata(source)?;
   if !meta.is_file()||meta.len()==0||meta.len()>MAX_IMAGE_BYTES{return Err(Error::InvalidImage);}
-  let bytes=fs::read(source)?;
+  let bytes=read_bounded(source,MAX_IMAGE_BYTES)?;
   if bytes.len() as u64>MAX_IMAGE_BYTES{return Err(Error::InvalidImage);}
   let (width,height,thumbnail)=render_thumbnail(&bytes)?;
   let image=self.directory.join(format!("{id}.png"));
@@ -104,7 +104,7 @@ impl AttachmentStore {
   if exists.is_none(){return Err(Error::AttachmentMissing);}
   let preview=self.directory.join(format!("{id}.thumb.png"));
   if let Ok(bytes)=read_bounded(&preview,MAX_THUMB_BYTES){if bytes.starts_with(&PNG_SIGNATURE){return Ok(bytes);}}
-  let image=fs::read(self.directory.join(format!("{id}.png"))).map_err(|_|Error::AttachmentMissing)?;
+  let image=read_bounded(&self.directory.join(format!("{id}.png")),MAX_IMAGE_BYTES).map_err(|_|Error::AttachmentMissing)?;
   if image.len() as u64>MAX_IMAGE_BYTES{return Err(Error::InvalidImage);}
   let (_,_,thumbnail)=render_thumbnail(&image)?;
   write_private(&preview,&thumbnail)?;
@@ -274,8 +274,10 @@ fn set_private(path:&Path)->Result<(),Error>{
 }
 
 fn read_bounded(path:&Path,max:u64)->Result<Vec<u8>,Error>{
- if !fs::metadata(path)?.is_file(){return Err(Error::AttachmentMissing);}
- let bytes=fs::read(path)?;
+ let file=fs::File::open(path)?;
+ if !file.metadata()?.is_file(){return Err(Error::AttachmentMissing);}
+ let mut bytes=Vec::new();
+ file.take(max.saturating_add(1)).read_to_end(&mut bytes)?;
  if bytes.len() as u64>max{return Err(Error::AttachmentMissing);}
  Ok(bytes)
 }

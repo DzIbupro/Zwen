@@ -1,5 +1,5 @@
 import type {DraftController} from './draft';
-export interface SelectionItem{id:number;mode:'raw'|'explain'|'translate';text:string|null;error:string|null;claimed:boolean}
+export interface SelectionItem{id:number;mode:'raw'|'explain'|'translate'|'candidate';text:string|null;error:string|null;claimed:boolean}
 export interface SelectionPort{claim():Promise<{reading:boolean;item:SelectionItem|null}>;acknowledge(id:number):Promise<void>}
 export interface SelectionState{busy:boolean;pending:SelectionItem|null;inserted:boolean;notice:string}
 export class SelectionController{
@@ -24,6 +24,7 @@ export class SelectionController{
     this.publish({pending:item,inserted:false});
     if(item.error){this.publish({notice:item.error});await this.discard(false);continue;}
     if(item.claimed){this.publish({notice:'上次导入未确认，请先检查草稿，再决定重新添加或丢弃待处理选区'});continue;}
+    if(item.mode==='candidate'){this.publish({notice:'检测到选区，仅在本机候选区显示；点击添加后才写入草稿'});continue;}
     await this.applyPending();
    }catch(e){if(this.mutating){this.again=true;return;}this.publish({busy:false,notice:e instanceof Error?e.message:'选区状态读取失败，请重试'});}
   }while(this.again&&!this.disposed);
@@ -34,7 +35,7 @@ export class SelectionController{
   try{
    await this.draft.flush();if(this.disposed)return;
    if(!this.state.inserted){
-    const label={raw:'选区：',explain:'请解释以下选区：',translate:'请将以下选区翻译成中文：'}[item.mode];
+    const label={candidate:'选区：',raw:'选区：',explain:'请解释以下选区：',translate:'请将以下选区翻译成中文：'}[item.mode];
     const snippet=label+'\n\n'+item.text;const original=this.draft.snapshot.text;
     const merged=original?original+'\n\n'+snippet:snippet;
     if(new TextEncoder().encode(item.text).length>64*1024||new TextEncoder().encode(merged).length>256*1024)throw Error('添加后将超过文字上限；原草稿已保留，可缩短草稿后重试');

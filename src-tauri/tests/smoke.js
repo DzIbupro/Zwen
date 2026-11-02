@@ -5,6 +5,7 @@
  const text=base+'\n\n关闭前追加';
  try {
   await wait(()=>document.querySelector('textarea') && !document.querySelector('textarea').disabled);
+  await wait(()=>{const logo=document.querySelector('img.app-logo');return logo?.complete&&logo.naturalWidth===96;});
   if(['edit','quit'].includes(window.__ZWEN_SMOKE_MODE__)) {
    const input=document.querySelector('textarea');input.value=base;input.dispatchEvent(new Event('input',{bubbles:true}));
    await wait(async()=>{const d=await api.core.invoke('load_draft');return d.text===base&&d.revision>0;});

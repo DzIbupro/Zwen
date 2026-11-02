@@ -1,8 +1,9 @@
 <script lang="ts">
  import {buildGraph,expandTopic} from './lib/graph';
  import type {KnowledgeController,KnowledgeState} from './lib/knowledge';
- import type {GraphNode} from './lib/graph';
+ import type {GraphNode,GraphEdge} from './lib/graph';
  let {controller,info,onOpenNote,onOpenTopic}:{controller:KnowledgeController;info:KnowledgeState;onOpenNote:(id:string)=>void;onOpenTopic:(id:string)=>void}=$props();
+ let selectedEdge=$state<GraphEdge|null>(null);
  let filter=$state('');
  let zoom=$state(1);
  let panX=$state(0);
@@ -38,6 +39,10 @@
   <span class="graph-hint">{graph.nodes.length} 节点 · {graph.edges.length} 关系 · 滚轮缩放 / 拖动平移</span>
   <button onclick={()=>{zoom=1;panX=0;panY=0;}}>复位视图</button>
  </div>
+ <p class="graph-hint">每次最多显示 30 个主题、60 条主题关系；可搜索其他主题，点击主题展开最多 12 篇笔记。</p>
+ {#if selectedEdge}
+  <div data-relation-detail role="status"><p>关系原因：{selectedEdge.reason}</p><p>证据笔记：{selectedEdge.evidence||'未提供'}</p>{#if selectedEdge.evidence}<button data-relation-evidence onclick={()=>onOpenNote(selectedEdge!.evidence)}>打开证据笔记</button>{/if}<button onclick={()=>selectedEdge=null}>关闭关系详情</button></div>
+ {/if}
  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
  <div class="graph-stage" data-graph-stage
    onwheel={onWheel} onmousedown={onDown} onmousemove={onMove} onmouseup={onUp} onmouseleave={onUp}
@@ -48,7 +53,8 @@
     {#if nodeIndex.get(edge.from)&&nodeIndex.get(edge.to)}
      <line x1={nodeIndex.get(edge.from)!.x} y1={nodeIndex.get(edge.from)!.y}
        x2={nodeIndex.get(edge.to)!.x} y2={nodeIndex.get(edge.to)!.y}
-       class="edge" data-edge={edge.id}><title>{edge.reason}</title></line>
+       class="edge" data-edge={edge.id} role="button" tabindex="0" aria-label={`查看关系：${edge.reason}`}
+       onclick={e=>{e.stopPropagation();selectedEdge=edge;}} onkeydown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectedEdge=edge;}}}><title>{edge.reason} · 证据：{edge.evidence}</title></line>
     {/if}
    {/each}
    {#each graph.nodes as node (node.id)}
@@ -75,7 +81,7 @@
  .graph-stage{border:1px solid #dce2d2;border-radius:13px;background:linear-gradient(180deg,#fbfcf6,#f2f4ea);overflow:hidden;cursor:grab;min-height:420px}
  .graph-stage:active{cursor:grabbing}
  svg{display:block}
- .edge{stroke:#a9ba97;stroke-width:1.6}
+ .edge{stroke:#a9ba97;stroke-width:5;cursor:pointer;pointer-events:stroke}.edge:focus{stroke:#417f65;outline:none}
  .node circle{fill:#e7eddf;stroke:#417f65;stroke-width:2;cursor:pointer}
  .node circle.locked{stroke-dasharray:4 3}
  .node circle.note{fill:#fffef9;stroke:#8fa983;stroke-width:1.5}

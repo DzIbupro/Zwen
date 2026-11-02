@@ -143,7 +143,11 @@ async fn run(app:AppHandle,storage:SharedStorage,shared:Shared,id:String,path:Pa
  match result{
   Ok(())=>{
    let import_storage=storage.clone();let import_id=id.clone();let import_path=path.clone();let import_replace=replace.clone();
+   let import_shared=shared.clone();
    let imported=tauri::async_runtime::spawn_blocking(move||->Result<Attachment,ClientError>{
+    // Hold the ownership lock through the commit: cancel/restart either wins
+    // before this boundary or observes an already committed capture.
+    with_current_capture(&import_shared,&import_id,||{
     let directory=storage_dir(&import_storage)?;
     let mut store=AttachmentStore::open(&directory)?;
     let attachment=match import_replace{
@@ -151,6 +155,7 @@ async fn run(app:AppHandle,storage:SharedStorage,shared:Shared,id:String,path:Pa
      None=>store.import(&import_id,&import_path)?,
     };
     Ok(attachment)
+    })
    }).await;
    match imported{
     Ok(Ok(_))=>finish(&shared,&id,Some("截图已附加到草稿 · 未发送".into())),
@@ -194,4 +199,40 @@ pub async fn remove_attachment(app:AppHandle,storage:tauri::State<'_,SharedStora
  if let Ok(mut capture)=state.lock(){capture.notice=Some("截图已从草稿移除".into());}
  let _=app.emit("attachments-changed",());
  Ok(())
+}
+
+fn with_current_capture<T>(shared:&Shared,id:&str,commit:impl FnOnce()->Result<T,ClientError>)->Result<T,ClientError>{
+ let mut state=shared.lock().map_err(|_|ClientError::window())?;
+ if !may_import(&state,id){return Err(error("capture_cancelled","截图请求已取消；未附加图片"));}
+ let result=commit();if result.is_ok(){state.pending=None;}drop(state);result
+}
+fn may_import(state:&State,id:&str)->bool{state.pending.as_ref().is_some_and(|pending|pending.id==id&&!pending.cancelled)}
+#[cfg(test)]mod tests{
+ use super::*;
+ #[test]fn committed_capture_is_no_longer_cancellable(){
+  let shared=Shared::default();shared.lock().unwrap().pending=Some(Pending{id:"done".into(),replace:None,cancelled:false});
+  with_current_capture(&shared,"done",||Ok(())).unwrap();
+  assert!(!cancel_pending(&shared,"cancelled"),"a committed image must not be reported as cancelled");
+  assert!(shared.lock().unwrap().pending.is_none());
+ }
+ #[test]fn cancellation_and_commit_share_one_boundary(){
+  use std::{sync::mpsc,thread};
+  let shared=Shared::default();shared.lock().unwrap().pending=Some(Pending{id:"old".into(),replace:None,cancelled:false});
+  cancel_pending(&shared,"cancelled");
+  assert!(with_current_capture(&shared,"old",||->Result<(),ClientError>{panic!("cancelled capture committed")}).is_err());
+  shared.lock().unwrap().pending.as_mut().unwrap().cancelled=false;
+  let (entered,ready)=mpsc::channel();let (release,resume)=mpsc::channel();let worker=shared.clone();
+  let commit=thread::spawn(move||with_current_capture(&worker,"old",||{entered.send(()).unwrap();resume.recv().unwrap();Ok(())}));
+  ready.recv().unwrap();let cancellation=shared.clone();let (cancelled,observed)=mpsc::channel();
+  let cancel=thread::spawn(move||{cancel_pending(&cancellation,"cancelled");cancelled.send(()).unwrap();});
+  assert!(observed.recv_timeout(Duration::from_millis(30)).is_err(),"cancellation crossed an active commit");
+  release.send(()).unwrap();assert!(commit.join().unwrap().is_ok());cancel.join().unwrap();observed.recv().unwrap();
+  assert!(!may_import(&shared.lock().unwrap(),"old"));
+ }
+ #[test]fn obsolete_or_cancelled_capture_cannot_import(){
+  let mut state=State::default();assert!(!may_import(&state,"old"));
+  state.pending=Some(Pending{id:"old".into(),replace:None,cancelled:false});assert!(may_import(&state,"old"));
+  state.pending.as_mut().unwrap().cancelled=true;assert!(!may_import(&state,"old"));
+  state.pending=Some(Pending{id:"new".into(),replace:None,cancelled:false});assert!(!may_import(&state,"old"));assert!(may_import(&state,"new"));
+ }
 }

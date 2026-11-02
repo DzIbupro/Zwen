@@ -35,7 +35,6 @@ tools/technology-probes/**/tauri-probe/icons/icon.png
 node_modules/
 .cache/
 .superpowers/
-src-tauri/icons/icon.png
 src-tauri/gen/
 
 # SQLite sidecars may contain user materials

@@ -66,7 +66,7 @@ export const knowledgePort:KnowledgePort=isDesktop?{
  rebuild:()=>command<number>('notes_rebuild'),
  topics:()=>command<TopicView[]>('organize_topics'),
  topicNotes:topicId=>command<Note[]>('organize_topic_notes',{topicId}),
- run:noteIds=>command<OrganizeSummaryView>('organize_run',{noteIds}),
+ run:(noteIds,automatic=false)=>command<OrganizeSummaryView>('organize_run',{noteIds,automatic}),
  undo:batchId=>command<void>('organize_undo',{batchId}),
  renameTopic:(topicId,name)=>command<void>('organize_rename',{topicId,name}),
  setTopicColumn:(topicId,column)=>command<void>('organize_set_column',{topicId,column}),

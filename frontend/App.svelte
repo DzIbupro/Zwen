@@ -1,4 +1,6 @@
 <script lang="ts">
+  import {SendDraftCoordinator} from './lib/send-draft';
+  import BrandLogo from './BrandLogo.svelte';
   import { onMount } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { DraftController, type Snapshot } from './lib/draft';
@@ -42,29 +44,16 @@
   const combinedNotice=$derived(responseKind==='model'?(chatState.error||notice):notice);
   const demo=new DemoStream((text,active)=>{demoText=text;demoRunning=active;});
   function startDemo(){if(chatState.running||chatState.stopping)return;responseKind='demo';demo.start();}
-  let pendingConsume:{text:string;ids:string[];requestId:string|null}|null=null;
+
   let traceRequestId=$state<string|null>(null);
  let candidateEnabled=$state(false);
  void 0;
   // The input clears the moment a send is accepted. When the model starts
   // answering, the screenshots are consumed; a request that ends without a
   // single token (429, network…) puts the question back for a one-press retry.
-  function settlePendingSend(){
-    const consume=pendingConsume;const reply=chatState.reply;
-    if(!consume||!reply)return;
-    const matched=consume.requestId===null?reply.prompt===consume.text:reply.requestId===consume.requestId;
-    if(!matched)return;
-    if(reply.answer!==''){
-      pendingConsume=null;
-      if(consume.ids.length>0)void attachmentController.removeSent(consume.ids);
-      return;
-    }
-    if(!chatState.running&&!chatState.stopping&&reply.state!=='streaming'){
-      pendingConsume=null;
-      if(draft.loaded&&draft.text==='')controller.edit(consume.text);
-    }
-  }
+  function settlePendingSend(){sendDraft.reconcile(chatState);}
   async function send(){
+    if(chatState.running||chatState.stopping)return;
     if(selectionState.busy){notice='请等待选区处理完成';return;}
     if(attachmentState.pending){attachmentController.note('请等待截图完成');return;}
     if(attachmentState.items.length>0&&!imageModelOf(settings.config)){attachmentController.note('截图尚未接入模型；请先在模型设置中配置图片模型');return;}
@@ -72,19 +61,16 @@
     if(settings.status==='loading'||!chatState.loaded){notice='正在读取本机配置，请稍后发送';return;}
     if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥';await switchSurface('full');view='settings';return;}
     demo.stop();responseKind='model';view='reply';const sent=draft.text;const sentIds=attachmentState.items.map(item=>item.id);
+    const ticket=sendDraft.begin(sentIds);if(!ticket)return;
     const accepted=await chat.send(sent,()=>controller.flush());
-    if(accepted){
-      if(draft.loaded&&draft.text===sent)controller.edit('');
-      pendingConsume={text:sent,ids:sentIds,requestId:chatState.reply?.requestId??null};
-    }
-    else pendingConsume=null;
+    if(accepted)sendDraft.accept(ticket,chatState);else sendDraft.cancel(ticket);
   }
   async function onCandidateToggle(on:boolean){
     try{await invoke('candidate_set_enabled',{enabled:on});candidateEnabled=on;}
     catch(error){notice=error instanceof Error?error.message:'自动划词开关未完成';}
   }
   function traceToHistory(requestId:string){traceRequestId=requestId;view='history';}
-  async function saveNoteEdit(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}){await knowledge.saveEdit(id,title,body,source);}
+  async function saveNoteEdit(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}){return knowledge.saveEdit(id,title,body,source);}
   function newConversation(){if(chat.newConversation()){responseKind='model';view='ask';notice='已准备新对话，当前草稿保留';}}
   function continueHistory(reply:ChatReply){if(chat.adopt(reply)){responseKind='model';view='reply';notice='继续此会话将附带近期问答';}}
   function stopReply(){if(responseKind==='demo')demo.stop();else void chat.stop().catch(()=>{});}
@@ -111,6 +97,7 @@
 
   let draft = $state<Snapshot>({text:'',revision:0,status:'loading',error:null,loaded:false});
   const controller = new DraftController(draftPort, s=>draft=s);
+  const sendDraft=new SendDraftCoordinator(controller,ids=>{void attachmentController.removeSent(ids);});
   let selectionState=$state<SelectionState>({busy:false,pending:null,inserted:false,notice:''});
   const selection=new SelectionController(selectionPort,controller,s=>selectionState=s);
   let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
@@ -159,7 +146,7 @@
 {:else}
 <div class="shell">
   <header class="titlebar">
-    <div class="brand"><span class="brandmark" aria-hidden="true">z<span>·</span></span><span>Zwen</span><span class="edition">开发预览</span></div>
+    <div class="brand"><BrandLogo/><span>Zwen</span><span class="edition">开发预览</span></div>
     <div class="window-actions"><button class="capsule-launch" disabled={switching} onclick={()=>switchSurface('capsule')}>快捷胶囊</button><span class="keyhint">Esc 收起</span><button class="icon-button" aria-label="收起面板" title="保存草稿并收起" onclick={()=>leave()}>−</button><details><summary aria-label="更多操作">···</summary><div class="menu"><button onclick={()=>leave(true)}>保存并退出</button></div></details></div>
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器交互预览 · 草稿仅保存在此浏览器；桌面版使用本机数据库</div>{/if}
@@ -173,7 +160,7 @@
       {:else if view==='knowledge'}
         <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
       {:else if view==='settings'}
-        <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save()} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()} candidateEnabled={candidateEnabled} onCandidateToggle={onCandidateToggle}/>
+        <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()} candidateEnabled={candidateEnabled} onCandidateToggle={onCandidateToggle}/>
       {:else if view==='ask'}
         <section class="welcome"><div class="eyebrow">A LITTLE SPACE FOR CURIOSITY</div><h1>从一个问题开始<span>。</span></h1><p>留住阅读时的疑问，慢慢把知识连起来。</p><div class="orbit" aria-hidden="true"><span></span><span></span><span></span><b><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4v24M4 16h24M7.5 7.5l17 17m-17 0 17-17"/></svg></b></div></section>
         <section class="suggestions" aria-label="开始一个草稿"><button disabled={!draft.loaded} onclick={()=>fill('请帮我解释这段内容：\n\n')}><span class="suggestion-icon">Aa</span><strong>读懂一段内容</strong><span>换个角度，把意思讲清楚</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('我想理解这个公式：\n\n')}><span class="suggestion-icon">ƒ</span><strong>理解一个公式</strong><span>从符号到它背后的直觉</span><b>↗</b></button><button disabled={!draft.loaded} onclick={()=>fill('帮我梳理这个想法：\n\n')}><span class="suggestion-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c0 5-4 9-9 9 5 0 9 4 9 9 0-5 4-9 9-9-5 0-9-4-9-9Z"/></svg></span><strong>梳理一个想法</strong><span>先记下来，再找到联系</span><b>↗</b></button></section>

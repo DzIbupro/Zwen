@@ -5,9 +5,11 @@
 use crate::{Error,open_private_database};
 use rusqlite::{Connection,TransactionBehavior,params};
 use serde::Serialize;
-use std::{fs,io::Write,path::{Path,PathBuf},sync::atomic::{AtomicU64,Ordering},time::{SystemTime,UNIX_EPOCH}};
+use std::{fs,io::{Read,Write},path::{Path,PathBuf},sync::atomic::{AtomicU64,Ordering},time::{SystemTime,UNIX_EPOCH}};
 
 pub const MAX_NOTE_BYTES:usize=256*1024;
+// Includes the maximum supported source URL, metadata and six attachment names.
+const MAX_DOCUMENT_BYTES:usize=MAX_NOTE_BYTES+8192;
 pub const MAX_TITLE_BYTES:usize=200;
 pub const MAX_SOURCE_BYTES:usize=64;
 pub const MAX_MODEL_BYTES:usize=200;
@@ -33,6 +35,9 @@ pub fn valid_request(value:&str)->bool{!value.is_empty()&&value.len()<=100&&valu
 #[serde(rename_all="camelCase")]
 pub struct Note{pub meta:NoteMeta,pub body:String}
 
+fn valid_attachment_name(id:&str,name:&str)->bool{
+ name.starts_with(&format!("{id}-"))&&!name.contains('/')&&!name.contains('\\')&&name.len()>33&&name.len()<=300&&!name.chars().any(char::is_control)
+}
 pub fn valid_id(id:&str)->bool{id.len()==32&&id.bytes().all(|b|b.is_ascii_hexdigit()&&!b.is_ascii_uppercase())}
 
 pub fn generate_id()->String{
@@ -82,7 +87,7 @@ fn split_file(id:&str,bytes:&[u8])->Result<(NoteMeta,String),Error>{
      "source"=>{let v=value.trim();if v.len()<=MAX_SOURCE_BYTES{meta.source=v.to_string();}}
      "model"=>{let v=value.trim();if v.len()<=MAX_MODEL_BYTES{meta.model=v.to_string();}}
      "title"=>{let v=value.trim();if !v.is_empty()&&v.len()<=MAX_TITLE_BYTES{meta.title=v.to_string();}}
-     "attachments"=>{if let Ok(list)=serde_json::from_str::<Vec<String>>(value.trim()){meta.attachments=list.into_iter().take(MAX_NOTE_ATTACHMENTS).collect();}}
+     "attachments"=>{if let Ok(list)=serde_json::from_str::<Vec<String>>(value.trim()){meta.attachments=list.into_iter().filter(|name|valid_attachment_name(id,name)).take(MAX_NOTE_ATTACHMENTS).collect();}}
      "request"=>{let v=value.trim();if valid_request(v){meta.request=Some(v.to_string());}}
      "source_title"=>{let v=value.trim();if valid_text_field(v,200){meta.source_title=Some(v.to_string());}}
      "source_url"=>{let v=value.trim();if valid_source_url(v){meta.source_url=Some(v.to_string());}}
@@ -133,11 +138,35 @@ impl NoteStore{
   })?;
   Ok(Self{connection,directory})
  }
+ /// Explicit user recovery only: preserve corrupt index bytes and sidecars,
+ /// then derive a new index from the authoritative Markdown files.
+ pub fn rebuild_from_files(data_dir:&Path)->Result<usize,Error>{
+  match Self::open(data_dir){
+   Ok(mut store)=>return store.rebuild_index(),
+   Err(Error::Database(rusqlite::Error::SqliteFailure(code,_))) if matches!(code.code,rusqlite::ErrorCode::DatabaseCorrupt|rusqlite::ErrorCode::NotADatabase)=>(),
+   Err(Error::InvalidNote)=>(),
+   Err(error)=>return Err(error),
+  }
+  let stamp=generate_id();let mut moved:Vec<(PathBuf,PathBuf)>=Vec::new();
+  for suffix in ["","-wal","-shm"]{
+   let source=data_dir.join(format!("notes.sqlite3{suffix}"));
+   if !source.exists(){continue;}
+   if fs::symlink_metadata(&source)?.file_type().is_symlink(){return Err(Error::InvalidNote);}
+   let target=data_dir.join(format!("notes.sqlite3.corrupt-{stamp}{suffix}"));
+   if let Err(error)=fs::rename(&source,&target){
+    for (source,target) in moved.iter().rev(){let _=fs::rename(target,source);}
+    return Err(error.into());
+   }
+   moved.push((source,target));
+  }
+  Self::open(data_dir)?.rebuild_index()
+ }
  pub fn create(&mut self,title:&str,body:&str,source:&str,model:&str,attachments:&[(String,Vec<u8>)],request:Option<&str>)->Result<NoteMeta,Error>{
+  create_dir(&self.directory)?;create_dir(&self.directory.join(ATTACH_DIR))?;
   let request=match request{Some(value) if valid_request(value)=>Some(value.to_string()),_=>None};
   let title=title.trim();
   let title=if title.is_empty(){"未命名笔记".to_string()}else if title.len()<=MAX_TITLE_BYTES{title.to_string()}else{return Err(Error::InvalidNote)};
-  if body.len()>MAX_NOTE_BYTES||source.len()>MAX_SOURCE_BYTES||model.len()>MAX_MODEL_BYTES{return Err(Error::InvalidNote);}
+  if title.chars().chain(source.chars()).chain(model.chars()).any(char::is_control)||body.len()>MAX_NOTE_BYTES||source.len()>MAX_SOURCE_BYTES||model.len()>MAX_MODEL_BYTES{return Err(Error::InvalidNote);}
   if attachments.len()>MAX_NOTE_ATTACHMENTS{return Err(Error::InvalidNote);}
   let mut seen=std::collections::BTreeSet::new();
   let mut files=Vec::new();
@@ -187,8 +216,7 @@ impl NoteStore{
    for row in rows{
     if ids.len()>=MAX_LIST{break;}
     let id=row?;
-    let bytes=fs::read(self.directory.join(format!("{id}.md"))).unwrap_or_default();
-    if bytes.len()<=MAX_NOTE_BYTES{
+    if let Ok(bytes)=read_document(&self.directory,&id){
      let text=String::from_utf8_lossy(&bytes);
      if text.contains(query){ids.push(id);}
     }
@@ -196,10 +224,24 @@ impl NoteStore{
   }
   let mut notes=Vec::new();
   for id in ids{
-   let (meta,_)={let bytes=fs::read(self.directory.join(format!("{id}.md"))).map_err(|_|Error::NoteMissing)?;split_file(&id,&bytes)?};
+   let (meta,_)=self.load_file(&id)?;
    notes.push(meta);
   }
   Ok(notes)
+ }
+ /// Complete enumeration for backup/export. UI list limits never truncate it.
+ pub fn all_ids(&self)->Result<Vec<String>,Error>{
+  let mut q=self.connection.prepare("SELECT id FROM notes ORDER BY created_at DESC,id DESC")?;
+  let rows=q.query_map([],|r|r.get::<_,String>(0))?;
+  let ids=rows.collect::<Result<Vec<_>,_>>()?;
+  if ids.iter().any(|id|!valid_id(id)){return Err(Error::InvalidNote);}
+  Ok(ids)
+ }
+ /// Original bytes retain external Markdown metadata during export.
+ pub fn document(&self,id:&str)->Result<Vec<u8>,Error>{
+  let bytes=read_document(&self.directory,id)?;
+  split_file(id,&bytes)?;
+  Ok(bytes)
  }
  pub fn read(&self,id:&str)->Result<Note,Error>{
   if !valid_id(id){return Err(Error::NoteMissing);}
@@ -207,45 +249,48 @@ impl NoteStore{
   Ok(Note{meta,body})
  }
  pub fn delete(&mut self,id:&str)->Result<(),Error>{
+  create_dir(&self.directory)?;create_dir(&self.directory.join(ATTACH_DIR))?;
   if !valid_id(id){return Err(Error::NoteMissing);}
   // A vanished file is already gone as far as the authority goes; the row is
   // still removed so no ghost entry stays in the list.
   let attachments=match self.load_file(id){Ok((meta,_))=>meta.attachments,Err(_)=>Vec::new()};
   let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
   let changed=tx.execute("DELETE FROM notes WHERE id=?1",[id])?;
-  tx.commit()?;
   if changed==0{return Err(Error::NoteMissing);}
-  let _=fs::remove_file(self.directory.join(format!("{id}.md")));
+  match fs::remove_file(self.directory.join(format!("{id}.md"))){
+   Ok(())=>(),Err(error) if error.kind()==std::io::ErrorKind::NotFound=>(),Err(error)=>return Err(error.into()),
+  }
+  tx.commit()?;
+  crate::organize::OrganizeStore::open(self.directory.parent().ok_or(Error::InvalidNote)?)?.invalidate_note(id,None)?;
   for name in attachments{let _=fs::remove_file(self.directory.join(ATTACH_DIR).join(name));}
   Ok(())
  }
  /// In-app manual edit: rewrites title and body in place. Identity, creation
  /// time, source, model, request link and attachment files are preserved.
  pub fn update(&mut self,id:&str,title:&str,body:&str)->Result<NoteMeta,Error>{
+  self.update_with_source(id,title,body,None)
+ }
+ /// Body and source changes share one validated Markdown replacement.
+ pub fn update_with_source(&mut self,id:&str,title:&str,body:&str,source:Option<&NoteMeta>)->Result<NoteMeta,Error>{
   if !valid_id(id){return Err(Error::NoteMissing);}
   let title=title.trim();
-  if title.is_empty()||title.len()>MAX_TITLE_BYTES||body.len()>MAX_NOTE_BYTES{return Err(Error::InvalidNote);}
+  if title.is_empty()||title.chars().any(char::is_control)||title.len()>MAX_TITLE_BYTES||body.len()>MAX_NOTE_BYTES{return Err(Error::InvalidNote);}
   let (mut meta,_)=self.load_file(id)?;
   meta.title=title.to_string();
+  if let Some(source)=source{apply_source(&mut meta,source)?;}
   let mut document=front_matter(&meta).into_bytes();document.extend_from_slice(body.as_bytes());
   write_atomic(&self.directory.join(format!("{id}.md")),&document)?;
   let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
   tx.execute("UPDATE notes SET title=?1 WHERE id=?2",params![meta.title,id])?;
   tx.commit()?;
+  crate::organize::OrganizeStore::open(self.directory.parent().ok_or(Error::InvalidNote)?)?.invalidate_note(id,Some(crate::organize::content_hash(body.as_bytes())))?;
   Ok(meta)
  }
  /// Manual source metadata (title / URL / page-or-location). Unknown stays empty.
  pub fn update_source(&mut self,id:&str,meta_in:&NoteMeta)->Result<(),Error>{
   if !valid_id(id){return Err(Error::NoteMissing);}
   let (mut meta,body)=self.load_file(id)?;
-  let validators:[(&mut Option<String>,Option<&str>,fn(&str)->bool);3]=[
-   (&mut meta.source_title,meta_in.source_title.as_deref(),|v|valid_text_field(v,200)),
-   (&mut meta.source_url,meta_in.source_url.as_deref(),valid_source_url),
-   (&mut meta.source_loc,meta_in.source_loc.as_deref(),|v|valid_text_field(v,200)),
-  ];
-  for (target,value,valid) in validators{
-   *target=match value{Some(v) if valid(v)=>Some(v.to_string()),Some(_)=>return Err(Error::InvalidNote),None=>None};
-  }
+  apply_source(&mut meta,meta_in)?;
   let mut document=front_matter(&meta).into_bytes();document.extend_from_slice(body.as_bytes());
   write_atomic(&self.directory.join(format!("{id}.md")),&document)?;
   Ok(())
@@ -266,7 +311,7 @@ impl NoteStore{
   tx.execute("DELETE FROM notes",[])?;
   let mut count=0usize;
   for id in &found{
-   let bytes=match fs::read(self.directory.join(format!("{id}.md"))){Ok(bytes)=>bytes,Err(_)=>continue};
+   let bytes=match read_document(&self.directory,id){Ok(bytes)=>bytes,Err(_)=>continue};
    let (meta,_)=match split_file(id,&bytes){Ok(value)=>value,Err(_)=>continue};
    if tx.execute("INSERT INTO notes(id,title,created_at,source,model) VALUES(?1,?2,?3,?4,?5)",params![meta.id,meta.title,meta.created_at,meta.source,meta.model]).is_ok(){count+=1;}
   }
@@ -274,13 +319,33 @@ impl NoteStore{
   Ok(count)
  }
  fn load_file(&self,id:&str)->Result<(NoteMeta,String),Error>{
-  let bytes=fs::read(self.directory.join(format!("{id}.md"))).map_err(|_|Error::NoteMissing)?;
-  if bytes.len()>MAX_NOTE_BYTES+4096{return Err(Error::InvalidNote);}
-  split_file(id,&bytes)
+  split_file(id,&read_document(&self.directory,id)?)
  }
 }
 
+/// All Markdown consumers share an allocation bound, including search,
+/// rebuild and raw export. O_NONBLOCK avoids hanging on a substituted FIFO;
+/// O_NOFOLLOW prevents a symlink swap between validation and opening.
+fn read_document(directory:&Path,id:&str)->Result<Vec<u8>,Error>{
+ if !valid_id(id){return Err(Error::NoteMissing);}
+ let parent=fs::symlink_metadata(directory).map_err(|_|Error::NoteMissing)?;
+ if !parent.is_dir()||parent.file_type().is_symlink(){return Err(Error::InvalidNote);}
+ let path=directory.join(format!("{id}.md"));
+ let metadata=fs::symlink_metadata(&path).map_err(|_|Error::NoteMissing)?;
+ if !metadata.is_file()||metadata.file_type().is_symlink(){return Err(Error::InvalidNote);}
+ let mut options=fs::OpenOptions::new();options.read(true);
+ #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;options.custom_flags(libc::O_NOFOLLOW|libc::O_NONBLOCK);}
+ let file=options.open(path).map_err(|error|if error.kind()==std::io::ErrorKind::NotFound{Error::NoteMissing}else{Error::Io(error)})?;
+ let metadata=file.metadata()?;
+ if !metadata.is_file()||metadata.len()>MAX_DOCUMENT_BYTES as u64{return Err(Error::InvalidNote);}
+ let mut bytes=Vec::new();
+ file.take((MAX_DOCUMENT_BYTES+1) as u64).read_to_end(&mut bytes)?;
+ if bytes.len()>MAX_DOCUMENT_BYTES{return Err(Error::InvalidNote);}
+ Ok(bytes)
+}
+
 fn create_dir(path:&Path)->Result<(),Error>{
+ if let Ok(meta)=fs::symlink_metadata(path){if !meta.is_dir()||meta.file_type().is_symlink(){return Err(Error::InvalidNote);}}
  let mut builder=fs::DirBuilder::new();builder.recursive(true);
  #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
  builder.create(path)?;Ok(())
@@ -290,10 +355,22 @@ fn write_atomic(path:&Path,bytes:&[u8])->Result<(),Error>{
  let mut temporary=path.as_os_str().to_os_string();
  temporary.push(format!(".{}.tmp",TEMP_COUNTER.fetch_add(1,Ordering::Relaxed)));
  let temporary=PathBuf::from(temporary);
- let mut options=fs::OpenOptions::new();options.write(true).create(true).truncate(true);
+ let mut options=fs::OpenOptions::new();options.write(true).create_new(true);
  #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;options.mode(0o600);}
  let mut file=options.open(&temporary)?;file.write_all(bytes)?;file.sync_all()?;drop(file);
  fs::rename(&temporary,path)?;
  #[cfg(unix)]{use std::os::unix::fs::PermissionsExt;fs::set_permissions(path,fs::Permissions::from_mode(0o600))?;}
+ Ok(())
+}
+
+fn apply_source(meta:&mut NoteMeta,meta_in:&NoteMeta)->Result<(),Error>{
+  let validators:[(&mut Option<String>,Option<&str>,fn(&str)->bool);3]=[
+   (&mut meta.source_title,meta_in.source_title.as_deref(),|v|valid_text_field(v,200)),
+   (&mut meta.source_url,meta_in.source_url.as_deref(),valid_source_url),
+   (&mut meta.source_loc,meta_in.source_loc.as_deref(),|v|valid_text_field(v,200)),
+  ];
+  for (target,value,valid) in validators{
+   *target=match value{Some(v) if valid(v)=>Some(v.to_string()),Some(_)=>return Err(Error::InvalidNote),None=>None};
+  }
  Ok(())
 }

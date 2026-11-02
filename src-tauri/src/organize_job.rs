@@ -29,6 +29,7 @@ pub fn build_prompt(notes:&[OrganizeNote])->Result<String,ClientError>{
   listed.push_str(&format!("\n[笔记 {}] 标题：{}\n正文：{}\n",note.id,if title.is_empty(){"(无标题)"}else{title},body));
  }
  let prompt=format!("以下是从我的知识库中取出的 {} 篇笔记。请为它们归纳知识点主题并归属。只输出一个 JSON 对象，不要输出任何其他文字或代码围栏。格式：\n{{\"topics\":[{{\"name\":\"主题名\",\"column\":\"栏目名\"}}],\"assign\":[{{\"note\":\"笔记id\",\"topics\":[\"主题名\"]}}]}}\n规则：主题名不超过 20 个汉字；栏目名可选；一篇笔记可以属于多个主题；没有合适主题的笔记不要出现在 assign 中；不要使用列表之外的笔记 id；主题总数不超过 {}。{}\n",notes.len(),MAX_BATCH_TOPICS,listed);
+ let prompt=format!("{prompt}\n{}",r#"请填写每个主题的 column 栏目名。若识别到跨主题联系，可增加 relations 数组：[{"from":"主题名","to":"另一主题名","reason":"推断说明","evidence":"笔记id"}]。每条关系必须由本次 assign 中同时归属两个主题的同一篇笔记支持；不要编造证据。关系是 AI 推断，不是已证实事实；没有证据时返回空数组。关系最多 32 条。"#);
  if prompt.len()>MAX_DRAFT_BYTES{return Err(ClientError{code:"invalid_note",message:"所选笔记过长，请分批整理".into()});}
  Ok(prompt)
 }
@@ -77,6 +78,34 @@ pub fn parse_model_output(text:&str,scope:&[OrganizeNote])->Result<Vec<(String,V
  Ok(out)
 }
 
+#[derive(Debug)]
+pub struct ModelDetails{pub assignments:Vec<(String,Vec<String>)>,pub columns:Vec<(String,String)>,pub relations:Vec<(String,String,String,String)>}
+
+pub fn parse_model_details(text:&str,scope:&[OrganizeNote])->Result<ModelDetails,ClientError>{
+ let assignments=parse_model_output(text,scope)?;
+ let start=text.find('{').ok_or_else(||ClientError{code:"organize_invalid",message:"模型返回格式无效".into()})?;
+ let end=text.rfind('}').ok_or_else(||ClientError{code:"organize_invalid",message:"模型返回格式无效".into()})?;
+ let value:serde_json::Value=serde_json::from_str(&text[start..=end]).map_err(|_|ClientError{code:"organize_invalid",message:"模型返回格式无效".into()})?;
+ let empty=Vec::new();
+ let mut columns=Vec::new();
+ for topic in value.get("topics").and_then(|v|v.as_array()).unwrap_or(&empty).iter().take(MAX_BATCH_TOPICS){
+  let Some(name)=topic.get("name").and_then(|v|v.as_str()).map(str::trim)else{continue};
+  let Some(column)=topic.get("column").and_then(|v|v.as_str()).map(str::trim)else{continue};
+  if zwen_core::organize::valid_column(column)&&assignments.iter().any(|(_,names)|names.iter().any(|n|n==name)){
+   columns.push((name.to_string(),column.to_string()));
+  }
+ }
+ let mut relations=Vec::new();
+ for relation in value.get("relations").and_then(|v|v.as_array()).unwrap_or(&empty).iter().take(MAX_BATCH_ASSIGN){
+  let fields=["from","to","reason","evidence"].map(|key|relation.get(key).and_then(|v|v.as_str()).map(str::trim));
+  let [Some(from),Some(to),Some(reason),Some(evidence)]=fields else{continue};
+  if from!=to&&!reason.is_empty()&&reason.len()<=200&&assignments.iter().any(|(note,names)|note==evidence&&names.iter().any(|n|n==from)&&names.iter().any(|n|n==to)){
+   relations.push((from.to_string(),to.to_string(),reason.to_string(),evidence.to_string()));
+  }
+ }
+ Ok(ModelDetails{assignments,columns,relations})
+}
+
 fn run_prompt_text(prompt:&str,config:&ProviderConfig,key:&ApiKey,cancel:watch::Receiver<bool>)->Result<String,ClientError>{
  let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_|ClientError{code:"organize_invalid",message:"整理任务启动失败".into()})?;
  let mut collected=String::new();
@@ -116,11 +145,11 @@ pub fn collect_notes(storage:&SharedStorage,note_ids:&[String])->Result<Vec<Orga
 }
 
 #[tauri::command]
-pub async fn organize_run(app:AppHandle,storage:tauri::State<'_,SharedStorage>,note_ids:Vec<String>)->Result<OrganizeSummary,ClientError>{
- run_organize_job(app,storage.inner().clone(),note_ids).await
+pub async fn organize_run(app:AppHandle,storage:tauri::State<'_,SharedStorage>,note_ids:Vec<String>,automatic:Option<bool>)->Result<OrganizeSummary,ClientError>{
+ run_organize_job(app,storage.inner().clone(),note_ids,automatic.unwrap_or(false)).await
 }
 
-pub async fn run_organize_job(app:AppHandle,storage:SharedStorage,note_ids:Vec<String>)->Result<OrganizeSummary,ClientError>{
+pub async fn run_organize_job(app:AppHandle,storage:SharedStorage,note_ids:Vec<String>,automatic:bool)->Result<OrganizeSummary,ClientError>{
  let dir:PathBuf=storage.directory.as_ref().map_err(Clone::clone)?.clone();
  {
   let state=app.state::<JobState>();
@@ -131,6 +160,12 @@ pub async fn run_organize_job(app:AppHandle,storage:SharedStorage,note_ids:Vec<S
  let result=async move{
   let notes=collect_notes(&storage,&note_ids)?;
   let config=provider::configured(&storage)?;
+  if automatic{
+   let profile=serde_json::to_string(&config).map_err(|_|ClientError::storage())?;
+   if note_ids.len()!=1||!OrganizeStore::open(&dir)?.auto_organize_for(&profile)?{
+    return Err(ClientError{code:"organize_consent",message:"自动整理授权已失效；请确认当前模型与新收藏范围后重新启用".into()});
+   }
+  }
   let key=match config.read_key(){
    Ok(key)=>key,
    Err(_)=>match crate::secret::read_model_key(){
@@ -143,14 +178,21 @@ pub async fn run_organize_job(app:AppHandle,storage:SharedStorage,note_ids:Vec<S
   let prompt_ref=prompt.clone();
   let config_ref=config.clone();
   let answer=tokio::task::spawn_blocking(move||run_prompt_text(&prompt_ref,&config_ref,&key,rx)).await.map_err(|_|ClientError::storage())??;
-  let assignments=parse_model_output(&answer,&notes)?;
+  let details=parse_model_details(&answer,&notes)?;
+  if details.assignments.is_empty(){return Err(ClientError{code:"organize_invalid",message:"模型没有返回有效主题归属；本次未应用整理".into()});}
+  let assignments=details.assignments;
+  let current=NoteStore::open(&dir)?;
+  for note in &notes{
+   let unchanged=current.read(&note.id).map(|now|now.body==note.body&&now.meta.title==note.title).unwrap_or(false);
+   if !unchanged{return Err(ClientError{code:"organize_stale",message:"整理期间笔记已修改或删除；本次结果未应用，请重试".into()});}
+  }
   let mut store=OrganizeStore::open(&dir)?;
   let scope:Vec<String>=notes.iter().map(|n|n.id.clone()).collect();
   let prepared:Vec<(String,u64,Vec<String>)>=assignments.into_iter().map(|(note,topics)|{
    let note_ref=notes.iter().find(|n|n.id==note).ok_or_else(||ClientError{code:"organize_invalid",message:"整理结果引用了未知笔记；知识库未被修改".into()})?;
    Ok((note,zwen_core::organize::content_hash(note_ref.body.as_bytes()),topics))
   }).collect::<Result<Vec<_>,ClientError>>()?;
-  let batch:Batch=store.apply_batch(config.model(),&scope,&prepared)?;
+  let batch:Batch=store.apply_batch_details(config.model(),&scope,&prepared,&details.columns,&details.relations)?;
   let topics=store.list_topics()?;
   let new_topics=topics.iter().filter(|t|t.topic.batch_id.as_deref()==Some(batch.id.as_str())).count();
   Ok(OrganizeSummary{batch_id:batch.id,topics:new_topics,assignments:prepared.len()})
@@ -199,5 +241,17 @@ mod tests{
   let text=format!("{{\"topics\":[{}],\"assign\":[{}]}}",topics.iter().map(|t|format!("{{\"name\":\"{t}\",\"column\":\"\"}}")).collect::<Vec<_>>().join(","),assign.join(","));
   let parsed=parse_model_output(&text,&scope).unwrap();
   assert_eq!(parsed[0].1.len(),MAX_BATCH_TOPICS,"topics capped");
+ }
+}
+
+#[cfg(test)]
+mod structured_tests{
+ use super::*;
+ #[test] fn optional_columns_and_relations_require_shared_in_scope_evidence(){
+  let id="a".repeat(32);let scope=vec![OrganizeNote{id:id.clone(),title:"t".into(),body:"b".into()}];
+  let answer=serde_json::json!({"topics":[{"name":"A","column":"C"},{"name":"B"}],"assign":[{"note":id,"topics":["A","B"]}],"relations":[{"from":"A","to":"B","reason":"inferred","evidence":id},{"from":"A","to":"B","reason":"forged","evidence":"outside"}]});
+  let details=parse_model_details(&answer.to_string(),&scope).unwrap();
+  assert_eq!(details.columns,vec![("A".into(),"C".into())]);assert_eq!(details.relations.len(),1);assert_eq!(details.relations[0].3,id);
+  assert!(build_prompt(&scope).unwrap().contains("relations"));
  }
 }

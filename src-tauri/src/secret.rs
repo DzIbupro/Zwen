@@ -12,7 +12,12 @@ const SERVICE_IFACE:&str="org.freedesktop.Secret.Service";
 const COLLECTION_IFACE:&str="org.freedesktop.Secret.Collection";
 const ITEM_IFACE:&str="org.freedesktop.Secret.Item";
 const SCHEMA:&str="xdg:schema";
+#[cfg(not(any(test,feature="desktop-smoke")))]
 const SCHEMA_VALUE:&str="io.github.dzibupro.zwen";
+// Every test binary, including ignored integration tests, has a separate
+// identity. CreateItem(replace=true) can never match the production credential.
+#[cfg(any(test,feature="desktop-smoke"))]
+const SCHEMA_VALUE:&str="io.github.dzibupro.zwen.test-only";
 const ROLE:&str="zwen-role";
 const ROLE_VALUE:&str="model-key";
 const LABEL:&str="Zwen 模型密钥";
@@ -140,6 +145,7 @@ mod tests{
   assert!(!valid_secret("中文密钥"));
   assert!(valid_secret("ascii-graphic-key-123"));
  }
+ #[test] fn test_identity_cannot_match_production(){assert_ne!(SCHEMA_VALUE,"io.github.dzibupro.zwen");}
  #[test] fn attributes_are_stable_for_lookup(){
   let attrs=attributes();
   assert_eq!(attrs.get(SCHEMA).map(String::as_str),Some(SCHEMA_VALUE));
@@ -151,7 +157,7 @@ mod tests{
 #[cfg(test)]
 mod ring_tests{
  use super::*;
- /// Touches the real user keyring: stores a clearly synthetic value, reads it
+ /// Uses only the isolated test identity in the real user keyring: stores a synthetic value, reads it
  /// back and removes it. Run explicitly: cargo test -p zwen-desktop -- --ignored
  #[test]
  #[ignore]

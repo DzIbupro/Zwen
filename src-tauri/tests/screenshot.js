@@ -30,6 +30,7 @@
   await stage('replaced');
   // Cancel keeps the existing item and never adopts the late file.
   phase='cancel';
+  await api.event.emit('screenshot-fixture-mode','cancel');
   await api.core.invoke('capture_screenshot',{replaceId:null});
   await wait(async()=>(await state()).capture.state==='pending');
   await api.core.invoke('cancel_screenshot');
@@ -40,6 +41,7 @@
   await stage('cancelled');
   // Expiry keeps the item and reports timeout; the late file stays unattached.
   phase='timeout';
+  await api.event.emit('screenshot-fixture-mode','timeout');
   await api.core.invoke('capture_screenshot',{replaceId:null});
   await wait(async()=>(await state()).capture.state==='pending');
   await wait(async()=>{const current=await state();return current.capture.state==='idle'&&(current.notice||'').includes('超时');},100);
@@ -49,6 +51,7 @@
   await stage('expired');
   // A new request removes an abandoned late request file before starting.
   phase='cleanup';
+  await api.event.emit('screenshot-fixture-mode','normal');
   await api.core.invoke('capture_screenshot',{replaceId:null});
   await wait(async()=>(await state()).capture.state==='pending');
   await api.core.invoke('cancel_screenshot');
@@ -76,6 +79,6 @@
   await wait(async()=>(await state()).items.length===0);
   await api.event.emit('foundation-smoke',{ok:true,mode:'screenshot',thumbnail:true,sendBlocked:true,replaced:true,cancelled:true,expired:true,removed:true,restarted:true});
  }catch(error){
-  await api.event.emit('foundation-smoke',{ok:false,mode:'screenshot',phase,error:String(error)});
+  await api.event.emit('foundation-smoke',{ok:false,mode:'screenshot',phase,error:error&&typeof error==='object'?JSON.stringify(error):String(error)});
  }
 })();

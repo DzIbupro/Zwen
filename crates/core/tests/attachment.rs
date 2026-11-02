@@ -122,3 +122,12 @@ fn import_png(store:&mut AttachmentStore,scratch:&Scratch,id:&str,width:u32,heig
  let keep=Path::new(&scratch.0).join("attachments").join("keep.txt");std::fs::write(&keep,b"keep").unwrap();
  assert!(keep.exists());
 }
+#[test]
+fn concurrent_first_open_does_not_race_schema_creation(){
+ use std::sync::{Arc,Barrier};
+ for _ in 0..12{
+  let scratch=Scratch::new();let barrier=Arc::new(Barrier::new(8));
+  let workers:Vec<_>=(0..8).map(|_|{let dir=scratch.0.clone();let barrier=barrier.clone();std::thread::spawn(move||{barrier.wait();AttachmentStore::open(&dir).map(|s|s.list().unwrap()).map_err(|e|format!("{e:?}"))})}).collect();
+  for worker in workers{let result=worker.join().unwrap();assert!(result.is_ok(),"simultaneous initialization failed: {result:?}");}
+ }
+}

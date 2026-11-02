@@ -9,7 +9,7 @@ pub fn parse_action(args: &[&str]) -> Result<LaunchAction, &'static str> {
         ["explain-selection"] => Ok(LaunchAction::Selection(Mode::Explain)),
         ["translate-selection"] => Ok(LaunchAction::Selection(Mode::Translate)),
         ["screenshot" | "capture-screenshot"] => Ok(LaunchAction::Screenshot),
-        ["candidate-callback"] => Ok(LaunchAction::CandidateCallback),
+        ["candidate-callback"] | ["candidate-callback", _] => Ok(LaunchAction::CandidateCallback),
         ["recover" | "--recover"] => Ok(LaunchAction::Recover),
         ["quit" | "--quit"] => Ok(LaunchAction::Quit),
         _ => Err("用法：zwen [show|capsule|select|explain-selection|translate-selection|screenshot|recover|quit]"),

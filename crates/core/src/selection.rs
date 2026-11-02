@@ -73,6 +73,11 @@ impl Inbox{
   self.next=self.next.checked_add(1)?;self.reading=true;
   self.item=Some(Item{id:self.next,mode,text:None,error:None,claimed:false});Some(self.next)
  }
+ /// Revoke only an unfinished matching capture; never discard another item.
+ pub fn cancel_read(&mut self,id:u32)->bool{
+  if !self.reading||!self.item.as_ref().is_some_and(|item|item.id==id){return false;}
+  self.item=None;self.reading=false;true
+ }
  pub fn finish(&mut self,id:u32,result:Result<String,SelectionError>)->bool{
   let Some(item)=self.item.as_mut().filter(|s|s.id==id&&self.reading)else{return false;};
   match result.and_then(|text|validate(text.into_bytes())){Ok(text)=>item.text=Some(text),Err(e)=>item.error=Some(e.to_string())};

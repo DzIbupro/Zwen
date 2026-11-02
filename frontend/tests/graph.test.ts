@@ -32,3 +32,16 @@ it('expand is idempotent per topic',()=>{
  graph=expandTopic(graph,'t1',[{id:'n1',title:'笔记'}]);
  expect(graph.nodes.filter(n=>n.id.startsWith('note:t1:'))).toHaveLength(1);
 });
+
+it('bounds initial topics and edges and retains relation evidence',()=>{
+ const many=Array.from({length:100},(_,i)=>topic(`t${i}`,`主题${i}`,1));
+ const rels=Array.from({length:200},(_,i)=>({...relations[0],id:`r${i}`,fromTopic:'t0',toTopic:'t1'}));
+ const graph=buildGraph(many,rels,'');
+ expect(graph.nodes.length).toBeLessThanOrEqual(30);expect(graph.edges.length).toBeLessThanOrEqual(60);
+ expect(graph.edges[0].evidence).toBe('n1');
+});
+it('expanded notes have idempotent links to their parent',()=>{
+ let graph=expandTopic(buildGraph(topics,relations,''),'t1',[{id:'n1',title:'笔记'}]);
+ graph=expandTopic(graph,'t1',[{id:'n1',title:'笔记'}]);
+ expect(graph.edges.filter(e=>e.from==='t1'&&e.to==='note:t1:n1')).toHaveLength(1);
+});

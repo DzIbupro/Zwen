@@ -5,6 +5,8 @@ export interface Snapshot extends Draft { status: 'loading'|'saved'|'dirty'|'sav
 export class DraftController {
   snapshot: Snapshot = { text: '', revision: 0, status: 'loading', error: null, loaded: false };
   private savedText = '';
+  private edits=0;
+  get editVersion():number{return this.edits;}
   private timer: ReturnType<typeof setTimeout> | undefined;
   private inFlight: Promise<void> | undefined;
   constructor(private port: DraftPort, private changed: (s: Snapshot)=>void) {}
@@ -24,6 +26,7 @@ export class DraftController {
   }
   edit(text: string): void {
     if (!this.snapshot.loaded) return;
+    this.edits++;
     this.publish({ text, status: text === this.savedText && !this.inFlight ? 'saved' : 'dirty' });
     clearTimeout(this.timer);
     this.timer = setTimeout(()=>{ void this.flush().catch(()=>{}); }, 500);

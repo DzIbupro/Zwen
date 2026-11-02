@@ -7,7 +7,7 @@
   <span>{state.busy?'正在处理选区…':state.notice}</span>
   {#if state.pending}
    <details><summary>查看待处理选区</summary><pre>{state.pending.text||state.pending.error}</pre></details>
-   {#if state.pending.text}<button disabled={state.busy} onclick={onRetry}>{state.inserted?'重试保存并确认':'已检查草稿，重新添加'}</button>{/if}
+   {#if state.pending.text}<button disabled={state.busy} onclick={onRetry}>{state.inserted?'重试保存并确认':state.pending.mode==='candidate'?'添加到草稿':'已检查草稿，重新添加'}</button>{/if}
    <button disabled={state.busy} onclick={onDiscard}>丢弃待处理选区</button>
   {:else if !state.busy&&state.notice&&!state.notice.includes('未发送')}<button onclick={onReload}>重新读取状态</button>{/if}
  </div>

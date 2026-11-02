@@ -4,6 +4,12 @@ use tauri::{Emitter,Manager};
 use zwen_core::selection::{Inbox,Item,Mode,read_primary_text};
 use crate::{ClientError,SharedStorage};
 pub type Shared=Arc<Mutex<Inbox>>;
+#[path="candidate_watcher.rs"] mod watcher;
+static WATCHER:Mutex<watcher::Watcher>=Mutex::new(watcher::Watcher::new());
+pub fn stop_candidate_watcher(){if let Ok(mut watcher)=WATCHER.lock(){watcher.stop();}}
+pub fn candidate_callback(app:tauri::AppHandle,token:Option<&str>){
+ if let Ok(mut watcher)=WATCHER.lock(){if watcher.accepts(token){capture_guarded(app,Mode::Candidate,token.map(str::to_owned));}}
+}
 #[derive(serde::Serialize)]pub struct Snapshot{reading:bool,item:Option<Item>}
 #[tauri::command]
 pub fn claim_selection(state:tauri::State<'_,Shared>)->Result<Snapshot,ClientError>{
@@ -14,14 +20,15 @@ pub fn claim_selection(state:tauri::State<'_,Shared>)->Result<Snapshot,ClientErr
 pub fn acknowledge_selection(state:tauri::State<'_,Shared>,id:u32)->Result<(),ClientError>{
  if state.lock().map_err(|_|ClientError::window())?.acknowledge(id){Ok(())}else{Err(ClientError{code:"selection_changed",message:"待处理选区状态已改变，请重新读取".into()})}
 }
-/// Spawns a detached PRIMARY watcher (wl-paste --primary --watch) that feeds
-/// captured selections back as candidate material. Only one watcher per app;
-/// the thread dies with the process.
+/// Manage one owned PRIMARY watcher. Its child is killed and reaped when
+/// consent is revoked or the application exits. Callbacks carry its generation.
 // --- candidate watcher persistence ---
 
 #[tauri::command]
 pub fn candidate_set_enabled(app:tauri::AppHandle,enabled:bool)->Result<bool,ClientError>{
- if enabled{start_candidate_watcher(app.clone());}
+ let mut watcher=WATCHER.lock().map_err(|_|ClientError::window())?;
+ // Revoke consent immediately, even if persisting the new setting fails.
+ if !enabled{watcher.stop();crate::windows::new_intent();}
  let state=app.state::<crate::SharedStorage>();
  let dir=state.directory.as_ref().map_err(Clone::clone)?;
  let mut builder=std::fs::DirBuilder::new();builder.recursive(true);
@@ -38,6 +45,12 @@ pub fn candidate_set_enabled(app:tauri::AppHandle,enabled:bool)->Result<bool,Cli
   Ok(())
  })?;
  connection.execute("INSERT INTO settings(key,value) VALUES('candidate_watcher',?1) ON CONFLICT(key) DO UPDATE SET value=?1",[if enabled{"on"}else{"off"}]).map_err(zwen_core::Error::Database)?;
+ if enabled{
+  if let Err(error)=start_watcher(&mut watcher){
+   let _=connection.execute("UPDATE settings SET value='off' WHERE key='candidate_watcher'",[]);
+   return Err(error);
+  }
+ }
  Ok(enabled)
 }
 
@@ -56,7 +69,7 @@ pub fn candidate_get_enabled(storage:tauri::State<'_,SharedStorage>)->Result<boo
 
 pub fn restore_candidate_watcher_if_enabled(app:&tauri::AppHandle){
  match candidate_get_enabled_inner(app){
-  Ok(true)=>start_candidate_watcher(app.clone()),
+  Ok(true)=>{let _=candidate_set_enabled(app.clone(),true);},
   _=>{}
  }
 }
@@ -72,29 +85,46 @@ fn candidate_get_enabled_inner(app:&tauri::AppHandle)->Result<bool,zwen_core::Er
  Ok(value=="on")
 }
 
-pub fn start_candidate_watcher(app:tauri::AppHandle){
- tauri::async_runtime::spawn_blocking(move||{
-  let self_exe=std::env::current_exe().unwrap_or_default();
-  let _=std::process::Command::new("wl-paste").args(["--primary","--watch",self_exe.to_string_lossy().into_owned().as_str(),"candidate-callback"])
-   .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()
-   .map(|child|std::thread::spawn(move||{let _=child;}));
- });
+fn start_watcher(watcher:&mut watcher::Watcher)->Result<(),ClientError>{
+ if watcher.enabled(){return Ok(());}
+ let self_exe=std::env::current_exe().map_err(|_|ClientError::window())?;
+ let token=format!("{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+ let mut command=std::process::Command::new("wl-paste");
+ command.args(["--primary","--watch"]).arg(self_exe).arg("candidate-callback").arg(&token)
+  .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+ watcher.start(&mut command,token).map_err(|_|ClientError{code:"watcher_unavailable",message:"自动划词监听未能启动；请确认 wl-paste 可用后重试".into()})
 }
 
-pub fn capture(app:tauri::AppHandle,mode:Mode){
+pub fn capture(app:tauri::AppHandle,mode:Mode){capture_guarded(app,mode,None);}
+fn candidate_allowed(token:&Option<String>)->bool{
+ token.as_deref().is_none_or(|token|WATCHER.lock().is_ok_and(|mut watcher|watcher.accepts(Some(token))))
+}
+fn capture_guarded(app:tauri::AppHandle,mode:Mode,token:Option<String>){
  let shared=app.state::<Shared>().inner().clone();
  let (id,reading)=match shared.lock(){Ok(mut inbox)=>{let id=inbox.begin(mode);(id,inbox.reading())},Err(_)=>(None,false)};
- if id.is_none()&&reading{return;}
+ if id.is_none()&&(reading||mode==Mode::Candidate){return;}
  let intent=crate::windows::new_intent();
  let _=app.emit("selection-ready",());
  tauri::async_runtime::spawn(async move{
   if let Some(id)=id{
-   let worker=tauri::async_runtime::spawn_blocking(read_primary_text).await;
+   let read_token=token.clone();
+   let worker=tauri::async_runtime::spawn_blocking(move||{
+    if !candidate_allowed(&read_token){return Err(zwen_core::selection::SelectionError::Unavailable);}
+    read_primary_text()
+   }).await;
    let result=worker.unwrap_or(Err(zwen_core::selection::SelectionError::Unavailable));
-   if let Ok(mut inbox)=shared.lock(){inbox.finish(id,result);}
+   // Revalidate under the watcher lock at delivery. Disable/re-enable cannot
+   // publish an old generation's text or race a successful finish.
+   let delivered={
+    let mut watcher=WATCHER.lock().ok();
+    let allowed=token.as_deref().is_none_or(|token|watcher.as_mut().is_some_and(|watcher|watcher.accepts(Some(token))));
+    if let Ok(mut inbox)=shared.lock(){if allowed{inbox.finish(id,result);}else{inbox.cancel_read(id);}}
+    allowed
+   };
    let _=app.emit("selection-ready",());
+   if !delivered{return;}
   }
   // Capture ends before any focus/activation request.
-  let _=crate::windows::activate_if_current(app,true,intent).await;
+  if candidate_allowed(&token){let _=crate::windows::activate_if_current(app,true,intent).await;}
  });
 }

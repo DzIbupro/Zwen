@@ -128,3 +128,68 @@ impl ManualSeed for OrganizeStore{
  store.set_auto_organize(true).unwrap();
  assert!(store.auto_organize().unwrap());
 }
+
+#[test] fn locked_topics_reject_ai_memberships_and_manual_governance_survives_undo(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();
+ let a="a".repeat(32);let b="b".repeat(32);
+ let batch=store.apply_batch("m",&[a.clone()],&[(a.clone(),1,vec!["old".into()])]).unwrap();
+ let id=store.list_topics().unwrap()[0].topic.id.clone();
+ store.rename_topic(&id,"manual").unwrap();store.set_topic_column(&id,"column").unwrap();store.set_topic_locked(&id,true).unwrap();
+ store.apply_batch("m",&[b.clone()],&[(b,1,vec!["manual".into()])]).unwrap();
+ assert_eq!(store.note_ids(&id).unwrap(),vec![a]);
+ store.undo_batch(&batch.id).unwrap();let topics=store.list_topics().unwrap();
+ assert!(topics.iter().any(|t|t.topic.id==id&&t.topic.name=="manual"&&t.topic.column=="column"&&t.topic.locked));
+}
+
+#[test] fn auto_consent_is_bound_to_the_provider_and_legacy_flags_fail_closed(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();
+ store.set_auto_organize(true).unwrap();assert!(!store.auto_organize_for("profile-a").unwrap());
+ store.set_auto_organize_for(true,"profile-a").unwrap();
+ assert!(store.auto_organize_for("profile-a").unwrap());assert!(!store.auto_organize_for("profile-b").unwrap());
+ store.set_auto_organize_for(false,"profile-a").unwrap();assert!(!store.auto_organize_for("profile-a").unwrap());
+}
+
+#[test] fn split_into_existing_membership_preserves_manual_row_on_undo_and_drops_invalid_relation(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let note="a".repeat(32);
+ let batch=store.apply_batch("m",&[note.clone()],&[(note.clone(),1,vec!["A".into(),"B".into()])]).unwrap();
+ let topics=store.list_topics().unwrap();let a=topics.iter().find(|t|t.topic.name=="A").unwrap().topic.id.clone();let b=topics.iter().find(|t|t.topic.name=="B").unwrap().topic.id.clone();
+ store.add_relation(&a,&b,"evidence",&note).unwrap();store.split_membership(&note,&a,"B","").unwrap();assert!(store.list_relations().unwrap().is_empty());
+ store.invalidate_note(&note,Some(2)).unwrap();assert_eq!(store.note_ids(&b).unwrap(),vec![note.clone()]);
+ store.undo_batch(&batch.id).unwrap();assert_eq!(store.note_ids(&b).unwrap(),vec![note]);
+}
+#[test] fn merged_memberships_survive_original_batch_undo(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let note="a".repeat(32);
+ let batch=store.apply_batch("m",&[note.clone()],&[(note.clone(),1,vec!["A".into(),"B".into()])]).unwrap();
+ let topics=store.list_topics().unwrap();let a=topics.iter().find(|t|t.topic.name=="A").unwrap().topic.id.clone();let b=topics.iter().find(|t|t.topic.name=="B").unwrap().topic.id.clone();
+ store.merge_topics(&a,&b).unwrap();store.undo_batch(&batch.id).unwrap();assert_eq!(store.note_ids(&b).unwrap(),vec![note]);
+}
+
+#[test] fn structured_batch_applies_columns_and_evidenced_relations_and_undoes_them(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let note="a".repeat(32);
+ let scope=vec![note.clone()];let assignments=vec![(note.clone(),1,vec!["A".into(),"B".into()])];
+ let batch=store.apply_batch_details("m",&scope,&assignments,&[("A".into(),"column".into())],&[("A".into(),"B".into(),"inferred".into(),note.clone())]).unwrap();
+ let topics=store.list_topics().unwrap();assert!(topics.iter().any(|t|t.topic.name=="A"&&t.topic.column=="column"));
+ let relations=store.list_relations().unwrap();assert_eq!(relations.len(),1);assert_eq!(relations[0].added_by,"ai");assert_eq!(relations[0].evidence,note);
+ store.undo_batch(&batch.id).unwrap();assert!(store.list_relations().unwrap().is_empty());
+}
+#[test] fn structured_batch_rejects_invented_evidence_without_partial_writes(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let note="a".repeat(32);
+ assert!(store.apply_batch_details("m",&[note.clone()],&[(note,1,vec!["A".into(),"B".into()])],&[],&[("A".into(),"B".into(),"reason".into(),"b".repeat(32))]).is_err());
+ assert!(store.list_topics().unwrap().is_empty());
+}
+
+#[test] fn manually_confirmed_ai_relation_and_support_survive_batch_undo(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let note="a".repeat(32);
+ let batch=store.apply_batch_details("m",&[note.clone()],&[(note.clone(),1,vec!["A".into(),"B".into()])],&[],&[("A".into(),"B".into(),"AI reason".into(),note.clone())]).unwrap();
+ let original=store.list_relations().unwrap()[0].clone();
+ assert_eq!(store.add_relation(&original.from_topic,&original.to_topic,"manual confirmation",&note).unwrap(),original.id);
+ store.undo_batch(&batch.id).unwrap();let relation=store.list_relations().unwrap();assert_eq!(relation.len(),1);assert_eq!(relation[0].added_by,"manual");assert_eq!(relation[0].reason,"manual confirmation");
+}
+
+#[test] fn ai_relation_hash_invalidates_even_when_its_memberships_are_manual(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let note="a".repeat(32);
+ store.apply_batch_details("m",&[note.clone()],&[(note.clone(),1,vec!["A".into(),"B".into()])],&[],&[("A".into(),"B".into(),"AI reason".into(),note.clone())]).unwrap();
+ store.raw_execute("UPDATE memberships SET added_by='manual',batch_id=NULL",[]).unwrap();
+ store.invalidate_note(&note,Some(1)).unwrap();assert_eq!(store.list_relations().unwrap().len(),1);
+ store.invalidate_note(&note,Some(2)).unwrap();assert!(store.list_relations().unwrap().is_empty());assert!(store.list_topics().unwrap().iter().all(|t|t.count==1));
+}

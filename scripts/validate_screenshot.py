@@ -5,6 +5,7 @@ binary=Path(sys.argv[1]).resolve()
 assert subprocess.run(['pgrep','-x','zwen'],capture_output=True).returncode!=0,'Save and quit existing Zwen before isolated native tests'
 root=Path(tempfile.mkdtemp(prefix='zwen-screenshot-'))
 helpers=root/'bin';helpers.mkdir()
+(root/'mode').write_text('normal')
 fake=helpers/'niri'
 fake.write_text('''#!/usr/bin/python3
 import pathlib,shutil,subprocess,sys,time
@@ -17,16 +18,12 @@ if args[:2]==['msg','event-stream']:
 if args[:2]==['msg','-j']:
     sys.exit(2)
 if args[:3]==['msg','action','screenshot']:
-    counter=root/'counter'
-    n=int(counter.read_text())+1 if counter.exists() else 1
-    counter.write_text(str(n))
+    mode=(root/'mode').read_text()
     path=args[-1]
-    if n in (1,2):
-        shutil.copyfile(root/'image.png',path)
-    elif n==3:
+    if mode=='cancel':
         time.sleep(.8)
         shutil.copyfile(root/'image.png',path)
-    elif n==4:
+    elif mode=='timeout':
         subprocess.Popen([sys.executable,'-c','import shutil,sys,time;time.sleep(1.2);shutil.copyfile(sys.argv[1],sys.argv[2])',str(root/'image.png'),path],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     else:
         shutil.copyfile(root/'image.png',path)
@@ -47,7 +44,7 @@ db.executescript("CREATE TABLE drafts(id INTEGER PRIMARY KEY CHECK(id=1),text TE
 db.close()
 
 env=os.environ.copy()
-env.update({'PATH':str(helpers)+':'+env['PATH'],'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'screenshot','ZWEN_SCREENSHOT_TIMEOUT_MS':'600','NIRI_SOCKET':str(root/'fake.sock')})
+env.update({'PATH':str(helpers)+':'+env['PATH'],'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'screenshot','ZWEN_SCREENSHOT_TIMEOUT_MS':'600','ZWEN_SCREENSHOT_FIXTURE_MODE_FILE':str(root/'mode'),'NIRI_SOCKET':str(root/'fake.sock')})
 process=subprocess.Popen([str(binary),'screenshot'],env=env,stdout=subprocess.PIPE,stderr=(root/'stderr.log').open('wb'),bufsize=0,start_new_session=True)
 selector=selectors.DefaultSelector();selector.register(process.stdout,selectors.EVENT_READ);buffer=b'';events=[];passed=False
 try:

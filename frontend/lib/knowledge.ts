@@ -18,7 +18,7 @@ export interface KnowledgePort {
  rebuild():Promise<number>;
  topics():Promise<TopicView[]>;
  topicNotes(topicId:string):Promise<Note[]>;
- run(noteIds:string[]):Promise<OrganizeSummaryView>;
+ run(noteIds:string[],automatic?:boolean):Promise<OrganizeSummaryView>;
  undo(batchId:string):Promise<void>;
  renameTopic(topicId:string,name:string):Promise<void>;
  setTopicColumn(topicId:string,column:string):Promise<void>;
@@ -53,6 +53,7 @@ export class KnowledgeController {
   this.publish({busy:true,query:next});
   try{
    const notes=await this.port.list(next);
+   try{this.publish({auto:await this.port.getAuto()});}catch(error){this.publish({auto:false,notice:error instanceof Error?error.message:'自动整理设置读取失败'});}
    // Success keeps any action notice; only failures report here.
    this.publish({notes,loaded:true});
   }
@@ -91,17 +92,18 @@ export class KnowledgeController {
  async save(input:SaveNoteInput):Promise<NoteMeta|null>{
   if(this.disposed||this.state.busy)return null;
   this.publish({busy:true});
+  let saved:NoteMeta;
   try{
-   const meta=await this.port.save(input);
+   saved=await this.port.save(input);
    this.publish({notice:''});
   }
   catch(error){
    this.publish({notice:error instanceof Error?error.message:'收藏未完成'});
    return null;
   }
-  this.publish({busy:false});
+  finally{this.publish({busy:false});}
   await this.refresh();
-  return this.state.notes.find(note=>note.title===input.title)??null;
+  return saved;
  }
  async saveEdit(id:string,title:string,body:string,source:SourceMetaInput):Promise<NoteMeta|null>{
   if(this.disposed||this.state.busy)return null;
@@ -244,7 +246,7 @@ export class KnowledgeController {
  /// failure: the manual flow remains the source of truth.
  async runAutoFor(noteId:string):Promise<void>{
   if(this.disposed||this.state.organizeBusy||this.state.busy)return;
-  try{if(await this.port.getAuto())await this.port.run([noteId]);}catch{/* silent by design */}
+  try{if(await this.port.getAuto())await this.port.run([noteId],true);}catch{/* silent by design */}
  }
  async rebuild(){
   if(this.disposed||this.state.busy)return;

@@ -1,5 +1,9 @@
 # Zwen · 轻量级研究助手
 
+![Zwen 标识](frontend/assets/zwen-logo.png)
+
+[2026-11-02 审查修补报告](docs/AUDIT-RESULT-2026-11-02.md)
+
 面向 Fedora + Niri / Wayland，Rust + Tauri 2 + Svelte/TypeScript。[仓库](https://github.com/DzIbupro/Zwen) · [当前进度](docs/development-progress.md)
 
 **当前支持用户配置的兼容文本服务、流式多轮问答、停止、历史与本机恢复，以及完整窗口/轻量胶囊。显式选区入口已接入；截图可附加到胶囊草稿并本机保存，配置可选"图片模型"后随提问发送给视觉模型（官方协议合成验证已通过，真实智谱图片调用未验证）。知识整理尚未接入。用户本机智谱glm-4.7-flash已完成一次真实文本调用；真实多轮、停止、真实截图与真实图片调用待验证。**

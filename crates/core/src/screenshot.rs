@@ -39,6 +39,7 @@ pub fn capture(path:&Path,timeout:Duration,cancelled:impl Fn()->bool)->Result<()
 /// Test seam: the production path always calls the fixed `niri` binary.
 #[doc(hidden)]
 pub fn capture_with(program:&Path,path:&Path,timeout:Duration,cancelled:impl Fn()->bool)->Result<(),CaptureError>{
+ if cancelled(){return Err(CaptureError::Cancelled);}
  if !path.is_absolute(){return Err(CaptureError::CommandFailed);}
  let parent=path.parent().ok_or(CaptureError::Io)?;
  fs::create_dir_all(parent).map_err(|_|CaptureError::Io)?;
@@ -62,9 +63,18 @@ pub fn capture_with(program:&Path,path:&Path,timeout:Duration,cancelled:impl Fn(
   }
  });
  // Wait briefly for the subscription; file polling below still covers a missed event.
- let _subscribed=matches!(receiver.recv_timeout(SUBSCRIBE_TIMEOUT),Ok(Event::Ready)|Ok(Event::Captured));
+ let subscribe_deadline=Instant::now()+SUBSCRIBE_TIMEOUT;
+ loop{
+  if cancelled(){cleanup(path);return Err(CaptureError::Cancelled);}
+  if Instant::now()>=subscribe_deadline{break;}
+  match receiver.recv_timeout(Duration::from_millis(25)){
+   Ok(Event::Ready)|Ok(Event::Captured)|Err(mpsc::RecvTimeoutError::Disconnected)=>break,
+   Err(mpsc::RecvTimeoutError::Timeout)=>{}
+  }
+ }
+ if cancelled(){cleanup(path);return Err(CaptureError::Cancelled);}
  let mut action=Command::new(program).args(["msg","action","screenshot","--show-pointer","false","--path"]).arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|_|CaptureError::Unavailable)?;
- if !wait_action(&mut action,ACTION_TIMEOUT){cleanup(path);guard.stop();return Err(CaptureError::CommandFailed);}
+ if let Err(error)=wait_action(&mut action,ACTION_TIMEOUT,&cancelled){cleanup(path);guard.stop();return Err(error);}
  let deadline=Instant::now()+timeout;
  let mut stable:Option<(u64,Instant)>=None;
  loop{
@@ -85,13 +95,14 @@ pub fn capture_with(program:&Path,path:&Path,timeout:Duration,cancelled:impl Fn(
  }
 }
 
-fn wait_action(child:&mut Child,timeout:Duration)->bool{
+fn wait_action(child:&mut Child,timeout:Duration,cancelled:impl Fn()->bool)->Result<(),CaptureError>{
  let deadline=Instant::now()+timeout;
  loop{
+  if cancelled(){let _=child.kill();let _=child.wait();return Err(CaptureError::Cancelled);}
   match child.try_wait(){
-   Ok(Some(status))=>return status.success(),
+   Ok(Some(status))=>return if status.success(){Ok(())}else{Err(CaptureError::CommandFailed)},
    Ok(None) if Instant::now()<deadline=>thread::sleep(Duration::from_millis(10)),
-   _=>{let _=child.kill();let _=child.wait();return false;}
+   _=>{let _=child.kill();let _=child.wait();return Err(CaptureError::CommandFailed);}
   }
  }
 }
