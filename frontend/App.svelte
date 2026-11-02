@@ -173,6 +173,7 @@
     let disposed=false;const unlisteners:(()=>void)[]=[];
     if(isDesktop) void listen('selection-ready',()=>void selection.refresh()).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{notice='选区事件暂不可用，可重新读取状态';});
     if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{applySurface(e.payload);if(e.payload.mode==='full'&&response&&view==='ask')view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop)void listen('request-settings',()=>{view='settings';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>void leave(quit)).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{notice='关闭事件暂不可用，请使用面板按钮';});
     }

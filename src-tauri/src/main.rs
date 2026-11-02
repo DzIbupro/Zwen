@@ -8,6 +8,7 @@ mod secret;
 mod notes;
 mod organize_job;
 mod quick_actions;
+mod tray;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 use zwen_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
@@ -133,6 +134,7 @@ fn main() {
                 let window=if capsule_surface(action){window.max_inner_size(480.0,96.0)}else{window};
                 window.on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
                     .build()?;
+                if let Err(error)=tray::setup(app){eprintln!("Zwen 托盘暂不可用，仍可通过应用入口或快捷键唤出：{error}");}
             }
             launch(app.handle(), action,args.get(1).map(String::as_str));
             Ok(())
