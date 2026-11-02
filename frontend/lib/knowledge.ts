@@ -41,27 +41,36 @@ export class KnowledgeController {
  topicsSnapshot():TopicView[]{return this.state.topics;}
  state:KnowledgeState={notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false};
  private disposed=false;
+ private refreshing:Promise<void>|null=null;
+ private refreshAgain=false;
  constructor(private port:KnowledgePort,private changed:(s:KnowledgeState)=>void){}
  private publish(patch:Partial<KnowledgeState>):void{
   if(this.disposed)return;
   this.state={...this.state,...patch};
   this.changed(this.state);
  }
- async refresh(query?:string){
-  if(this.disposed||this.state.busy)return;
-  const next=typeof query==='string'?query:this.state.query;
-  this.publish({busy:true,query:next});
-  try{
-   const notes=await this.port.list(next);
-   try{this.publish({auto:await this.port.getAuto()});}catch(error){this.publish({auto:false,notice:error instanceof Error?error.message:'自动整理设置读取失败'});}
-   // Success keeps any action notice; only failures report here.
-   this.publish({notes,loaded:true});
-  }
-  catch(error){
-   this.publish({loaded:true,notice:error instanceof Error?error.message:'知识库读取失败，请重试'});
-  }
-  finally{this.publish({busy:false});}
+ refresh(query?:string):Promise<void>{
+  if(this.disposed)return Promise.resolve();
+  if(typeof query==='string')this.publish({query});
+  if(this.refreshing){this.refreshAgain=true;return this.refreshing;}
+  if(this.state.busy)return Promise.resolve();
+  this.refreshing=this.refreshLatest().finally(()=>{this.refreshing=null;});return this.refreshing;
  }
+ private async refreshLatest(){
+  this.publish({busy:true});
+  try{
+   do{
+    this.refreshAgain=false;const query=this.state.query;
+    try{
+     const notes=await this.port.list(query);if(this.disposed)return;
+     if(this.refreshAgain)continue;
+     try{const auto=await this.port.getAuto();if(!this.refreshAgain)this.publish({auto});}catch(error){if(!this.refreshAgain)this.publish({auto:false,notice:error instanceof Error?error.message:'自动整理设置读取失败'});}
+     if(!this.refreshAgain)this.publish({notes,loaded:true});
+    }catch(error){if(!this.refreshAgain)this.publish({loaded:true,notice:error instanceof Error?error.message:'知识库读取失败，请重试'});}
+   }while(this.refreshAgain&&!this.disposed);
+  }finally{this.publish({busy:false});}
+ }
+
  async open(id:string){
   if(this.disposed||this.state.busy)return;
   this.publish({busy:true});
