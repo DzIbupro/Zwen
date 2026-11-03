@@ -1,3 +1,15 @@
+# 2026-11-04 试用反馈第一批已部署，其余10项待实施
+
+状态：**unit-complete / followups-pending**。产品提交f0ef89a已集成至feat/desktop-foundation；已安装并打开普通新版，Niri自身窗口标题确认仅Zwen（pid169166）。SHA256 f3afd3532872ffd7f49c865058642f284abbd63db947f764606f28c1b460e057，旧版备份artifacts/zwen-before-usability-one。
+
+本批只完成第1收藏按钮约2.5秒反馈、第11可见名称Zwen、第13Enter发送/Shift+Enter换行（输入法合成与其他编辑器不触发）。158项前端在隔离和正式目录通过，Svelte0/0、Vite及普通Rust release构建通过，独立审查无重要问题，临时/安装实例原生标题验证通过；不代表真人输入法或真实模型验收。
+
+用户全部13项已保存：[完整待办](superpowers/specs/2026-11-04-usability-followups.md)。余下2/3/4/5/6/7/8/9/10/12未实施；不得遗漏、不能声称都已修复。优先删除演示/预览并迁移依赖入口的原生驱动、扩展历史问题摘要、处理AI全选与现有8篇上限，再做可读性/对齐/功能层级/图谱防重叠；选区撤销及截图动画/无限等待需独立状态测试，磁场logo需视觉预览。下一轮从这些待办继续。
+
+不读生产库/进程环境/密钥，不自动请求真实模型或上传材料；明确区分合成验证和真人桌面测试。
+
+---
+
 # 2026-11-04 13项试用反馈：第一批完成验证
 
 状态：**verified-awaiting-deployment**。完整需求[13项待办](superpowers/specs/2026-11-04-usability-followups.md)已保存；本批实现1收藏按钮短暂反馈、11可见名称统一Zwen、13Enter发送/Shift+Enter换行。158项前端测试、Svelte、Vite和普通Rust release构建通过，独立审查无重要问题，临时数据原生标题检查通过。未调用真实模型。
