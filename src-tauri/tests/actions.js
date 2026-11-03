@@ -1,7 +1,7 @@
 (async()=>{
  const api=window.__TAURI__,invoke=api.core.invoke;
  const wait=async(check,label='actions timeout')=>{for(let i=0;i<240;i++){if(await check())return;await new Promise(r=>setTimeout(r,50));}throw Error(label);};
- const clickTab=name=>[...document.querySelectorAll('nav button')].find(b=>b.textContent===name).click();
+ const clickTab=name=>document.querySelector(name==='新对话'?'[data-new-conversation]':'[data-nav="'+({'模型设置':'settings','提问':'chat','历史':'history','知识库':'knowledge','知识网络':'graph'}[name])+'"]').click();
  let bar=null;await api.event.listen('selection-bar-state',e=>bar=e.payload);
  const inspect=async()=>{bar=null;await api.event.emit('selection-bar-test','inspect');await wait(()=>bar!==null,'native bar inspect');return bar;};
  const choose=async(text)=>{await new Promise(r=>setTimeout(r,300));const before=(await inspect()).selectionId;await api.event.emit('actions-fixture-selection',text);await wait(async()=>{const b=await inspect();return b.visible&&b.selectionId!==before&&b.height>0;},'native selection '+text);if(bar.mainVisible)throw Error('candidate opened main window');};
@@ -26,6 +26,7 @@
   if(bar.anchorKind!=='synthetic-fixed')throw Error('fixture anchor mode missing');
   if(bar.rgbaDepth!==32||!bar.renderAlpha||bar.renderAlpha.slice(0,4).some(a=>a!==0)||bar.renderAlpha[4]!==255)throw Error('rounded corner surface not transparent: '+JSON.stringify(bar));
   if(bar.keyboardMode!=='none'||bar.exclusiveZone!==0||bar.width>500||bar.height>100)throw Error('not a compact independent bar');
+  stage='visible-bar-theme';const themeBar=await inspect(),generation=(await invoke('get_surface')).generation;await invoke('save_appearance',{preferences:{theme:'dark',sidebarCollapsed:true}});const themed=await inspect();if(themed.theme!=='dark'||!themed.visible||themed.selectionId!==themeBar.selectionId||themed.width!==themeBar.width||themed.height!==themeBar.height||(await invoke('get_surface')).generation!==generation)throw Error('theme remapped visible bar');await invoke('save_appearance',{preferences:{theme:'light',sidebarCollapsed:false}});
   stage='same-process-window-switch';await api.event.emit('actions-fixture-source-window',101);
   await wait(async()=>!(await inspect()).visible,'source window switch did not dismiss');
   if(bar.mainVisible)throw Error('source dismissal opened main');

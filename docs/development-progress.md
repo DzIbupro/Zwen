@@ -1,3 +1,19 @@
+# 2026-11-04 中性工作台完成验证，准备集成部署
+
+状态：**verified-awaiting-deployment**。已实现用户批准的第一张布局、可折叠侧栏、无紫色浅深主题及跨重启偏好；154项前端、Rust工作区和隔离actions/图片/胶囊/外观恢复均通过。独立审查两个P2已修复复核。普通构建SHA256 f0fe1f3f314d4d9ceb54f6bd9ad37d2ed6474d9edda7b488b3d9084fde2ea259，一次空闲进程树PSS263.55MiB，非峰值或长期验收。
+
+验证记录：[中性工作台UI](validation/2026-11-04-neutral-workbench-ui.md)。用户已保存退出旧程序，下一步集成隔离feat/neutral-ui到既有feat/desktop-foundation，原子替换artifacts/zwen并启动检查；不合并main。未请求真实模型，未读生产库或密钥。
+
+---
+
+# 2026-11-04 中性新拟物UI实现中
+
+状态：**in-progress**。用户已确认第一张工作台、可折叠侧栏、浅深主题，且两种主题均无紫色；已明确“按这样实现”。隔离目录 /home/dzibupro/Zwen/Zwen/.worktrees/neutral-ui，分支feat/neutral-ui，基于95b2f83；原正式版仍efbd8af。
+
+实施计划 docs/superpowers/plans/2026-11-04-neutral-workbench-ui.md。原生偏好/GTK和子页面样式独立处理，root实现控制器、主布局、胶囊及验证。不得更改模型调用/材料/关闭/重试语义；测试不用生产库或真实模型。最终验证后才集成回原私有开发分支并替换本机程序。
+
+---
+
 # 2026-11-04 浅色方案已选，深色与侧栏行为待设计确认
 
 状态：**design-awaiting-approval**。用户已明确选择第一张浅色工作台，新增侧栏可折叠为窄图标栏、设置中浅深主题切换。深色修订稿已生成并显示；选定浅色源图已保存在docs/design/zwen-light-selected.png。

@@ -8,7 +8,7 @@
  async function submitSecret(){await onSaveSecret(secretValue);if(!settings.secretNotice)secretValue='';}
 </script>
 <section class="settings" aria-label="模型设置">
- <div class="eyebrow">YOUR MODEL, YOUR CHOICE</div><h1>连接你的模型<span>。</span></h1>
+ <h1>模型设置</h1>
  <p>填写支持 OpenAI 兼容聊天协议的服务。保存配置不会发送草稿或验证联网。</p>
  {#if !desktop}<p class="hint">浏览器仅用于界面预览；请在桌面应用中保存配置和使用模型。</p>{/if}
  <form onsubmit={e=>{e.preventDefault();onSave();}}>
@@ -39,8 +39,16 @@
  </form>
 </section>
 <style>
- .settings{max-width:620px;margin:28px auto;padding:0 18px 28px;color:#333d36}.eyebrow{font-size:10px;letter-spacing:.18em;color:#8d9f86}h1{font-size:29px;font-weight:550;letter-spacing:-1px;margin:12px 0}h1 span{color:#67946d}p,small{color:#697663;font-size:12px;line-height:1.8}form{display:flex;flex-direction:column;margin-top:28px}label{font-size:12px;margin:18px 0 8px}input{width:100%;box-sizing:border-box;border:1px solid #d7dece;border-radius:8px;padding:11px 12px;background:#fffef9;color:#333d36;font:inherit;font-size:13px}input:focus{outline:2px solid #417f65;outline-offset:2px}small{font-size:11px;margin-top:7px}.state{margin-top:23px;color:#3b7157;font-size:12px}.failure{color:#a44134;font-size:12px;margin-top:10px}.hint{border-left:2px solid #b6c8a7;padding-left:12px}.actions{display:flex;gap:12px;margin-top:20px}button{border:1px solid #d5ddcb;background:transparent;color:#55634b;border-radius:8px;padding:10px 14px;font:inherit;font-size:12px;cursor:pointer}button.primary{background:#3b7157;color:#f4f7ec;border-color:#3b7157}button:disabled,input:disabled{opacity:.5;cursor:default}
- .candidate-row{display:flex;align-items:center;gap:10px;font-size:12px;color:#55634b}
+ .settings{max-width:620px;margin:28px auto;padding:0 18px 28px;color:var(--text)}h1{font-size:29px;font-weight:550;letter-spacing:-1px;margin:12px 0}p,small{color:var(--muted);font-size:13px;line-height:1.8}form{display:flex;flex-direction:column;margin-top:28px}label{font-size:13px;margin:18px 0 8px}input{width:100%;box-sizing:border-box;border:1px solid var(--edge);border-radius:12px;padding:11px 12px;background:var(--surface);color:var(--text);font:inherit;font-size:13px}input:focus{outline:2px solid var(--focus-ring);outline-offset:2px}small{font-size:13px;margin-top:7px}.state{margin-top:23px;color:var(--accent);font-size:13px}.failure{color:var(--danger);font-size:13px;margin-top:10px}.hint{border-left:2px solid var(--edge);padding-left:12px}.actions{display:flex;gap:12px;margin-top:20px}button{border:1px solid var(--edge);background:transparent;color:var(--muted);border-radius:12px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}button:disabled,input:disabled{opacity:.5;cursor:default}
+ .candidate-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
  .candidate-row input{width:auto}
- .secret-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.secret-row button{padding:8px 12px}.secret-state{font-size:11px;color:#55634b}
+ .secret-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.secret-row button{padding:8px 12px}.secret-state{font-size:13px;color:var(--muted)}
+
+ button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
+ button:hover:not(:disabled){box-shadow:var(--hover-shadow)}
+ button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
+ button:focus-visible,input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
+ button:disabled{opacity:.5;cursor:default}
+ @media(prefers-reduced-motion:reduce){button{transition:none}}
+ .settings{font-size:16px;line-height:1.65}h1{font-size:26px;margin:0}p{font-size:16px;line-height:1.65}label{font-size:14px}input{font-size:16px;box-shadow:var(--inset-shadow)}input[type="checkbox"]{box-shadow:none;accent-color:var(--accent)}button{font-size:14px;background:var(--surface);color:var(--text)}.actions{flex-wrap:wrap}.candidate-row{align-items:flex-start}.candidate-row input{flex-shrink:0}.failure{color:var(--danger)}@media(max-width:520px){.settings{padding-inline:0}.secret-row{gap:12px}.secret-state{overflow-wrap:anywhere}}
 </style>

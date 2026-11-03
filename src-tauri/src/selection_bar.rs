@@ -6,6 +6,15 @@ pub use geometry::OutputRect;
 
 pub struct BarAction { pub id: String, pub name: String }
 
+/// CSS is scoped to providers attached to our own widgets, never the desktop.
+fn theme_css(theme:crate::appearance::Theme)->String {
+    let (surface,text,edge,button,hover)=match theme {
+        crate::appearance::Theme::Light=>("#e0e5ec","#30343c","#c4cad3","#f0f0f3","#d3d9e2"),
+        crate::appearance::Theme::Dark=>("#292d35","#e7ebf3","#454c58","#30353e","#414854"),
+    };
+    format!(".zwen-probe {{background-color:rgba(0,0,0,0);}} .zwen-selection {{background:{surface}; color:{text}; border:1px solid {edge}; border-radius:12px;}} button {{background:{button}; color:{text}; border:0; border-radius:8px; padding:5px 7px; min-height:22px; box-shadow:none;}} button:hover, button:checked {{background:{hover};}} button:disabled {{color:{edge};}}")
+}
+
 #[cfg(target_os = "linux")]
 mod native {
     use super::*;
@@ -62,6 +71,7 @@ mod native {
     struct PendingBar {app:tauri::AppHandle,id:u32,revision:u64,actions:std::rc::Rc<Vec<BarAction>>,pid:u32,output:Option<OutputRect>}
     #[derive(Default)]
     struct Runtime {
+        theme_css:Option<gtk::CssProvider>,
         layer:Option<std::rc::Rc<Layer>>, probes:Vec<gtk::Window>, bar:Option<gtk::Window>,
         probe_gate:geometry::ProbeGate,
         token:u64,anchor:Option<geometry::PrimedAnchor<Anchor>>,pending:Option<PendingBar>,anchor_kind:Option<&'static str>,
@@ -156,9 +166,23 @@ mod native {
         }
     }
     fn style()->gtk::CssProvider {
-        let css=gtk::CssProvider::new();
-        let _=css.load_from_data(b".zwen-probe {background-color:rgba(0,0,0,0);} .zwen-selection {background:#effbf2; color:#123d23; border:1px solid #6daf80; border-radius:10px;} .zwen-selection button {background:#d8f2df; color:#153e23; border:0; border-radius:6px; padding:5px 7px; min-height:22px; box-shadow:none;} .zwen-selection button:hover {background:#bce4c8;}");
-        css
+        UI.with(|ui|{
+            let mut r=ui.borrow_mut();
+            r.theme_css.get_or_insert_with(||{
+                let css=gtk::CssProvider::new();
+                let _=css.load_from_data(theme_css(crate::appearance::cached_theme()).as_bytes());css
+            }).clone()
+        })
+    }
+    /// Main-thread only: replace the provider contents in place, preserving
+    /// token, anchor, menu expansion, button handlers and mapped surfaces.
+    pub fn refresh_theme() {
+        let (css,bar,buttons)=UI.with(|ui|{
+            let r=ui.borrow();(r.theme_css.clone(),r.bar.clone(),r.buttons.iter().map(|(_,b)|b.clone()).collect::<Vec<_>>())
+        });
+        if let Some(css)=css {let _=css.load_from_data(theme_css(crate::appearance::cached_theme()).as_bytes());}
+        if let Some(bar)=bar {bar.queue_draw();}
+        for button in buttons {button.queue_draw();}
     }
     fn begin_prime(app:tauri::AppHandle,token:u64,id:u32,pid:u32) {
         if !current(token)||!crate::selection::anchor_is_current(&app,id,pid) {return;}
@@ -240,9 +264,8 @@ mod native {
     }
     fn button(app:&tauri::AppHandle,token:u64,id:u32,revision:u64,pid:u32,key:&str,label:&str)->gtk::Button {
         let b=gtk::Button::with_label(&label.chars().take(18).collect::<String>()); b.set_can_focus(false);
-        let css=gtk::CssProvider::new();
-        let _=css.load_from_data(b"button {background:#d8f2df; color:#153e23; border:0; border-radius:6px; padding:5px 7px; min-height:22px; box-shadow:none;} button:hover {background:#bce4c8;}");
-        b.style_context().add_provider(&css,600);
+        // Shared provider also restyles already-visible buttons after saving.
+        b.style_context().add_provider(&style(),600);
         let app=app.clone();let key=key.to_string();let action=key.clone();
         b.connect_clicked(move|_| {
             if !current(token) {return;}
@@ -273,7 +296,7 @@ mod native {
             b.set_sensitive(key=="ask"||actions.iter().any(|a|a.id==key));
             row.pack_start(&b,false,false,0);
         }
-        let other=gtk::ToggleButton::with_label("其他");other.set_can_focus(false); row.pack_start(&other,false,false,0);
+        let other=gtk::ToggleButton::with_label("其他");other.set_can_focus(false);other.style_context().add_provider(&style(),600); row.pack_start(&other,false,false,0);
         UI.with(|ui|ui.borrow_mut().buttons.push(("__other".into(),other.clone().upcast::<gtk::Button>())));
         row.pack_start(&button(&app,token,id,revision,pid,"__dismiss","×"),false,false,0);
         outer.pack_start(&row,false,false,0);
@@ -321,7 +344,7 @@ mod native {
         use tauri::{Emitter,Manager};
         let a=app.clone();let _=app.run_on_main_thread(move||UI.with(|ui|{
             let r=ui.borrow();let (w,h)=r.bar.as_ref().map(|w|(w.allocated_width(),w.allocated_height())).unwrap_or((0,0));
-            let _=a.emit("selection-bar-state",serde_json::json!({"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":r.anchor_kind.unwrap_or("unavailable"),"renderAlpha":r.bar.as_ref().and_then(smoke_alpha),"rgbaDepth":r.bar.as_ref().and_then(|w|w.visual()).map(|v|v.depth()),"buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
+            let _=a.emit("selection-bar-state",serde_json::json!({"theme":crate::appearance::cached_theme(),"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":r.anchor_kind.unwrap_or("unavailable"),"renderAlpha":r.bar.as_ref().and_then(smoke_alpha),"rgbaDepth":r.bar.as_ref().and_then(|w|w.visual()).map(|v|v.depth()),"buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
         }));
     }
     #[cfg(feature="desktop-smoke")]
@@ -333,7 +356,7 @@ mod native {
     }
 }
 #[cfg(target_os="linux")]
-pub use native::{show,dismiss,prime,discard_prime};
+pub use native::{show,dismiss,prime,discard_prime,refresh_theme};
 #[cfg(all(target_os="linux",feature="desktop-smoke"))]
 pub use native::{smoke_click,smoke_inspect};
 #[cfg(not(target_os="linux"))]
@@ -345,3 +368,6 @@ pub fn dismiss(_: &tauri::AppHandle) {}
 pub fn prime(_: &tauri::AppHandle,_:u32,_:u32) {}
 #[cfg(not(target_os="linux"))]
 pub fn discard_prime(_: &tauri::AppHandle,_:u32) {}
+
+#[cfg(not(target_os="linux"))]
+pub fn refresh_theme() {}

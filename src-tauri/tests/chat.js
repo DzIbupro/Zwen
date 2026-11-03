@@ -23,10 +23,10 @@
   stage='configure';
   fill('must-not-send');
   await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'fixture-model',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='设置').click();await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
   document.querySelector('#model-name').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true}));
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='提问').click();await wait(()=>input());
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='对话').click();await wait(()=>input());
   stage='complete';
   fill('complete-fixture');await wait(()=>!document.querySelector('[data-send]').disabled);send();
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete'&&s.reply.saved&&!s.activeRequestId;});

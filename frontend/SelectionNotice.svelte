@@ -25,8 +25,16 @@
 {/if}
 <style>
  button:disabled{opacity:.5;cursor:default;}
- summary{display:block;width:auto;height:auto;letter-spacing:normal;font-size:12px;line-height:1.6;white-space:nowrap;cursor:pointer;}
- .selection-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;min-width:0}.other-actions{display:inline-block}.other-actions summary{cursor:pointer;padding:5px}.other-actions div{display:flex;flex-wrap:wrap;gap:4px}.selection-notice{font-size:12px;padding:6px 12px;color:#455b49;overflow-wrap:anywhere;max-height:240px;overflow:auto;flex-shrink:0;}
+ summary{display:block;width:auto;height:auto;letter-spacing:normal;font-size:13px;line-height:1.6;white-space:nowrap;cursor:pointer;}
+ .selection-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;min-width:0}.other-actions{display:inline-block}.other-actions summary{cursor:pointer;padding:5px}.other-actions div{display:flex;flex-wrap:wrap;gap:4px}.selection-notice{font-size:13px;padding:6px 12px;color:var(--text);overflow-wrap:anywhere;max-height:240px;overflow:auto;flex-shrink:0;}
  pre{white-space:pre-wrap;max-height:72px;overflow:auto;font:inherit;}
- button{flex-shrink:0;white-space:nowrap;line-height:1.6;font:inherit;margin:4px 6px 0 0;padding:3px 7px;border:1px solid #65756b66;border-radius:6px;background:#eef3e8;color:#36563e;cursor:pointer;}
+ button{flex-shrink:0;white-space:nowrap;line-height:1.6;font:inherit;margin:4px 6px 0 0;padding:3px 7px;border:1px solid var(--edge);border-radius:12px;background:var(--surface);color:var(--muted);cursor:pointer;}
+
+ button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
+ button:hover:not(:disabled){box-shadow:var(--hover-shadow)}
+ button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
+ button:focus-visible,summary:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
+ button:disabled{opacity:.5;cursor:default}
+ @media(prefers-reduced-motion:reduce){button{transition:none}}
+ .selection-notice{font-size:14px;line-height:1.65;color:var(--text)}summary{font-size:14px}button{font-size:14px;background:var(--surface);color:var(--text);padding:5px 10px}.selection-actions{gap:8px}
 </style>

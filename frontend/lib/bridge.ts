@@ -102,3 +102,9 @@ export const quickActionPort:QuickActionPort={
  save:(expectedRevision,actions,outputDirectory)=>command('save_quick_actions',{expectedRevision,actions,outputDirectory}),
 };
 export const actionOutputPort:ActionOutputPort={save:({requestId,selection,actionId,actionName,outputDirectory})=>command('save_action_document',{requestId,selection,actionId,actionName,outputDirectory})};
+
+import {APPEARANCE_KEY,DEFAULT_APPEARANCE,parseAppearance,type Appearance,type AppearancePort} from './appearance';
+export const appearancePort:AppearancePort=isDesktop?{load:()=>command<Appearance>('load_appearance'),save:preferences=>command<Appearance>('save_appearance',{preferences})}:{
+ load:async()=>{const raw=localStorage.getItem(APPEARANCE_KEY);if(raw===null)return{...DEFAULT_APPEARANCE};const value=parseAppearance(JSON.parse(raw));if(!value)throw Error('外观偏好格式无效，请重新读取');return value;},
+ save:async preferences=>{localStorage.setItem(APPEARANCE_KEY,JSON.stringify(preferences));return preferences;}
+};

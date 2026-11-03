@@ -75,16 +75,24 @@
 <style>
  .graphview{max-width:900px;margin:22px auto;padding:0 18px 28px}
  .graph-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
- .graph-bar input{flex:1;border:1px solid #d7dece;border-radius:9px;padding:10px 12px;background:#fffef9;font:inherit;font-size:13px;color:#333d36}
- .graph-bar button{border:1px solid #d5ddcb;background:transparent;color:#55634b;border-radius:8px;padding:9px 13px;font:inherit;font-size:12px;cursor:pointer}
- .graph-hint{font-size:11px;color:#8b967e;white-space:nowrap}
- .graph-stage{border:1px solid #dce2d2;border-radius:13px;background:linear-gradient(180deg,#fbfcf6,#f2f4ea);overflow:hidden;cursor:grab;min-height:420px}
+ .graph-bar input{flex:1;border:1px solid var(--edge);border-radius:12px;padding:10px 12px;background:var(--surface);font:inherit;font-size:13px;color:var(--text)}
+ .graph-bar button{border:1px solid var(--edge);background:transparent;color:var(--muted);border-radius:12px;padding:9px 13px;font:inherit;font-size:13px;cursor:pointer}
+ .graph-hint{font-size:13px;color:var(--muted);white-space:nowrap}
+ .graph-stage{border:1px solid var(--edge);border-radius:13px;background:var(--bg);overflow:hidden;cursor:grab;min-height:420px}
  .graph-stage:active{cursor:grabbing}
  svg{display:block}
- .edge{stroke:#a9ba97;stroke-width:5;cursor:pointer;pointer-events:stroke}.edge:focus{stroke:#417f65;outline:none}
- .node circle{fill:#e7eddf;stroke:#417f65;stroke-width:2;cursor:pointer}
+ .edge{stroke:var(--edge);stroke-width:5;cursor:pointer;pointer-events:stroke}.edge:focus{stroke:var(--accent);outline:none}
+ .node circle{fill:var(--surface-soft);stroke:var(--accent);stroke-width:2;cursor:pointer}
  .node circle.locked{stroke-dasharray:4 3}
- .node circle.note{fill:#fffef9;stroke:#8fa983;stroke-width:1.5}
- .node text{font-size:12px;fill:#333d36;text-anchor:middle;pointer-events:none}
- .graph-empty{position:absolute;color:#697663;font-size:13px;padding:40px}
+ .node circle.note{fill:var(--surface);stroke:var(--edge);stroke-width:1.5}
+ .node text{font-size:13px;fill:var(--text);text-anchor:middle;pointer-events:none}
+ .graph-empty{position:absolute;color:var(--muted);font-size:13px;padding:40px}
+
+ button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
+ button:hover:not(:disabled){box-shadow:var(--hover-shadow)}
+ button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
+ button:focus-visible,input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
+ button:disabled{opacity:.5;cursor:default}
+ @media(prefers-reduced-motion:reduce){button{transition:none}}
+ .graphview{font-size:16px;line-height:1.65;color:var(--text)}.graph-bar{flex-wrap:wrap}.graph-bar input{min-width:120px;font-size:16px;box-shadow:var(--inset-shadow)}.graph-bar button,button{font-size:14px;border:1px solid var(--edge);background:var(--surface);color:var(--text);padding:9px 13px}.graph-stage{box-shadow:var(--inset-shadow)}.node text{font-size:14px}.edge:focus-visible{stroke:var(--accent);stroke-width:7}.node circle:focus-visible{outline:2px solid var(--focus-ring);outline-offset:4px}[data-relation-detail]{margin-bottom:16px}[data-relation-detail] p{margin:8px 0;overflow-wrap:anywhere}@media(max-width:520px){.graphview{padding-inline:0}.graph-stage{min-height:340px}.graph-hint{white-space:normal}}
 </style>

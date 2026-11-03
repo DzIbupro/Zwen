@@ -10,7 +10,7 @@
   if(saved.revision!==1||!saved.keyAvailable||JSON.stringify(saved).includes('synthetic-test-token'))throw Error('Provider snapshot leaked key or was not saved');
   let rejected=false;try{await invoke('save_provider',{expectedRevision:0,config});}catch{rejected=true;}if(!rejected)throw Error('Stale save accepted');
   rejected=false;try{await invoke('save_provider',{expectedRevision:1,config:{...config,baseUrl:'http://remote.example'}});}catch{rejected=true;}if(!rejected)throw Error('Unsafe endpoint accepted');
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='设置').click();
   await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();
   await wait(()=>document.querySelector('#model-name')?.value==='fixture-a');

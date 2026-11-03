@@ -24,11 +24,11 @@
   await wait(async()=>{const view=await invoke('load_provider');lastLoad=JSON.stringify(view);return view.config?.imageModel==='fixture-vision';});
   // The UI loaded its settings before the fixture saved; reload through the
   // settings view exactly like a user would.
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='设置').click();
   await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();
   await wait(()=>document.querySelector('#image-model')?.value==='fixture-vision');
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='提问').click();
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='对话').click();
   await wait(()=>document.querySelector('textarea'));
   await wait(()=>!document.querySelector('[data-send]').disabled);
   stage='vision-send';

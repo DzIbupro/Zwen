@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-load-appearance"
+description = "Enables the load_appearance command without any pre-configured scope."
+commands.allow = ["load_appearance"]
+
+[[permission]]
+identifier = "deny-load-appearance"
+description = "Denies the load_appearance command without any pre-configured scope."
+commands.deny = ["load_appearance"]

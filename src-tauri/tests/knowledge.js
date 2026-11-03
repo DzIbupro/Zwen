@@ -9,7 +9,7 @@
  try{
   await wait(()=>document.querySelector('.shell'));
   await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'fixture-model',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='设置').click();
   await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();
   await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');

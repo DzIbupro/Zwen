@@ -3,8 +3,8 @@
  const wait=async(check)=>{for(let i=0;i<200;i++){if(await check())return;await new Promise(r=>setTimeout(r,40));}throw Error('Stress fixture timeout');};
  try{
   await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'fixture-model',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
-  await invoke('set_surface',{mode:'full'});await wait(()=>[...document.querySelectorAll('nav button')].some(b=>b.textContent==='模型设置'));
-  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='模型设置').click();await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
+  await invoke('set_surface',{mode:'full'});await wait(()=>[...document.querySelectorAll('nav button')].some(b=>b.textContent==='设置'));
+  [...document.querySelectorAll('nav button')].find(b=>b.textContent==='设置').click();await wait(()=>[...document.querySelectorAll('.settings button')].some(b=>b.textContent==='重新读取'));
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
   await invoke('set_surface',{mode:'capsule'});await wait(()=>document.querySelector('[data-capsule]'));
   for(let i=0;i<20;i++){
