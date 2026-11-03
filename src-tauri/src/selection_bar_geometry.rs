@@ -45,8 +45,10 @@ impl<P> PrimedAnchor<P> {
     pub fn new(id:u32,pid:u32)->Self {Self{id,pid,point:None,expired:false}}
     pub fn matches(&self,id:u32,pid:u32)->bool {self.id==id&&self.pid==pid}
     pub fn capture(&mut self,point:P)->bool {if self.expired||self.point.is_some(){return false;}self.point=Some(point);true}
+    #[cfg(test)]
     pub fn point_for(&self,id:u32,pid:u32)->Option<&P> {if self.matches(id,pid){self.point.as_ref()}else{None}}
     pub fn expire(&mut self) {if self.point.is_none(){self.expired=true;}}
+    #[cfg(test)]
     pub fn expired(&self)->bool {self.expired}
 }
 #[cfg(test)] mod priming_tests {
@@ -59,5 +61,52 @@ impl<P> PrimedAnchor<P> {
     #[test] fn expired_probe_never_falls_back_to_current_pointer() {
         let mut anchor=PrimedAnchor::new(7,42);anchor.expire();assert!(anchor.expired());
         assert!(!anchor.capture((800,900)));assert_eq!(anchor.point_for(7,42),None);
+    }
+}
+
+#[cfg(test)] mod fallback_tests {
+    use super::*;
+    #[test] fn expired_probe_presents_current_candidate_at_fixed_position_without_late_pointer() {
+        let mut anchor=PrimedAnchor::<(i32,i32)>::new(7,42);
+        assert_eq!(anchor.placement_for(7,42),None);
+        anchor.expire();
+        assert_eq!(anchor.placement_for(7,42),Some(Placement::TopCenter));
+        assert!(!anchor.capture((800,900)));
+        assert_eq!(anchor.placement_for(7,42),Some(Placement::TopCenter));
+        assert_eq!(anchor.placement_for(8,42),None);
+        assert_eq!(anchor.placement_for(7,43),None);
+    }
+    #[test] fn captured_anchor_keeps_near_placement_after_deadline() {
+        let mut anchor=PrimedAnchor::new(7,42);anchor.capture((100,200));anchor.expire();
+        assert_eq!(anchor.placement_for(7,42),Some(Placement::Near(&(100,200))));
+    }
+    #[test] fn fixed_bar_is_centered_and_clamped_on_small_outputs() {
+        assert_eq!(top_center(1920,1080,320,44),(800,12));
+        assert_eq!(top_center(200,30,320,44),(0,0));
+    }
+    #[test] fn reading_output_matches_logical_monitor_without_guessing_primary() {
+        let left=OutputRect{x:0,y:0,width:1920,height:1080};
+        let right=OutputRect{x:1920,y:0,width:1280,height:720};
+        assert_eq!(reading_monitor(Some(right),&[left,right]),Some(1));
+        assert_eq!(reading_monitor(None,&[left,right]),None);
+        assert_eq!(reading_monitor(Some(OutputRect{x:0,y:0,width:2560,height:1440}),&[left,right]),None);
+        assert_eq!(reading_monitor(Some(right),&[right,right]),None,"ambiguous mapping must use explicit fallback");
+    }
+}
+
+#[derive(Debug,PartialEq)]
+pub enum Placement<P> { Near(P),TopCenter }
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub struct OutputRect { pub x:i32,pub y:i32,pub width:i32,pub height:i32 }
+pub fn reading_monitor(output:Option<OutputRect>,monitors:&[OutputRect])->Option<usize> {
+    let output=output.filter(|o|o.width>0&&o.height>0)?;
+    let mut matches=monitors.iter().enumerate().filter(|(_,m)|**m==output);
+    let first=matches.next()?.0;if matches.next().is_some(){None}else{Some(first)}
+}
+pub fn top_center(mw:i32,mh:i32,w:i32,h:i32)->(i32,i32) {((mw-w).max(0)/2,12.min((mh-h).max(0)))}
+impl<P> PrimedAnchor<P> {
+    pub fn placement_for(&self,id:u32,pid:u32)->Option<Placement<&P>> {
+        if !self.matches(id,pid){return None;}
+        if let Some(point)=self.point.as_ref(){Some(Placement::Near(point))}else if self.expired{Some(Placement::TopCenter)}else{None}
     }
 }

@@ -1,4 +1,5 @@
-export interface ChatReply {requestId:string;conversationId:string;contextTurns:number;revision:number;answer:string;prompt:string;model:string;state:'streaming'|'complete'|'stopped'|'failed'|'interrupted'|'limited'|'filtered';error:string|null;saved:boolean;createdAt:number}
+export interface RetryState {attempt:number;nextRetryAt:number;reason:'timeout'|'rate-limit'}
+export interface ChatReply {retry?:RetryState;requestId:string;conversationId:string;contextTurns:number;revision:number;answer:string;prompt:string;model:string;state:'streaming'|'complete'|'stopped'|'failed'|'interrupted'|'limited'|'filtered';error:string|null;saved:boolean;createdAt:number}
 export interface Overview {reply:ChatReply|null;activeRequestId:string|null}
 export interface ChatPort {startSelection?(id:string,selection:string,actionId:string,expectedRevision:number):Promise<ChatReply>;listen(cb:(r:ChatReply)=>void):Promise<()=>void>;load():Promise<Overview>;start(id:string,prompt:string,conversationId?:string|null):Promise<ChatReply>;stop(id:string):Promise<ChatReply|null>;settle():Promise<ChatReply|null>}
 export interface ChatState {answer:string;running:boolean;stopping:boolean;loaded:boolean;error:string|null;reply:ChatReply|null}

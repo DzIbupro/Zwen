@@ -109,3 +109,19 @@ fn run(script:&str,ms:u64)->Result<String,SelectionError>{let mut c=Command::new
  b.freeze(first);assert!(b.candidate_exists(first));b.acknowledge(first);assert!(!b.candidate_exists(first));
  let manual=b.begin(Mode::Raw).unwrap();b.finish(manual,Ok("manual".into()));assert!(!b.candidate_exists(manual));assert!(!b.claim().unwrap().claimed);
 }
+
+#[test]
+fn single_hanzi_and_ascii_letter_have_no_minimum_selection_length() {
+ for (script, expected) in [("import os;os.write(1,'中'.encode())", "中"), ("import os;os.write(1,b'a')", "a")] {
+  let captured = run(script,750).expect("one non-whitespace character is valid PRIMARY text");
+  assert_eq!(captured, expected);
+  let mut inbox = Inbox::default();
+  let id = inbox.begin(Mode::Candidate).unwrap();
+  assert!(inbox.finish(id,Ok(captured)));
+  assert!(inbox.candidate_exists(id));
+  let preview = inbox.claim().unwrap();
+  assert_eq!(preview.text.as_deref(),Some(expected));
+  assert!(!preview.claimed);
+  assert_eq!(inbox.freeze(id).unwrap().text.as_deref(),Some(expected));
+ }
+}

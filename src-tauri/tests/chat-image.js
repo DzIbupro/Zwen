@@ -35,15 +35,13 @@
   fill('这张合成截图里有什么？');
   await wait(()=>!document.querySelector('[data-send]').disabled);
   document.querySelector('[data-send]').click();
-  // The synthetic service rejects the first attempt with HTTP 429 / code 1305:
-  // a zero-answer failure must keep the draft AND the attachment for retry.
-  await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='failed'&&s.reply.answer==='';});
-  if(!String((await invoke('get_chat')).reply?.error??'').includes('1305'))throw Error('Numeric code not surfaced');
-  if(input()?.value!=='这张合成截图里有什么？')throw Error('Rejected send cleared the draft');
-  if((await invoke('get_attachments')).items.length!==1)throw Error('Rejected send consumed the attachment');
-  stage='vision-retry';
-  await wait(()=>!document.querySelector('[data-send]').disabled);
-  document.querySelector('[data-send]').click();
+  // Retry one immutable vision payload without consuming its screenshots.
+  await wait(async()=>!!(await invoke('get_chat')).reply?.retry);
+  const pending=(await invoke('get_chat')).reply;
+  if(pending.prompt!=='这张合成截图里有什么？'||pending.answer!=='')throw Error('Retry lost question');
+  if((await invoke('get_attachments')).items.length!==1)throw Error('Backoff consumed attachment');
+  if(!document.querySelector('[data-retry-status]'))throw Error('Retry countdown missing');
+  stage='vision-auto-retry';
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete'&&s.reply.saved&&!s.activeRequestId;});
   const vision=(await invoke('get_chat')).reply;
   if(vision.model!=='fixture-vision')throw Error('Vision turn used '+vision.model);
@@ -58,6 +56,6 @@
   const textTurn=(await invoke('get_chat')).reply;
   if(textTurn.conversationId!==vision.conversationId)throw Error('Follow-up left the conversation');
   if((await invoke('get_attachments')).items.length!==0)throw Error('Follow-up resurrected attachments');
-  await api.event.emit('foundation-smoke',{ok:true,mode:'chat-image',gateBlocked:true,visionRouted:true,attachmentsConsumed:true,textFollowUp:true});
+  await api.event.emit('foundation-smoke',{ok:true,mode:'chat-image',gateBlocked:true,visionRouted:true,automaticRetry:true,attachmentsConsumed:true,textFollowUp:true});
  }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'chat-image',stage,error:String(e),lastLoad,ui:document.body.innerText.slice(0,1500)});}
 })();

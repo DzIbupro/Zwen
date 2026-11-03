@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RetryNotice from './RetryNotice.svelte';
   import ActionOutputNotice from './ActionOutputNotice.svelte';
   import QuickActionSettings from './QuickActionSettings.svelte';
   import {defaultQuickActions,type QuickActionConfig} from './lib/quick-actions';
@@ -53,7 +54,7 @@
   const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){responseKind='model';view='reply';}});
   const response=$derived(responseKind==='demo'?demoText:chatState.answer);
   const running=$derived(responseKind==='demo'?demoRunning:chatState.running);
-  const replyStatus=$derived(responseKind==='demo'?(demoRunning?'演示中':'演示结束'):chatState.reply?({streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'}[chatState.reply.state]):chatState.running?'等待回复':'');
+  const replyStatus=$derived(responseKind==='demo'?(demoRunning?'演示中':'演示结束'):chatState.reply?.retry?'等待重试':chatState.reply?({streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'}[chatState.reply.state]):chatState.running?'等待回复':'');
   const replyLabel=$derived(responseKind==='demo'?'演示回复 · 非 AI':'模型回复');
   const combinedNotice=$derived(responseKind==='model'?(chatState.error||notice):notice);
   const demo=new DemoStream((text,active)=>{demoText=text;demoRunning=active;});
@@ -105,7 +106,9 @@
       const requestId=crypto.randomUUID();
       if(!actionOutput.track({requestId,selection:item.text,actionId:action.id,actionName:action.name,output:action.output,outputDirectory:actionConfig.outputDirectory}))return;
       demo.stop();responseKind='model';view='reply';
+      const ticket=sendDraft.begin([], 'selection');if(!ticket){actionOutput.dismiss();return;}
       const accepted=await chat.sendSelection(requestId,item.text,action.id,actionConfig.revision);
+      if(accepted)sendDraft.accept(ticket,chatState);else sendDraft.cancel(ticket);
       if(appDisposed)return;
       if(accepted){await selection.acknowledgeFrozen(item.id);if(!appDisposed)await switchSurface('capsule');}
       else{actionOutput.dismiss();notice=chatState.error||'请求未开始，选区保留，请手动重试';}
@@ -120,6 +123,15 @@
   function newConversation(){if(closing)return;if(chat.newConversation()){quickSession.release();responseKind='model';view='ask';notice='已准备新对话，当前草稿保留';}}
   function continueHistory(reply:ChatReply){if(closing)return;if(chat.adopt(reply)){quickSession.release();responseKind='model';view='reply';notice='继续此会话将附带近期问答';}}
   function stopReply(){if(responseKind==='demo')demo.stop();else void chat.stop().catch(()=>{});}
+  const canRestoreQuestion=$derived(responseKind==='model'&&!chatState.running&&!chatState.stopping&&!!chatState.reply?.saved&&['failed','stopped','interrupted','limited'].includes(chatState.reply.state));
+  async function restoreQuestion(){
+    const reply=chatState.reply;if(closing||!reply||!canRestoreQuestion)return;
+    if(draft.text.trim()&&draft.text!==reply.prompt){notice='当前草稿已有新内容，请先处理；旧问题和部分回答仍在历史中';return;}
+    if(actionOutputState?.stage==='saving'){notice='文档正在保存，请稍后重提问';return;}
+    actionOutput.dismiss();controller.edit(reply.prompt);
+    try{await controller.flush();view='ask';focusRequest++;input?.focus();input?.setSelectionRange(reply.prompt.length,reply.prompt.length);notice='问题已恢复，点击发送可重新提问；已有回答保留在历史中';}
+    catch{notice='问题保留在草稿，保存未完成，请先重试保存';}
+  }
   async function retryReplySave(){try{await chat.settle();}catch(e){notice=e instanceof Error?e.message:'回答保存未完成';}}
   function captureScreenshot(replaceId?:string|null){if(!isDesktop){notice='浏览器仅预览，请在桌面应用中截图';return;}void attachmentController.capture(replaceId??null);}
   async function saveToKnowledge(){
@@ -226,7 +238,7 @@
 
 <svelte:window onkeydown={keydown}/>
 {#if surface.mode==='capsule'}
-<Capsule {focusRequest} quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching||closing} onEdit={s=>{if(!closing)controller.edit(s);}} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+<Capsule retry={chatState.reply?.retry??null} {canRestoreQuestion} onRestoreQuestion={()=>void restoreQuestion()} {focusRequest} quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching||closing} onEdit={s=>{if(!closing)controller.edit(s);}} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onDemo={startDemo} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
 {:else}
 <div class="shell">
   <header class="titlebar">
@@ -256,6 +268,8 @@
     </main>
     <ActionOutputNotice state={actionOutputState} onRetry={()=>void actionOutput.retry()} onDismiss={()=>actionOutput.dismiss()}/>
         <SelectionNotice actions={quickConfig.actions} {actionBusy} onAction={id=>void selectAction(id)} onSettings={()=>void openQuickSettings()} state={selectionState} onRetry={()=>void selection.applyPending()} onDiscard={()=>void selection.discard()} onReload={()=>void selection.refresh()}/>
+    {#if responseKind==='model'&&chatState.running&&chatState.reply?.retry}<RetryNotice retry={chatState.reply.retry}/>{/if}
+    {#if canRestoreQuestion&&(view==='reply'||view==='ask')}<button class="text-button" data-restore-question onclick={()=>void restoreQuestion()}>恢复问题，重新提问</button>{/if}
     {#if responseKind==='model'&&chatState.error}<div class="error" role="alert"><strong>{chatState.error}</strong>{#if !chatState.loaded}<button onclick={()=>void chat.load()}>重新读取对话</button>{/if}{#if chatState.reply&&!chatState.reply.saved&&!chatState.running}<button onclick={()=>void retryReplySave()}>重试保存回答</button>{/if}</div>{/if}
     {#if draft.error}<div class="error" role="alert"><strong>{draft.error}</strong><span>原有文件不会被自动替换。</span><button onclick={()=>draft.loaded ? save() : controller.start().then(()=>selection.refresh()).catch(()=>{})}>{draft.loaded ? '重试保存' : '重新读取'}</button></div>{/if}
     {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">

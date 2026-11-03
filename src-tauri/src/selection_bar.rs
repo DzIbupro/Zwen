@@ -2,6 +2,7 @@
 //! The short input probe yields pointer proximity, never selection bounds.
 #[path = "selection_bar_geometry.rs"]
 mod geometry;
+pub use geometry::OutputRect;
 
 pub struct BarAction { pub id: String, pub name: String }
 
@@ -58,12 +59,12 @@ mod native {
     }
     #[derive(Clone)]
     struct Anchor {monitor:gdk::Monitor,x:f64,y:f64}
-    struct PendingBar {app:tauri::AppHandle,id:u32,revision:u64,actions:std::rc::Rc<Vec<BarAction>>,pid:u32}
+    struct PendingBar {app:tauri::AppHandle,id:u32,revision:u64,actions:std::rc::Rc<Vec<BarAction>>,pid:u32,output:Option<OutputRect>}
     #[derive(Default)]
     struct Runtime {
         layer:Option<std::rc::Rc<Layer>>, probes:Vec<gtk::Window>, bar:Option<gtk::Window>,
         probe_gate:geometry::ProbeGate,
-        token:u64,anchor:Option<geometry::PrimedAnchor<Anchor>>,pending:Option<PendingBar>,
+        token:u64,anchor:Option<geometry::PrimedAnchor<Anchor>>,pending:Option<PendingBar>,anchor_kind:Option<&'static str>,
         buttons:Vec<(String,gtk::Button)>, selection:Option<u32>,
         monitor_handlers:Vec<(gdk::Monitor,glib::SignalHandlerId)>,
     }
@@ -73,7 +74,7 @@ mod native {
     fn clear() {
         // Extract ownership before any GTK call: unmap/destroy can synchronously emit signals.
         let (probes,bar,handlers,buttons)=UI.with(|ui| {
-            let mut r=ui.borrow_mut();r.probe_gate.cancel();r.selection=None;r.anchor=None;r.pending=None;
+            let mut r=ui.borrow_mut();r.probe_gate.cancel();r.selection=None;r.anchor=None;r.pending=None;r.anchor_kind=None;
             (std::mem::take(&mut r.probes),r.bar.take(),std::mem::take(&mut r.monitor_handlers),std::mem::take(&mut r.buttons))
         });
         for (monitor,handler) in handlers {monitor.disconnect(handler);}
@@ -110,30 +111,48 @@ mod native {
             if let Some(token)=token {cancel(token);}
         });
     }
-    pub fn show(app:&tauri::AppHandle,id:u32,revision:u64,actions:Vec<BarAction>,pid:u32) {
+    pub fn show(app:&tauri::AppHandle,id:u32,revision:u64,actions:Vec<BarAction>,pid:u32,output:Option<OutputRect>) {
         let token=REQUEST.load(Ordering::SeqCst);let a=app.clone();
         let _=app.run_on_main_thread(move|| {
             if !current(token)||!crate::selection::bar_is_current(&a,id,pid) {return;}
             let accepted=UI.with(|ui| {
                 let mut r=ui.borrow_mut();
-                if r.token!=token||r.bar.is_some()||!r.anchor.as_ref().is_some_and(|p|p.matches(id,pid)&&!p.expired()) {return false;}
-                r.pending=Some(PendingBar{app:a,id,revision,actions:std::rc::Rc::new(actions),pid});true
+                if r.token!=token||r.bar.is_some()||!r.anchor.as_ref().is_some_and(|p|p.matches(id,pid)) {return false;}
+                r.pending=Some(PendingBar{app:a,id,revision,actions:std::rc::Rc::new(actions),pid,output});true
             });
             #[cfg(feature="desktop-smoke")]eprintln!("BAR_TRACE show id={id} token={token} accepted={accepted}");
             if accepted {maybe_show(token);}
         });
     }
+    fn near_anchor_kind()->&'static str {
+        #[cfg(feature="desktop-smoke")]
+        if std::env::var("ZWEN_ACTIONS_FIXED_ANCHOR").as_deref()==Ok("1"){return "synthetic-fixed";}
+        "pointer-proximity"
+    }
     fn maybe_show(token:u64) {
         if !current(token) {return;}
         let ready=UI.with(|ui| {
             let mut r=ui.borrow_mut();
-            let point=r.pending.as_ref().and_then(|p|r.anchor.as_ref().and_then(|anchor|anchor.point_for(p.id,p.pid))).cloned();
-            point.and_then(|point|r.pending.take().map(|pending|(point,pending)))
+            let placement=r.pending.as_ref().and_then(|p|r.anchor.as_ref().and_then(|anchor|anchor.placement_for(p.id,p.pid))).map(|p|match p{geometry::Placement::Near(point)=>geometry::Placement::Near(point.clone()),geometry::Placement::TopCenter=>geometry::Placement::TopCenter});
+            placement.and_then(|placement|r.pending.take().map(|pending|(placement,pending)))
         });
-        if let Some((point,p))=ready {
-            if crate::selection::bar_is_current(&p.app,p.id,p.pid) {
-                build_bar(p.app,token,p.id,p.revision,p.actions,p.pid,point.monitor,point.x,point.y,style());
-            }else{cancel(token);}
+        if let Some((placement,p))=ready {
+            if !crate::selection::bar_is_current(&p.app,p.id,p.pid) {cancel(token);return;}
+            let (monitor,point,kind)=match placement {
+                geometry::Placement::Near(point)=>(point.monitor,Some((point.x,point.y)),near_anchor_kind()),
+                geometry::Placement::TopCenter=>{
+                    let Some(display)=gdk::Display::default() else{cancel(token);return;};
+                    let monitors=(0..display.n_monitors()).filter_map(|i|display.monitor(i)).collect::<Vec<_>>();
+                    let rects=monitors.iter().map(|m|{let g=m.geometry();OutputRect{x:g.x(),y:g.y(),width:g.width(),height:g.height()}}).collect::<Vec<_>>();
+                    if let Some(index)=geometry::reading_monitor(p.output,&rects){(monitors[index].clone(),None,"fixed-top-center-reading-output")}
+                    else if let Some(monitor)=display.primary_monitor(){(monitor,None,"fixed-top-center-primary-monitor")}
+                    else if let Some(monitor)=display.monitor(0){(monitor,None,"fixed-top-center-first-monitor")}
+                    else{cancel(token);return;}
+                }
+            };
+            #[cfg(feature="desktop-smoke")]eprintln!("BAR_TRACE build id={} token={token} anchorKind={kind}",p.id);
+            UI.with(|ui|ui.borrow_mut().anchor_kind=Some(kind));
+            build_bar(p.app,token,p.id,p.revision,p.actions,p.pid,monitor,point,style());
         }
     }
     fn style()->gtk::CssProvider {
@@ -166,7 +185,7 @@ mod native {
         let css=style();
         let started=Instant::now();
         for i in 0..display.n_monitors() {
-            if started.elapsed()>=Duration::from_millis(200) {cancel(token);break;}
+            if started.elapsed()>=Duration::from_millis(200) {break;}
             if !current(token)||!UI.with(|ui|ui.borrow().probe_gate.active()) {break;}
             let Some(monitor)=display.monitor(i) else {continue;};
             let h=monitor.connect_invalidate(move |_|cancel(token));
@@ -202,8 +221,12 @@ mod native {
         // Maximum probe lifetime. This does not claim a compositor cannot swallow an intervening click.
         glib::timeout_add_local_once(Duration::from_millis(200).saturating_sub(started.elapsed()),move|| {
             if current(token)&&UI.with(|ui|ui.borrow().probe_gate.active()) {
-                UI.with(|ui| {if let Some(anchor)=ui.borrow_mut().anchor.as_mut(){anchor.expire();}});
-                cancel(token);
+                // Revoke the input region and destroy every probe before a fixed
+                // fallback can become visible. Keep only this candidate's lease.
+                let probes=UI.with(|ui| {let mut r=ui.borrow_mut();r.probe_gate.cancel();if let Some(anchor)=r.anchor.as_mut(){anchor.expire();}std::mem::take(&mut r.probes)});
+                destroy_probes(probes);
+                #[cfg(feature="desktop-smoke")]eprintln!("BAR_TRACE probe-expired id={id} token={token} probes-destroyed=true");
+                maybe_show(token);
             }
         });
         let a=app.clone();
@@ -229,7 +252,7 @@ mod native {
         UI.with(|ui|ui.borrow_mut().buttons.push((key,b.clone())));b
     }
     #[allow(clippy::too_many_arguments)]
-    fn build_bar(app:tauri::AppHandle,token:u64,id:u32,revision:u64,actions:std::rc::Rc<Vec<BarAction>>,pid:u32,monitor:gdk::Monitor,x:f64,y:f64,css:gtk::CssProvider) {
+    fn build_bar(app:tauri::AppHandle,token:u64,id:u32,revision:u64,actions:std::rc::Rc<Vec<BarAction>>,pid:u32,monitor:gdk::Monitor,point:Option<(f64,f64)>,css:gtk::CssProvider) {
         let w=gtk::Window::new(gtk::WindowType::Toplevel);
         w.set_app_paintable(true);
         if let Some(screen)=gtk::prelude::WidgetExt::screen(&w) { if let Some(visual)=screen.rgba_visual() { w.set_visual(Some(&visual)); } }
@@ -266,7 +289,7 @@ mod native {
         if !current(token) {unsafe {w.destroy();}return;}
         UI.with(|ui|ui.borrow_mut().bar=Some(w.clone()));
         let geometry=monitor.geometry();let (_,natural)=w.preferred_size();
-        let (left,top)=geometry::position(x,y,geometry.width(),geometry.height(),natural.width,natural.height);
+        let (left,top)=match point{Some((x,y))=>geometry::position(x,y,geometry.width(),geometry.height(),natural.width,natural.height),None=>geometry::top_center(geometry.width(),geometry.height(),natural.width,natural.height)};
         with_layer(|layer|layer.place(&w,left,top));
         w.show_all();scroll.hide();
         let s=scroll.clone();let ww=w.clone();let m=monitor.clone();
@@ -298,7 +321,7 @@ mod native {
         use tauri::{Emitter,Manager};
         let a=app.clone();let _=app.run_on_main_thread(move||UI.with(|ui|{
             let r=ui.borrow();let (w,h)=r.bar.as_ref().map(|w|(w.allocated_width(),w.allocated_height())).unwrap_or((0,0));
-            let _=a.emit("selection-bar-state",serde_json::json!({"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":if std::env::var("ZWEN_ACTIONS_FIXED_ANCHOR").as_deref()==Ok("1"){"synthetic-fixed"}else{"pointer-proximity"},"renderAlpha":r.bar.as_ref().and_then(smoke_alpha),"rgbaDepth":r.bar.as_ref().and_then(|w|w.visual()).map(|v|v.depth()),"buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
+            let _=a.emit("selection-bar-state",serde_json::json!({"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":r.anchor_kind.unwrap_or("unavailable"),"renderAlpha":r.bar.as_ref().and_then(smoke_alpha),"rgbaDepth":r.bar.as_ref().and_then(|w|w.visual()).map(|v|v.depth()),"buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
         }));
     }
     #[cfg(feature="desktop-smoke")]
@@ -314,7 +337,7 @@ pub use native::{show,dismiss,prime,discard_prime};
 #[cfg(all(target_os="linux",feature="desktop-smoke"))]
 pub use native::{smoke_click,smoke_inspect};
 #[cfg(not(target_os="linux"))]
-pub fn show(_: &tauri::AppHandle,_:u32,_:u64,_:Vec<BarAction>,_:u32) {}
+pub fn show(_: &tauri::AppHandle,_:u32,_:u64,_:Vec<BarAction>,_:u32,_:Option<OutputRect>) {}
 #[cfg(not(target_os="linux"))]
 pub fn dismiss(_: &tauri::AppHandle) {}
 

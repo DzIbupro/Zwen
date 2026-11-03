@@ -61,9 +61,17 @@
   await closeCapsule();await wait(async()=>!(await inspect()).mainVisible);await wait(()=>document.querySelector('#capsule-question')?.value==='');await new Promise(r=>setTimeout(r,250));
   stage='close-running-request';await openAsk('stop fixture');await wait(()=>document.querySelector('#capsule-question')?.value==='stop fixture');document.querySelector('[data-send]').click();
   await wait(async()=>{const r=(await invoke('get_chat')).reply;return r?.prompt==='stop fixture'&&r.state==='streaming';},'synthetic running request');
+  await wait(()=>document.querySelector('[data-retry-status]'),'stop during retry backoff');
   await closeCapsule();await wait(async()=>!(await inspect()).mainVisible);await wait(()=>document.querySelector('#capsule-question')?.value==='');await new Promise(r=>setTimeout(r,250));
+  stage='partial-failure';await openAsk('partial fixture');document.querySelector('[data-send]').click();
+  await wait(async()=>{const r=(await invoke('get_chat')).reply;return r?.state==='failed'&&r.answer.includes('Partial fixture');},'partial failure');
+  await wait(()=>document.querySelector('#capsule-question')?.value==='partial fixture','failed partial question restored');
+  if(document.querySelector('[data-retry-status]'))throw Error('partial answer was auto retried');
+  const restore=document.querySelector('[data-restore-question]');if(!restore)throw Error('manual restore missing');restore.click();
+  if(!document.querySelector('[data-capsule-answer]')?.textContent.includes('Partial fixture'))throw Error('partial answer lost');
+  await closeCapsule();await wait(async()=>!(await inspect()).mainVisible);await new Promise(r=>setTimeout(r,250));
   stage='translate';await choose('translate fixture');await click('translate');
-  await wait(()=>document.querySelector('[data-capsule-waiting]')?.textContent.includes('正在等待模型回复'),'translate waiting before first token');
+  await wait(()=>document.querySelector('[data-retry-status]')?.textContent.includes('已保留'),'translate retry status');
   await wait(()=>!document.querySelector('[aria-label="收起胶囊"]')?.disabled);await singlePresentation();
   if(document.querySelector('[data-selection-state]')?.textContent.includes('重新读取状态'))throw Error('successful action left stale reload prompt');
   await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('Translated fixture'),'translate answer');
@@ -94,6 +102,6 @@
   if(bar.mainVisible)throw Error('disable opened main');
   await api.event.emit('actions-fixture-selection','must-not-show-after-disabled');await new Promise(r=>setTimeout(r,400));
   if((await inspect()).visible)throw Error('late candidate resurrected disabled bar');
-  await api.event.emit('foundation-smoke',{ok:true,mode:'actions',independentBar:true,noCandidatePopup:true,sourceWindowSwitch:true,replaced:true,ask:true,presentations,waitingBeforeFirstToken:true,explain:true,rawDraft:true,endFocus:true,closeReset:true,expandPreserves:true,nextSelection:true,ordinaryDraftPreserved:true,failedClose:true,runningClose:true,translate:true,settings:true,document:true,idempotent:true,disable:true,path,noteId:notes[0].id});
+  await api.event.emit('foundation-smoke',{ok:true,mode:'actions',independentBar:true,noCandidatePopup:true,sourceWindowSwitch:true,replaced:true,ask:true,presentations,waitingBeforeFirstToken:true,autoRetry:true,stopBackoff:true,partialPreserved:true,manualRestore:true,explain:true,rawDraft:true,endFocus:true,closeReset:true,expandPreserves:true,nextSelection:true,ordinaryDraftPreserved:true,failedClose:true,runningClose:true,translate:true,settings:true,document:true,idempotent:true,disable:true,path,noteId:notes[0].id});
  }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'actions',stage,error:String(e?.message||e),bar,ui:document.body.innerText.slice(0,2000)});}
 })();

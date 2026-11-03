@@ -7,7 +7,10 @@ use tauri::Emitter;
 use tokio::sync::watch;
 use zwen_core::{attachment::AttachmentStore,journal::{Journal,Turn,TurnState},completion::FinishReason};
 #[derive(Clone,Serialize)]
-pub struct Reply {#[serde(flatten)] turn:Turn,saved:bool}
+#[serde(rename_all="camelCase")]
+pub struct RetryState {attempt:u32,next_retry_at:u64,reason:&'static str}
+#[derive(Clone,Serialize)]
+pub struct Reply {#[serde(flatten)] turn:Turn,saved:bool,#[serde(skip_serializing_if="Option::is_none")]retry:Option<RetryState>}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Overview {reply:Option<Reply>,active_request_id:Option<String>}
@@ -25,32 +28,33 @@ fn publish(app:&tauri::AppHandle,state:&Shared,reply:Reply)->Result<(),()>{
  if s.active.as_ref().is_none_or(|a|a.id!=reply.turn.request_id){return Err(());}
  s.last=Some(reply.clone());app.emit("chat-update",reply).map_err(|_|())
 }
-fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,messages:Vec<zwen_core::completion::Message>,mut consume_ids:Vec<String>,attach_dir:std::path::PathBuf,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
+fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,attach_dir:std::path::PathBuf,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
  let mut emit_at=Instant::now();let mut save_at=Instant::now();let mut first=true;
  let result=(||{
   let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_|zwen_transport::Error::Network)?;
   runtime.block_on(async{
    let client=zwen_transport::client()?;
-   zwen_transport::stream_messages(&client,&config,&key,&messages,cancel,|part|{
-    turn.answer.push_str(part);
-    // Screenshots are consumed once the model actually starts answering. A
-    // request rejected before the first token (429, network, …) keeps them so
-    // the user can retry without re-capturing.
-    if !consume_ids.is_empty(){
-     let mut store=AttachmentStore::open(&attach_dir).ok();
-     if let Some(store)=store.as_mut(){
-      let mut all=true;
-      for id in consume_ids.iter(){
-       match store.remove(id){Ok(())=>{},Err(zwen_core::Error::AttachmentMissing)=>{},Err(_)=>{all=false;}}
-      }
-      if all{consume_ids.clear();}
+   use zwen_transport::retry::{stream_messages_with_retry,RetryPolicy,StreamEvent};
+   stream_messages_with_retry(&client,&config,&key,&messages,cancel,RetryPolicy::default(),|event|{
+    match event {
+     StreamEvent::Retrying(status)=>{
+      turn.revision+=1;journal.checkpoint(&turn).map_err(|_|())?;
+      let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis().min(u64::MAX as u128) as u64;
+      let delay=status.delay.as_millis().min(u64::MAX as u128) as u64;
+      publish(&app,&state,Reply{turn:turn.clone(),saved:true,retry:Some(RetryState{attempt:status.attempt,next_retry_at:now.saturating_add(delay),reason:status.reason})})?;
      }
-     let _=app.emit("attachments-changed",());
+     StreamEvent::Attempt=>{
+      turn.revision+=1;journal.checkpoint(&turn).map_err(|_|())?;
+      publish(&app,&state,Reply{turn:turn.clone(),saved:true,retry:None})?;
+     }
+     StreamEvent::Text(part)=>{
+      turn.answer.push_str(part);
+      let emit=first||emit_at.elapsed()>=Duration::from_millis(80);let save=first||save_at.elapsed()>=Duration::from_millis(500);
+      if emit||save{turn.revision+=1;}
+      if save{journal.checkpoint(&turn).map_err(|_|())?;save_at=Instant::now();}
+      if emit{publish(&app,&state,Reply{turn:turn.clone(),saved:save,retry:None})?;emit_at=Instant::now();first=false;}
+     }
     }
-    let emit=first||emit_at.elapsed()>=Duration::from_millis(80);let save=first||save_at.elapsed()>=Duration::from_millis(500);
-    if emit||save{turn.revision+=1;}
-    if save{journal.checkpoint(&turn).map_err(|_|())?;save_at=Instant::now();}
-    if emit{publish(&app,&state,Reply{turn:turn.clone(),saved:save})?;emit_at=Instant::now();first=false;}
     Ok(())
    }).await
   })
@@ -58,7 +62,12 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
  turn.revision+=1;
  turn.state=match result{Ok(FinishReason::Stop)=>TurnState::Complete,Ok(FinishReason::Length)=>TurnState::Limited,Ok(FinishReason::Filtered)=>TurnState::Filtered,Err(zwen_transport::Error::Cancelled)=>TurnState::Stopped,Err(_)=>TurnState::Failed};
  turn.error=match &result{Err(zwen_transport::Error::Cancelled)=>None,Err(e)=>Some(e.to_string()),Ok(FinishReason::Length)=>Some("达到服务输出限制，回答可能不完整".into()),Ok(FinishReason::Filtered)=>Some("服务限制了本轮输出".into()),_=>None};
- let saved=journal.checkpoint(&turn).is_ok();let reply=Reply{turn,saved};
+ let saved=journal.checkpoint(&turn).is_ok();if saved&&turn.state==TurnState::Complete&&!consume_ids.is_empty(){
+  // Failed/partial requests must retain their exact screenshots for manual recovery.
+  if let Ok(mut store)=AttachmentStore::open(&attach_dir){for id in &consume_ids{let _=store.remove(id);}}
+  let _=app.emit("attachments-changed",());
+ }
+ let reply=Reply{turn,saved,retry:None};
  {
   let mut s=state.lock().map_err(|_|ClientError::storage())?;
   if s.active.as_ref().is_some_and(|a|a.id==reply.turn.request_id){s.last=Some(reply.clone());s.active=None;let _=app.emit("chat-update",&reply);}
@@ -129,7 +138,7 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
    StartScope::Selection{selection,action_id,expected_revision}=>(crate::quick_actions::prepare_request(&storage,&request_id,&selection,&action_id,expected_revision)?,None,true),
   };
   let prepared=prepare_turn(&mut journal,&dir,&config,&request_id,prompt,conversation_id.as_deref(),isolated)?;
-  let reply=Reply{turn:prepared.turn.clone(),saved:true};s.last=Some(reply.clone());
+  let reply=Reply{turn:prepared.turn.clone(),saved:true,retry:None};s.last=Some(reply.clone());
   let (cancel,rx)=watch::channel(false);let id=request_id;let worker=state.clone();
   let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,rx));
   s.active=Some(Active{id,cancel,handle:Some(handle)});Ok(reply)
@@ -144,7 +153,7 @@ pub async fn get_chat(storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'
   if s.active.is_none()&&s.last.as_ref().is_some_and(|r|!r.saved){return Ok(Overview{reply:s.last.clone(),active_request_id:None});}
   let mut journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;
   if s.active.is_none()&&!s.last.as_ref().is_some_and(|r|!r.saved){journal.recover()?;}
-  let persisted=journal.latest()?.map(|turn|Reply{turn,saved:true});
+  let persisted=journal.latest()?.map(|turn|Reply{turn,saved:true,retry:None});
   let reply=match (&s.last,persisted){(Some(live),Some(db))if live.turn.request_id==db.turn.request_id=>Some(if live.turn.revision>=db.turn.revision{live.clone()}else{db}),(Some(live),_)if !live.saved||s.active.is_some()=>Some(live.clone()),(_,db)=>db};
   s.last=reply.clone();Ok(Overview{reply,active_request_id:s.active.as_ref().map(|a|a.id.clone())})
  }).await.map_err(|_|ClientError::storage())?
@@ -180,7 +189,7 @@ pub async fn get_chat_history(storage:tauri::State<'_,SharedStorage>,page:usize)
 pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,request_id:String)->Result<Option<Reply>,ClientError>{
  let storage=storage.inner().clone();let state=chat.inner().clone();tauri::async_runtime::spawn_blocking(move||{
   if request_id.len()>100{return Err(zwen_core::Error::InvalidChat.into());}
-  let s=state.lock().map_err(|_|ClientError::storage())?;let journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;let saved=journal.find(&request_id)?.map(|turn|Reply{turn,saved:true});
+  let s=state.lock().map_err(|_|ClientError::storage())?;let journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;let saved=journal.find(&request_id)?.map(|turn|Reply{turn,saved:true,retry:None});
   Ok(match (&s.last,saved){(Some(live),Some(db))if live.turn.request_id==request_id&&live.turn.revision>=db.turn.revision=>Some(live.clone()),(_,db)=>db})
  }).await.map_err(|_|ClientError::storage())?
 }

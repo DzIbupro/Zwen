@@ -38,6 +38,19 @@ pub fn bar_is_current(app:&tauri::AppHandle,id:u32,pid:u32)->bool{
  let valid=LEDGER.lock().is_ok_and(|l|l.active.as_ref().is_some_and(|s|s.id==id&&s.pid==pid));
  valid&&app.state::<Shared>().lock().is_ok_and(|inbox|!inbox.reading()&&inbox.candidate_exists(id))
 }
+// This is an output identity, never a late pointer sample. Unknown/malformed
+// compositor metadata deliberately falls back to the primary monitor.
+fn reading_output()->Option<crate::selection_bar::OutputRect>{
+ let mut command=std::process::Command::new("niri");command.args(["msg","-j","focused-output"]);
+ let raw=zwen_core::selection::read_from(command,Duration::from_millis(150)).ok()?;
+ parse_reading_output(&raw)
+}
+fn parse_reading_output(raw:&str)->Option<crate::selection_bar::OutputRect>{
+ let value:serde_json::Value=serde_json::from_str(raw).ok()?;let logical=value.get("logical")?;
+ let number=|key|i32::try_from(logical.get(key)?.as_i64()?).ok();
+ let output=crate::selection_bar::OutputRect{x:number("x")?,y:number("y")?,width:number("width")?,height:number("height")?};
+ (output.width>0&&output.height>0).then_some(output)
+}
 pub async fn present(app:tauri::AppHandle,id:u32,watch_token:Option<String>,expected_source:super::FocusSource,generation:u64){
  let a=app.clone();
  let prepared=tauri::async_runtime::spawn_blocking(move||{
@@ -45,17 +58,18 @@ pub async fn present(app:tauri::AppHandle,id:u32,watch_token:Option<String>,expe
   let storage=a.state::<crate::SharedStorage>();
   let config=crate::quick_actions::config_for_bar(storage.inner()).ok()?;
   let actions=config.actions.into_iter().filter(|a|a.enabled).map(|a|crate::selection_bar::BarAction{id:a.id,name:a.name}).collect::<Vec<_>>();
+  let output=reading_output();
   if super::external_source()!=Some(source){return None;}
-  Some((source,config.revision,actions))
+  Some((source,config.revision,actions,output))
  }).await.ok().flatten();
- let Some((source,revision,actions))=prepared else{return;};
+ let Some((source,revision,actions,output))=prepared else{return;};
  let pid=source.pid;
  if !super::candidate_allowed(&watch_token){return;}
  let mut keys=actions.iter().map(|a|a.id.clone()).collect::<Vec<_>>();keys.extend(["ask".into(),"__settings".into(),"__dismiss".into()]);
  let session={
   let shared=app.state::<Shared>();let Ok(inbox)=shared.lock() else{return;};
   let session=match LEDGER.lock().ok().and_then(|mut l|l.start_for_candidate(&inbox,generation,id,source,revision,keys)){Some(s)=>s,None=>return};
-  crate::selection_bar::show(&app,id,revision,actions,pid);session
+  crate::selection_bar::show(&app,id,revision,actions,pid,output);session
  };
  // GTK only reads the cheap ledger. Compositor IPC stays off its event thread.
  tauri::async_runtime::spawn_blocking(move||{
@@ -98,6 +112,14 @@ pub fn toolbar_action(app:&tauri::AppHandle,id:u32,action:&str,revision:u64){
 }
 #[cfg(test)]mod tests{
  use super::*;
+ #[test]fn reading_output_uses_logical_coordinates_and_rejects_untrusted_metadata(){
+  let output=parse_reading_output(r#"{"name":"DP-2","logical":{"x":1920,"y":-120,"width":1280,"height":720,"scale":1.5}}"#).unwrap();
+  assert_eq!(output,crate::selection_bar::OutputRect{x:1920,y:-120,width:1280,height:720});
+  for raw in ["null", "{}", r#"{"logical":null}"#, r#"{"logical":{"x":0,"y":0,"width":0,"height":720}}"#, r#"{"logical":{"x":0,"y":0,"width":1920}}"#, r#"{"logical":{"x":0,"y":0,"width":2147483648,"height":720}}"#, r#"{"logical":{"x":0.5,"y":0,"width":1920,"height":720}}"#] {
+   assert_eq!(parse_reading_output(raw),None,"invalid output must use explicit primary-monitor fallback: {raw}");
+  }
+ }
+
  #[test]fn stale_read_cannot_overwrite_a_new_anchor_or_presentation(){let mut l=Ledger::default();let mut inbox=zwen_core::selection::Inbox::default();let old=inbox.begin(zwen_core::selection::Mode::Candidate).unwrap();assert!(inbox.is_current_read(old));let new=inbox.begin(zwen_core::selection::Mode::Candidate).unwrap();assert!(l.reserve_prime(&inbox,new,2,0));assert!(!l.reserve_prime(&inbox,old,2,0));assert_eq!(l.anchor.as_ref().unwrap().id,new);inbox.finish(new,Ok("fixture".into()));let source=super::super::FocusSource{pid:2,window_id:10};assert!(l.start_for_candidate(&inbox,0,old,source,1,vec![]).is_none());assert!(l.start_for_candidate(&inbox,0,new,source,1,vec![]).is_some());}
  #[test]fn cleaning_old_bar_does_not_cancel_a_new_selection_lookup(){let mut l=Ledger::default();let source=super::super::FocusSource{pid:2,window_id:10};let old=l.start(1,source,3,vec![]);let lookup=l.generation;assert!(l.revoke(old.epoch));assert!(l.start_if_current(lookup,2,source,3,vec![]).is_some());}
  #[test]fn disabled_or_dismissed_bar_cannot_be_recreated_by_an_old_lookup(){let mut l=Ledger::default();let g=l.generation;l.dismiss();let source=super::super::FocusSource{pid:2,window_id:10};assert!(l.start_if_current(g,1,source,3,vec![]).is_none());let g=l.generation;let session=l.start_if_current(g,1,source,3,vec![]).unwrap();let pending=l.generation;assert!(l.revoke(session.epoch));l.dismiss();assert!(l.start_if_current(pending,2,source,3,vec![]).is_none());}

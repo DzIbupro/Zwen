@@ -2,14 +2,15 @@
 use std::{fmt,time::Duration};
 use tokio::sync::watch;
 use zwen_core::{provider::{ProviderConfig,ApiKey},completion::{CompletionDecoder,FinishReason},stream::{Decoder,MAX_CHUNK_BYTES}};
+pub mod retry;
 pub const MAX_RESPONSE_BYTES:usize=256*1024;
 pub const MAX_WIRE_BYTES:usize=8*1024*1024;
 pub const MAX_MESSAGE_IMAGES:usize=8;
 pub const MAX_IMAGE_PAYLOAD_BYTES:usize=8*1024*1024;
-#[derive(Debug,PartialEq)] pub enum Error {Cancelled,Http(u16),Api{status:u16,code:u32},Protocol,Network,Timeout,TooLarge,Delivery,Empty,InvalidInput}
+#[derive(Debug,PartialEq)] pub enum Error {Quota,RateLimited{code:Option<u32>,retry_after:Duration},Cancelled,Http(u16),Api{status:u16,code:u32},Protocol,Network,Timeout,TooLarge,Delivery,Empty,InvalidInput}
 impl fmt::Display for Error {
- fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{if let Self::Api{status,code}=self{return write!(f,"{}（HTTP {}，代码 {}），请核对服务状态后手动重试",if *status==429{"服务拒绝本次请求"}else{"服务返回异常状态"},status,code);}f.write_str(match self{
-  Self::Api{..}=>"服务返回异常状态",Self::Cancelled=>"已停止生成，已接收内容保留",Self::Http(401|403)=>"服务拒绝了凭据或模型权限，请检查设置",Self::Http(429)=>"服务返回HTTP429，可能是速率、配额或账户限制，请核对后手动重试",Self::Http(_)=>"模型服务返回异常状态，未自动重试",Self::Protocol=>"响应格式不支持或流式连接未完整结束，已接收内容保留",Self::Network=>"无法连接模型服务，未自动重试",Self::Timeout=>"模型请求超时，已接收内容保留",Self::TooLarge=>"回答达到本轮大小限制，已接收内容保留",Self::Delivery=>"回答暂无法保存或展示，请保留当前内容",Self::Empty=>"模型未返回文本，请检查模型与服务协议",Self::InvalidInput=>"问题为空或超过256 KiB，请调整后发送"})}
+ fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{if let Self::RateLimited{code,..}=self{return write!(f,"服务返回HTTP429{}",code.map(|v|format!("（代码 {v}）")).unwrap_or_default());}if let Self::Api{status,code}=self{return write!(f,"{}（HTTP {}，代码 {}），请核对服务状态后手动重试",if *status==429{"服务拒绝本次请求"}else{"服务返回异常状态"},status,code);}f.write_str(match self{
+  Self::Quota=>"服务账户或额度限制（HTTP429），问题已保留，请核对账户后再试",Self::RateLimited{..}=>"服务返回HTTP429",Self::Api{..}=>"服务返回异常状态",Self::Cancelled=>"已停止生成，已接收内容保留",Self::Http(401|403)=>"服务拒绝了凭据或模型权限，请检查设置",Self::Http(429)=>"服务返回HTTP429，可能是速率、配额或账户限制，请核对后手动重试",Self::Http(_)=>"模型服务返回异常状态，未自动重试",Self::Protocol=>"响应格式不支持或流式连接未完整结束，已接收内容保留",Self::Network=>"无法连接模型服务，未自动重试",Self::Timeout=>"模型请求超时，已接收内容保留",Self::TooLarge=>"回答达到本轮大小限制，已接收内容保留",Self::Delivery=>"回答暂无法保存或展示，请保留当前内容",Self::Empty=>"模型未返回文本，请检查模型与服务协议",Self::InvalidInput=>"问题为空或超过256 KiB，请调整后发送"})}
 }
 impl std::error::Error for Error {}
 pub fn client()->Result<reqwest::Client,Error>{
@@ -20,15 +21,19 @@ pub fn client()->Result<reqwest::Client,Error>{
 fn network(error:reqwest::Error)->Error{if error.is_timeout(){Error::Timeout}else{Error::Network}}
 async fn cancelled(rx:&mut watch::Receiver<bool>){loop{if *rx.borrow_and_update(){return;}if rx.changed().await.is_err(){return;}}}
 async fn http_error(response:&mut reqwest::Response,cancel:&mut watch::Receiver<bool>,status:u16)->Error{
+ let retry_after=response.headers().get(reqwest::header::RETRY_AFTER).and_then(|v|v.to_str().ok()).and_then(|v|retry::parse_retry_after(v,std::time::SystemTime::now()));
  let deadline=tokio::time::Instant::now()+Duration::from_secs(2);let mut bytes=Vec::new();
  loop {
   let part=tokio::select!{biased;_=cancelled(cancel)=>return Error::Cancelled,_=tokio::time::sleep_until(deadline)=>break,r=response.chunk()=>match r{Ok(Some(v))=>v,_=>break}};
   let remaining=8192usize.saturating_sub(bytes.len());bytes.extend_from_slice(&part[..part.len().min(remaining)]);if part.len()>=remaining{break;}
  }
- let code=serde_json::from_slice::<serde_json::Value>(&bytes).ok().and_then(|v|{
+ let parsed=serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+ if status==429&&parsed.as_ref().and_then(|v|v.get("error")).is_some_and(|e|["code","type"].iter().filter_map(|k|e.get(k)?.as_str()).any(|s|matches!(s,"insufficient_quota"|"billing_hard_limit_reached"|"billing_not_active"|"credits_exhausted"|"quota_exceeded"|"account_deactivated"|"account_suspended"|"usage_limit_reached"|"monthly_limit_exceeded"|"daily_limit_exceeded"|"permission_denied"|"invalid_api_key"|"model_not_found"))){return Error::Quota;}
+ let code=parsed.and_then(|v|{
   let code=v.get("error")?.get("code")?;
   match code{serde_json::Value::Number(n)=>n.as_u64().filter(|n|*n<=999999).map(|n|n as u32),serde_json::Value::String(s)if s.len()<=6&&!s.is_empty()&&s.bytes().all(|b|b.is_ascii_digit())=>s.parse::<u32>().ok(),_=>None}
  });
+ if status==429{if let Some(retry_after)=retry_after{return Error::RateLimited{code,retry_after};}}
  code.map(|code|Error::Api{status,code}).unwrap_or(Error::Http(status))
 }
 /// Any true cancellation value or loss of the sender ends the request. The

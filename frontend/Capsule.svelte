@@ -1,4 +1,6 @@
 <script lang="ts">
+  import RetryNotice from './RetryNotice.svelte';
+  import type {RetryState} from './lib/chat';
   import ActionOutputNotice from './ActionOutputNotice.svelte';
   import type {ActionOutputState} from './lib/action-output';
   import type {QuickAction} from './lib/quick-actions';
@@ -13,8 +15,8 @@
   import {isDesktop} from './lib/bridge';
   import {boundedHeight,cssToLogicalRatio} from './lib/surface';
   import {renderMarkdown} from './lib/render';
-  let {focusRequest=0,quickActions=[],actionBusy=false,onSelectionAction,onQuickSettings,actionOutputState=null,onActionOutputRetry=()=>{},onActionOutputDismiss=()=>{},selectionState,onSelectionRetry,onSelectionDiscard,onSelectionReload,attachments,onAttachmentCapture,onAttachmentCancel,onAttachmentRemove,onAttachmentRetake,notice,draft,surface,response,running,busy,replyLabel,replyStatus,modelStatus,canSend,unsaved,onSend,onRetrySave,onEdit,onSave,onHide,onExpand,onDemo,onStop,onResize}: {
-    focusRequest?:number;quickActions?:QuickAction[];actionBusy?:boolean;onSelectionAction?:(id:string)=>void;onQuickSettings?:()=>void;actionOutputState?:ActionOutputState|null;onActionOutputRetry?:()=>void;onActionOutputDismiss?:()=>void;selectionState:SelectionState;onSelectionRetry:()=>void;onSelectionDiscard:()=>void;onSelectionReload:()=>void;attachments:AttachmentState;onAttachmentCapture:()=>void;onAttachmentCancel:()=>void;onAttachmentRemove:(id:string)=>void;onAttachmentRetake:(id:string)=>void;
+  let {retry=null,canRestoreQuestion=false,onRestoreQuestion=()=>{},focusRequest=0,quickActions=[],actionBusy=false,onSelectionAction,onQuickSettings,actionOutputState=null,onActionOutputRetry=()=>{},onActionOutputDismiss=()=>{},selectionState,onSelectionRetry,onSelectionDiscard,onSelectionReload,attachments,onAttachmentCapture,onAttachmentCancel,onAttachmentRemove,onAttachmentRetake,notice,draft,surface,response,running,busy,replyLabel,replyStatus,modelStatus,canSend,unsaved,onSend,onRetrySave,onEdit,onSave,onHide,onExpand,onDemo,onStop,onResize}: {
+    retry?:RetryState|null;canRestoreQuestion?:boolean;onRestoreQuestion?:()=>void;focusRequest?:number;quickActions?:QuickAction[];actionBusy?:boolean;onSelectionAction?:(id:string)=>void;onQuickSettings?:()=>void;actionOutputState?:ActionOutputState|null;onActionOutputRetry?:()=>void;onActionOutputDismiss?:()=>void;selectionState:SelectionState;onSelectionRetry:()=>void;onSelectionDiscard:()=>void;onSelectionReload:()=>void;attachments:AttachmentState;onAttachmentCapture:()=>void;onAttachmentCancel:()=>void;onAttachmentRemove:(id:string)=>void;onAttachmentRetake:(id:string)=>void;
     notice:string;draft:Snapshot;surface:SurfaceInfo;response:string;running:boolean;busy:boolean;replyLabel:string;replyStatus:string;modelStatus:string;canSend:boolean;unsaved:boolean;onSend:()=>void;onRetrySave:()=>void;
     onEdit:(s:string)=>void;onSave:()=>void;onHide:()=>void;onExpand:()=>void;onDemo:()=>void;onStop:()=>void;onResize:(height:number,generation:number)=>void;
   }=$props();
@@ -53,16 +55,18 @@
     {/if}
     <SelectionNotice actions={quickActions} {actionBusy} onAction={onSelectionAction} onSettings={onQuickSettings} state={selectionState} onRetry={onSelectionRetry} onDiscard={onSelectionDiscard} onReload={onSelectionReload}/>
     {#if notice}<div class="capsule-error" role="status">{notice}{#if unsaved}<button onclick={onRetrySave}>重试保存</button>{/if}</div>{/if}
+    {#if canRestoreQuestion}<button data-restore-question class="capsule-restore" disabled={busy} onclick={onRestoreQuestion}>恢复问题，重新提问</button>{/if}
     {#if draft.error&&!selectionOnly}<div class="capsule-error" role="alert">{draft.error}<button onclick={onSave}>重试</button></div>{/if}
   </div>
   {#if (response||running)&&(!selectionOnly||(actionBusy&&running))}
     <div class="capsule-response-label">{replyLabel} <span>{replyStatus}</span></div>
     {#if response}
     <div bind:this={answer} data-capsule-answer class="capsule-answer prose" onscroll={e=>{const box=e.currentTarget;stick=box.scrollHeight-box.scrollTop-box.clientHeight<32;}}>{@html html}</div>
-    {:else}<div data-capsule-waiting class="capsule-waiting" role="status">{replyLabel.includes('演示')?'正在准备演示…':'正在等待模型回复…'}</div>{/if}
+    {:else}<div data-capsule-waiting class="capsule-waiting">{#if retry}<RetryNotice {retry}/>{:else}<span role="status">{replyLabel.includes('演示')?'正在准备演示…':'正在等待模型回复…'}</span>{/if}</div>{/if}
   {/if}
 </div>
 
 <style>
+ .capsule-restore{align-self:flex-start;font:inherit;font-size:13px;margin:4px 16px 8px;padding:4px 8px;border:1px solid #65756b66;border-radius:6px;background:#eef3e8;color:#36563e;}
  .capsule-waiting{padding:12px 18px 16px;font-size:14px;line-height:1.6;color:#455b49;flex-shrink:0;}
 </style>

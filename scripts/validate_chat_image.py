@@ -2,7 +2,7 @@
 import base64,json,os,sqlite3,struct,subprocess,sys,tempfile,threading,time,zlib
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-requests=[];server_errors=[]
+requests=[];server_errors=[];vision_payloads=[]
 ATTACH_ID='ab'*16
 
 def marker_png(width=64,height=48):
@@ -22,6 +22,7 @@ class Service(BaseHTTPRequestHandler):
    assert self.headers.get('Authorization')=='Bearer fixture-token'
    length=int(self.headers['Content-Length']);data=json.loads(self.rfile.read(length))
    last=data['messages'][-1];model=data['model'];assert data['stream']
+   if model=='fixture-vision':vision_payloads.append(json.dumps(data,sort_keys=True))
    if not requests: # first vision request is rejected with the real-world shape: 429 + 1305
     assert model=='fixture-vision',model
     assert len(data['messages'])==1
@@ -79,10 +80,10 @@ try:
   assert requests[0]['model']=='fixture-vision' and requests[1]['model']=='fixture-vision' and requests[2]['model']=='fixture-model',requests
   with sqlite3.connect(root/'chat.sqlite3') as c:
    turns=c.execute('SELECT request_id,model,state,answer FROM turns ORDER BY id').fetchall()
-  assert len(turns)==3,turns
-  assert turns[0][1]=='fixture-vision' and turns[0][2]=='failed' and turns[0][3]=='','rejected turn must keep zero answer'
-  assert turns[1][1]=='fixture-vision' and turns[1][2]=='complete',turns
-  assert turns[2][1]=='fixture-model' and turns[2][2]=='complete',turns
+  assert len(turns)==2,turns
+  assert turns[0][1]=='fixture-vision' and turns[0][2]=='complete',turns
+  assert turns[1][1]=='fixture-model' and turns[1][2]=='complete',turns
+  assert len(vision_payloads)==2 and vision_payloads[0]==vision_payloads[1],'retry changed vision payload'
   with sqlite3.connect(root/'attachment.sqlite3') as c:
    assert c.execute('SELECT count(*) FROM attachments').fetchone()[0]==0,'attachments were not consumed'
   assert not list(attachments.glob('*.png')),'attachment files were not consumed'
