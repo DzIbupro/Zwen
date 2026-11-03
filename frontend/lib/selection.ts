@@ -50,8 +50,8 @@ export class SelectionController{
    if(this.port.freeze){const frozen=await this.port.freeze(item.id);if(this.disposed)return;if(frozen.id!==item.id||frozen.text!==item.text||frozen.error)throw Error('选区已变化，请重新读取');this.publish({pending:frozen});}
    await this.draft.flush();if(this.disposed)return;
    if(!this.state.inserted){
-    const label={candidate:'选区：',raw:'选区：',explain:'请解释以下选区：',translate:'请将以下选区翻译成中文：'}[item.mode];
-    const snippet=label+'\n\n'+item.text;const original=this.draft.snapshot.text;
+    const label={candidate:'',raw:'',explain:'请解释以下选区：',translate:'请将以下选区翻译成中文：'}[item.mode];
+    const snippet=label?label+'\n\n'+item.text:item.text;const original=this.draft.snapshot.text;
     const merged=original?original+'\n\n'+snippet:snippet;
     if(new TextEncoder().encode(item.text).length>64*1024||new TextEncoder().encode(merged).length>256*1024)throw Error('添加后将超过文字上限；原草稿已保留，可缩短草稿后重试');
     this.draft.edit(merged);this.publish({inserted:true});
