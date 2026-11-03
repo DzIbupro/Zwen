@@ -1,3 +1,4 @@
 export function shouldSendQuestion(event:KeyboardEvent){
- return event.target instanceof HTMLTextAreaElement&&(event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!event.isComposing&&event.keyCode!==229;
+ const target=event.target;
+ return target instanceof HTMLTextAreaElement&&(target.id==='question'||target.id==='capsule-question')&&event.key==='Enter'&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.isComposing&&event.keyCode!==229;
 }

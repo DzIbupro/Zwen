@@ -1,3 +1,11 @@
+# 2026-11-04 13项试用反馈：第一批完成验证
+
+状态：**verified-awaiting-deployment**。完整需求[13项待办](superpowers/specs/2026-11-04-usability-followups.md)已保存；本批实现1收藏按钮短暂反馈、11可见名称统一Zwen、13Enter发送/Shift+Enter换行。158项前端测试、Svelte、Vite和普通Rust release构建通过，独立审查无重要问题，临时数据原生标题检查通过。未调用真实模型。
+
+普通二进制SHA256 f3afd3532872ffd7f49c865058642f284abbd63db947f764606f28c1b460e057。用户已保存退出，下一步安装并启动本批；其余10项明确待实施，不能称13项都已修复。详见[第一批验证](validation/2026-11-04-usability-batch-one.md)。
+
+---
+
 # 2026-11-04 中性工作台已部署
 
 状态：**unit-complete**。产品提交06d3625已快进集成至feat/desktop-foundation，保持既有私有开发PR，不合并main。普通新版已原子替换artifacts/zwen并启动，Niri自身窗口id111/pid141111；旧版备份artifacts/zwen-before-neutral-ui。SHA256 f0fe1f3f314d4d9ceb54f6bd9ad37d2ed6474d9edda7b488b3d9084fde2ea259。

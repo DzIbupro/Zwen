@@ -24,7 +24,7 @@ pub fn setup(app:&tauri::App)->tauri::Result<()>{
  let settings=MenuItem::with_id(app,"zwen.tray.settings","设置",true,None::<&str>)?;
  let quit=MenuItem::with_id(app,"zwen.tray.quit","保存并退出",true,None::<&str>)?;
  let menu=Menu::with_items(app,&[&open,&capsule,&screenshot,&settings,&quit])?;
- let mut builder=TrayIconBuilder::with_id(ID).menu(&menu).title("Zwen").tooltip("Zwen · 学习助手").show_menu_on_left_click(true)
+ let mut builder=TrayIconBuilder::with_id(ID).menu(&menu).title("Zwen").tooltip("Zwen").show_menu_on_left_click(true)
   .on_menu_event(|app,event|dispatch(app,event.id.as_ref()));
  if let Some(icon)=app.default_window_icon(){builder=builder.icon(icon.clone());}
  builder.build(app)?;Ok(())

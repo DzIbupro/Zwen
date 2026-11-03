@@ -131,7 +131,7 @@ fn main() {
             smoke::setup(app);
             if action != LaunchAction::Quit {
                 let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                    .title("Zwen · 学习助手").transparent(true)
+                    .title("Zwen").transparent(true)
                     .theme(Some(appearance.theme.native())).initialization_script(appearance::initialization_script(appearance))
                     .inner_size(if capsule_surface(action){480.0}else{900.0},if capsule_surface(action){96.0}else{850.0})
                     .resizable(true).min_inner_size(480.0,if capsule_surface(action){96.0}else{560.0}).decorations(!capsule_surface(action)).visible(false);

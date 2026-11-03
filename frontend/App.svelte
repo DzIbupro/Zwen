@@ -58,6 +58,7 @@
   let actionOutputState=$state<ActionOutputState|null>(null);
   const actionOutput=new ActionOutputController(actionOutputPort,s=>actionOutputState=s);
   let notice=$state('');
+  let bookmarkSaving=$state<string|null>(null);let bookmarkSaved=$state<string|null>(null);let bookmarkTimer:ReturnType<typeof setTimeout>|undefined;
   let view=$state<'ask'|'preview'|'reply'|'settings'|'history'|'knowledge'|'graph'>('ask');
   let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,keySource:null,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'loading',loaded:false,error:null,secretSaving:false,secretNotice:null});
   const provider=new ProviderController(providerPort,s=>settings=s);
@@ -149,11 +150,15 @@
   function captureScreenshot(replaceId?:string|null){if(!isDesktop){notice='浏览器仅预览，请在桌面应用中截图';return;}void attachmentController.capture(replaceId??null);}
   async function saveToKnowledge(){
     const reply=chatState.reply;
-    if(!reply||!reply.answer||chatState.running)return;
+    if(!reply||!reply.answer||chatState.running||bookmarkSaving)return;
+    bookmarkSaving=reply.requestId;
     const title=reply.prompt.replace(/\s+/g,' ').trim().slice(0,60);
     const body=`## 问题\n\n${reply.prompt}\n\n## 回答\n\n${reply.answer}`;
-    const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:attachmentState.items.map(item=>item.id),requestId:reply.requestId});
-    if(saved){notice='已收藏到知识库';await knowledge.runAutoFor(saved.id);}
+    try{
+      const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:attachmentState.items.map(item=>item.id),requestId:reply.requestId});
+      if(saved){clearTimeout(bookmarkTimer);bookmarkSaved=reply.requestId;bookmarkTimer=setTimeout(()=>{bookmarkSaved=null;},2500);notice='已收藏到知识库';void knowledge.runAutoFor(saved.id);}
+      else notice=knowledge.state.notice||'收藏未完成，请重试';
+    }catch{notice='收藏未完成，请重试';}finally{bookmarkSaving=null;}
   }
 
   function applySurface(next:SurfaceInfo){if(canApplySurface(surface.generation,next.generation)){surface=next;document.documentElement.dataset.surface=next.mode;}}
@@ -246,7 +251,7 @@
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>{if(!disposed)void leave(quit);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='关闭事件暂不可用，请使用面板按钮';});
     }
-    return ()=>{disposed=true;appDisposed=true;selectionCommands.dispose();appearance.dispose();for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();actionOutput.dispose();demo.stop();resizeQueue.clear();};
+    return ()=>{clearTimeout(bookmarkTimer);disposed=true;appDisposed=true;selectionCommands.dispose();appearance.dispose();for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();actionOutput.dispose();demo.stop();resizeQueue.clear();};
   });
 </script>
 
@@ -278,7 +283,7 @@
       {:else if view==='ask'}
         <div class="empty-conversation" aria-hidden="true"><BrandLogo/></div>
       {:else}
-        <section class="answer">{#if view==='reply'&&responseKind==='model'&&chatState.reply}<div class="user-question"><p>{chatState.reply.prompt}</p></div>{/if}<div class="answer-label"><BrandLogo compact/><strong>{view==='reply'&&responseKind==='model'?chatState.reply?.model||'模型回复':'阅读效果'}</strong><span>{view==='reply' ? `${replyLabel} · ${replyStatus}` : draft.text.trim() ? '草稿排版预览 · 非 AI 回答' : '内置示例 · 非 AI 回答'}</span></div><div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html preview}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{responseKind==='demo'?'停止演示':'停止生成'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save onclick={()=>void saveToKnowledge()}>收藏到知识库</button>{/if}{#if view==='reply'&&responseKind==='model'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
+        <section class="answer">{#if view==='reply'&&responseKind==='model'&&chatState.reply}<div class="user-question"><p>{chatState.reply.prompt}</p></div>{/if}<div class="answer-label"><BrandLogo compact/><strong>{view==='reply'&&responseKind==='model'?chatState.reply?.model||'模型回复':'阅读效果'}</strong><span>{view==='reply' ? `${replyLabel} · ${replyStatus}` : draft.text.trim() ? '草稿排版预览 · 非 AI 回答' : '内置示例 · 非 AI 回答'}</span></div><div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html preview}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{responseKind==='demo'?'停止演示':'停止生成'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save disabled={bookmarkSaving!==null} aria-live="polite" onclick={()=>void saveToKnowledge()}>{bookmarkSaving===chatState.reply.requestId?'正在收藏…':bookmarkSaved===chatState.reply.requestId?'已收藏 ✓':'收藏到知识库'}</button>{/if}{#if view==='reply'&&responseKind==='model'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
       {/if}
     </main>
     <ActionOutputNotice state={actionOutputState} onRetry={()=>void actionOutput.retry()} onDismiss={()=>actionOutput.dismiss()}/>
@@ -290,7 +295,7 @@
     {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">
       <Attachments state={attachmentState} onCancel={()=>void attachmentController.cancel()} onRemove={id=>void attachmentController.remove(id)} onRetake={id=>captureScreenshot(id)}/>
       <label class="sr-only" for="question">问题草稿</label><textarea bind:this={input} id="question" disabled={!draft.loaded||closing} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder="输入问题，或粘贴内容…" spellcheck="false" rows="2"></textarea>
-      <div class="composer-tools"><div><button class="tool-button" data-capture aria-label="附加截图" title="附加截图" disabled={!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿" title="保存草稿 · Ctrl S" disabled={!draft.loaded} onclick={save}><Icon name="save" size={18}/></button>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send disabled={selectionState.busy||attachmentState.pending||(attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>Ctrl ↵</kbd></button></div>
+      <div class="composer-tools"><div><button class="tool-button" data-capture aria-label="附加截图" title="附加截图" disabled={!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿" title="保存草稿 · Ctrl S" disabled={!draft.loaded} onclick={save}><Icon name="save" size={18}/></button>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title="Enter 发送 · Shift+Enter 换行" disabled={selectionState.busy||attachmentState.pending||(attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>Enter ↵</kbd></button></div>
     </section>
     {/if}
     <footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{statusText}</span><span role="status">{notice}</span></footer>
