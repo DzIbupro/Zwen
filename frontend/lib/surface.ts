@@ -15,3 +15,8 @@ export class ResizeQueue {
   finally{this.running=false;}
  }
 }
+
+/** A native selection command already presents the window before delivery. */
+export async function ensureSurface(mode:SurfaceInfo['mode'],port:{get():Promise<SurfaceInfo>;set(mode:SurfaceInfo['mode']):Promise<SurfaceInfo>}):Promise<SurfaceInfo>{
+ const current=await port.get();return current.mode===mode?current:port.set(mode);
+}

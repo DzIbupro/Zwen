@@ -154,6 +154,15 @@ mod native {
             true
         });
         if !ready { return; }
+        // UI-flow fixtures deliberately avoid sampling the real desktop pointer.
+        // The production pointer probe and its lifetime remain unchanged.
+        #[cfg(feature="desktop-smoke")]
+        if std::env::var("ZWEN_ACTIONS_FIXED_ANCHOR").as_deref()==Ok("1") {
+            if let Some(monitor)=display.primary_monitor().or_else(||display.monitor(0)) {
+                UI.with(|ui| {let mut r=ui.borrow_mut();r.probe_gate.claim();if let Some(anchor)=r.anchor.as_mut(){anchor.capture(Anchor{monitor,x:500.0,y:160.0});}});
+            }else{cancel(token);}
+            return;
+        }
         let css=style();
         let started=Instant::now();
         for i in 0..display.n_monitors() {
@@ -289,7 +298,7 @@ mod native {
         use tauri::{Emitter,Manager};
         let a=app.clone();let _=app.run_on_main_thread(move||UI.with(|ui|{
             let r=ui.borrow();let (w,h)=r.bar.as_ref().map(|w|(w.allocated_width(),w.allocated_height())).unwrap_or((0,0));
-            let _=a.emit("selection-bar-state",serde_json::json!({"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":"pointer-proximity","renderAlpha":r.bar.as_ref().and_then(smoke_alpha),"rgbaDepth":r.bar.as_ref().and_then(|w|w.visual()).map(|v|v.depth()),"buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
+            let _=a.emit("selection-bar-state",serde_json::json!({"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":if std::env::var("ZWEN_ACTIONS_FIXED_ANCHOR").as_deref()==Ok("1"){"synthetic-fixed"}else{"pointer-proximity"},"renderAlpha":r.bar.as_ref().and_then(smoke_alpha),"rgbaDepth":r.bar.as_ref().and_then(|w|w.visual()).map(|v|v.depth()),"buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
         }));
     }
     #[cfg(feature="desktop-smoke")]

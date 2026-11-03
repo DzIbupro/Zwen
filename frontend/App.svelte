@@ -14,7 +14,7 @@
   import { renderMarkdown } from './lib/render';
   import Capsule from './Capsule.svelte';
   import {getSurface,setSurface,resizeCapsule} from './lib/bridge';
-  import {canApplySurface,ResizeQueue,type SurfaceInfo} from './lib/surface';
+  import {canApplySurface,ensureSurface,ResizeQueue,type SurfaceInfo} from './lib/surface';
   import {DemoStream} from './lib/demo';
   import {ChatController,type ChatState} from './lib/chat';
   import {chatPort,historyPort} from './lib/bridge';
@@ -134,7 +134,7 @@
   function applySurface(next:SurfaceInfo){if(canApplySurface(surface.generation,next.generation)){surface=next;document.documentElement.dataset.surface=next.mode;}}
   async function switchSurface(mode:'full'|'capsule'){
     if(switching)return;switching=true;
-    try{await controller.flush();applySurface(await setSurface(mode));if(mode==='full'&&response)view='reply';}
+    try{await controller.flush();applySurface(await ensureSurface(mode,{get:getSurface,set:setSurface}));if(mode==='full'&&response)view='reply';}
     catch(error){notice=error instanceof Error?error.message:'窗口切换未完成，内容已保留';}
     finally{switching=false;}
   }

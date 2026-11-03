@@ -39,7 +39,7 @@ export class SelectionController{
  async acknowledgeFrozen(id:number){
   if(this.state.pending?.id!==id)return;
   this.mutating=true;this.publish({busy:true});
-  try{await this.port.acknowledge(id);if(this.state.pending?.id===id)this.publish({pending:null,inserted:false,notice:'选区操作已开始'});}
+  try{await this.port.acknowledge(id);if(this.state.pending?.id===id)this.publish({pending:null,inserted:false,notice:''});}
   catch(error){this.publish({notice:error instanceof Error?error.message:'选区确认未完成'});}
   finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
  }

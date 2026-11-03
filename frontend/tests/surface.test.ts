@@ -9,3 +9,6 @@ it('serializes native resizing and keeps the latest queued height',async()=>{
  q.request(100,1);q.request(200,1);q.request(300,1);release();await new Promise(r=>setTimeout(r,0));
  expect(physicalHeight).toBe(300);expect(applied).toEqual([100,300]);
 });
+import {ensureSurface} from '../lib/surface';
+it('does not remap an already activated capsule or reset its generation/height',async()=>{const existing={mode:'capsule' as const,generation:9,scaleFactor:1,bounds:{width:480,initialHeight:96,maxHeight:594}};let activated=0;const result=await ensureSurface('capsule',{get:async()=>existing,set:async()=>{activated++;return {...existing,generation:10};}});expect(activated).toBe(0);expect(result.generation).toBe(9);});
+it('still changes layout once when the requested mode differs',async()=>{let activated=0;const bounds={width:480,initialHeight:96,maxHeight:594};const result=await ensureSurface('capsule',{get:async()=>({mode:'full',generation:2,scaleFactor:1,bounds}),set:async mode=>{activated++;return{mode,generation:3,scaleFactor:1,bounds};}});expect(activated).toBe(1);expect(result.mode).toBe('capsule');});

@@ -55,8 +55,14 @@
     {#if notice}<div class="capsule-error" role="status">{notice}{#if unsaved}<button onclick={onRetrySave}>重试保存</button>{/if}</div>{/if}
     {#if draft.error&&!selectionOnly}<div class="capsule-error" role="alert">{draft.error}<button onclick={onSave}>重试</button></div>{/if}
   </div>
-  {#if response&&!selectionOnly}
+  {#if (response||running)&&(!selectionOnly||(actionBusy&&running))}
     <div class="capsule-response-label">{replyLabel} <span>{replyStatus}</span></div>
+    {#if response}
     <div bind:this={answer} data-capsule-answer class="capsule-answer prose" onscroll={e=>{const box=e.currentTarget;stick=box.scrollHeight-box.scrollTop-box.clientHeight<32;}}>{@html html}</div>
+    {:else}<div data-capsule-waiting class="capsule-waiting" role="status">{replyLabel.includes('演示')?'正在准备演示…':'正在等待模型回复…'}</div>{/if}
   {/if}
 </div>
+
+<style>
+ .capsule-waiting{padding:12px 18px 16px;font-size:14px;line-height:1.6;color:#455b49;flex-shrink:0;}
+</style>

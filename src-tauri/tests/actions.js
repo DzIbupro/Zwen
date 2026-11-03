@@ -6,8 +6,10 @@
  const inspect=async()=>{bar=null;await api.event.emit('selection-bar-test','inspect');await wait(()=>bar!==null,'native bar inspect');return bar;};
  const choose=async(text)=>{await new Promise(r=>setTimeout(r,300));const before=(await inspect()).selectionId;await api.event.emit('actions-fixture-selection',text);await wait(async()=>{const b=await inspect();return b.visible&&b.selectionId!==before&&b.height>0;},'native selection '+text);if(bar.mainVisible)throw Error('candidate opened main window');};
  const hide=async()=>{await invoke('hide_window');await new Promise(r=>setTimeout(r,250));};
- const click=async id=>{await api.event.emit('selection-bar-test','click:'+id);};
- const openAsk=async text=>{await choose(text);await click('ask');await wait(()=>{const q=document.querySelector('#capsule-question'),b=document.querySelector('[aria-label="收起胶囊"]');return q?.value===text&&!q.disabled&&b&&!b.disabled;},'ask controls ready');await wait(async()=>(await inspect()).mainVisible,'ask shown');};
+ let presentationBase=null;const presentations=[];
+ const click=async id=>{if(!id.startsWith('__')||id==='__settings')presentationBase=(await invoke('get_surface')).generation;await api.event.emit('selection-bar-test','click:'+id);};
+ const singlePresentation=async()=>{const now=(await invoke('get_surface')).generation;const delta=now-presentationBase;if(delta!==1)throw Error('one command remapped '+delta+' times');presentations.push(delta);presentationBase=null;};
+ const openAsk=async text=>{await choose(text);await click('ask');await wait(()=>{const q=document.querySelector('#capsule-question'),b=document.querySelector('[aria-label="收起胶囊"]');return q?.value===text&&!q.disabled&&b&&!b.disabled;},'ask controls ready');await wait(async()=>(await inspect()).mainVisible,'ask shown');await singlePresentation();};
  const closeCapsule=async()=>{await wait(async()=>(await inspect()).mainVisible,'capsule shown before close');await wait(()=>{const b=document.querySelector('[aria-label="收起胶囊"]');return b&&!b.disabled;},'capsule close ready');document.querySelector('[aria-label="收起胶囊"]').click();};
  let stage='boot';
  try{
@@ -21,6 +23,7 @@
   document.querySelector('#candidate-toggle').click();await wait(async()=>await invoke('candidate_get_enabled'));
   await hide();
   stage='replace-candidate';await choose('first candidate');const first=bar.selectionId;await choose('latest candidate');if(bar.selectionId===first)throw Error('candidate ID did not replace');
+  if(bar.anchorKind!=='synthetic-fixed')throw Error('fixture anchor mode missing');
   if(bar.rgbaDepth!==32||!bar.renderAlpha||bar.renderAlpha.slice(0,4).some(a=>a!==0)||bar.renderAlpha[4]!==255)throw Error('rounded corner surface not transparent: '+JSON.stringify(bar));
   if(bar.keyboardMode!=='none'||bar.exclusiveZone!==0||bar.width>500||bar.height>100)throw Error('not a compact independent bar');
   stage='same-process-window-switch';await api.event.emit('actions-fixture-source-window',101);
@@ -60,15 +63,25 @@
   await wait(async()=>{const r=(await invoke('get_chat')).reply;return r?.prompt==='stop fixture'&&r.state==='streaming';},'synthetic running request');
   await closeCapsule();await wait(async()=>!(await inspect()).mainVisible);await wait(()=>document.querySelector('#capsule-question')?.value==='');await new Promise(r=>setTimeout(r,250));
   stage='translate';await choose('translate fixture');await click('translate');
+  await wait(()=>document.querySelector('[data-capsule-waiting]')?.textContent.includes('正在等待模型回复'),'translate waiting before first token');
+  await wait(()=>!document.querySelector('[aria-label="收起胶囊"]')?.disabled);await singlePresentation();
+  if(document.querySelector('[data-selection-state]')?.textContent.includes('重新读取状态'))throw Error('successful action left stale reload prompt');
   await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('Translated fixture'),'translate answer');
   await wait(()=>!document.querySelector('[data-selection-menu]'));
-  stage='close-complete-quick-task';await closeCapsule();await wait(async()=>!(await inspect()).mainVisible);await wait(()=>!document.querySelector('[data-capsule-answer]'));await new Promise(r=>setTimeout(r,250));stage='other-settings';await choose('settings fixture');await click('__other');
+  stage='close-complete-quick-task';await closeCapsule();await wait(async()=>!(await inspect()).mainVisible);await wait(()=>!document.querySelector('[data-capsule-answer]'));await new Promise(r=>setTimeout(r,250));stage='explain';await choose('explain fixture');await click('explain');
+  await wait(()=>document.querySelector('[data-capsule-waiting]')?.textContent.includes('正在等待模型回复'),'explain waiting before first token');
+  await wait(()=>!document.querySelector('[aria-label="收起胶囊"]')?.disabled);await singlePresentation();
+  await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('Explained fixture'),'explain answer');
+  if(document.querySelector('[data-capsule-waiting]'))throw Error('waiting stayed after answer');
+  await closeCapsule();await wait(async()=>!(await inspect()).mainVisible);await new Promise(r=>setTimeout(r,250));
+  stage='other-settings';await choose('settings fixture');await click('__other');
   await wait(async()=>(await inspect()).buttons.some(b=>b.id==='__settings'&&b.mapped),'other expansion');await click('__settings');
   await wait(()=>document.querySelector('[data-quick-action-settings] form'));
-  if(!(await inspect()).mainVisible)throw Error('settings did not open main');
+  if(!(await inspect()).mainVisible)throw Error('settings did not open main');await singlePresentation();
   await hide();stage='document';await choose('document fixture');await click('__other');
   await wait(async()=>(await inspect()).buttons.some(b=>b.id==='document'&&b.mapped),'custom action visible');await click('document');
   await wait(()=>document.querySelector('[data-action-output-path]'),'saved output');
+  await wait(()=>!document.querySelector('[aria-label="收起胶囊"]')?.disabled);await singlePresentation();
   const path=document.querySelector('[data-action-output-path]').textContent;
   if(!path.startsWith(window.__ZWEN_ACTION_OUTPUT_DIR__)||!path.endsWith('.md'))throw Error('unexpected export path');
   const notes=await invoke('notes_list',{query:''});if(notes.length!==1)throw Error('document duplicated or missing');
@@ -81,6 +94,6 @@
   if(bar.mainVisible)throw Error('disable opened main');
   await api.event.emit('actions-fixture-selection','must-not-show-after-disabled');await new Promise(r=>setTimeout(r,400));
   if((await inspect()).visible)throw Error('late candidate resurrected disabled bar');
-  await api.event.emit('foundation-smoke',{ok:true,mode:'actions',independentBar:true,noCandidatePopup:true,sourceWindowSwitch:true,replaced:true,ask:true,rawDraft:true,endFocus:true,closeReset:true,expandPreserves:true,nextSelection:true,ordinaryDraftPreserved:true,failedClose:true,runningClose:true,translate:true,settings:true,document:true,idempotent:true,disable:true,path,noteId:notes[0].id});
+  await api.event.emit('foundation-smoke',{ok:true,mode:'actions',independentBar:true,noCandidatePopup:true,sourceWindowSwitch:true,replaced:true,ask:true,presentations,waitingBeforeFirstToken:true,explain:true,rawDraft:true,endFocus:true,closeReset:true,expandPreserves:true,nextSelection:true,ordinaryDraftPreserved:true,failedClose:true,runningClose:true,translate:true,settings:true,document:true,idempotent:true,disable:true,path,noteId:notes[0].id});
  }catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'actions',stage,error:String(e?.message||e),bar,ui:document.body.innerText.slice(0,2000)});}
 })();
