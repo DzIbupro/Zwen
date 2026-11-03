@@ -1,5 +1,5 @@
 """Isolated own-app action UI driver; fake PRIMARY, no real clipboard/provider."""
-import json,os,sqlite3,subprocess,sys,tempfile,threading,shutil
+import json,os,sqlite3,subprocess,sys,tempfile,threading,shutil,time
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 binary=Path(sys.argv[1]).resolve()
@@ -13,8 +13,12 @@ class Service(BaseHTTPRequestHandler):
    assert self.path=='/v1/chat/completions' and self.headers['Authorization']=='Bearer fixture-token'
    assert len(data['messages'])==1,'old conversation leaked'
    prompt=data['messages'][0]['content'];assert isinstance(prompt,str),'old image leaked'
-   assert ('translate fixture' in prompt) or ('document fixture' in prompt),prompt
+   assert any(x in prompt for x in ['translate fixture','document fixture','failure fixture','stop fixture']),prompt
    requests.append(prompt)
+   if 'failure fixture' in prompt:
+    self.send_response(429);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(b'{"error":{"code":"1302","message":"synthetic rate limit"}}');return
+   if 'stop fixture' in prompt:
+    self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.flush();time.sleep(2);return
    answer='Translated fixture' if 'translate fixture' in prompt else '# Document fixture\n\n|key|value|\n|---|---|\n|fixture|saved|'
    self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
    frame=lambda delta,finish:('data: '+json.dumps({'choices':[{'delta':delta,'finish_reason':finish}]})+'\n\n').encode()
@@ -54,12 +58,14 @@ else:
   out=Path('artifacts/validation');out.mkdir(parents=True,exist_ok=True);(out/'actions-stdout.txt').write_text(stdout);(out/'actions-stderr.txt').write_text(stderr)
   rows=[json.loads(s.split(':',1)[1]) for s in stdout.splitlines() if s.startswith('FOUNDATION_SMOKE:')]
   assert p.returncode==0 and rows and all(r.get('ok') for r in rows),(p.returncode,rows,stderr[-2000:])
-  assert len(requests)==2 and not errors,(requests,errors)
+  assert len(requests)==4 and not errors,(requests,errors)
   md=list((root/'output').glob('*.md'));assert len(md)==1 and 'Document fixture' in md[0].read_text()
   assert not list((root/'output').glob('*.tmp'))
   with sqlite3.connect(root/'chat.sqlite3') as db:
+   assert db.execute("SELECT answer FROM turns WHERE request_id='prior'").fetchone()==('old-answer',),'saved history changed'
    turns=db.execute('SELECT request_id,conversation_id,context_turns,state FROM turns WHERE request_id!="prior"').fetchall()
-   assert len(turns)==2 and all(a==b and c==0 and d=='complete' for a,b,c,d in turns),turns
+   assert len(turns)==4 and all(a==b and c==0 for a,b,c,d in turns),turns
+   assert sorted(d for a,b,c,d in turns)==['complete','complete','failed','stopped'],turns
   (out/'actions.json').write_text(json.dumps({'passed':True,'requests':len(requests),'events':rows},ensure_ascii=False,indent=2))
   print(json.dumps({'passed':True,'requests':len(requests),'events':rows},ensure_ascii=False))
 finally:server.shutdown();server.server_close()

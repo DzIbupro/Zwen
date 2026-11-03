@@ -221,7 +221,19 @@ mod native {
     }
     #[allow(clippy::too_many_arguments)]
     fn build_bar(app:tauri::AppHandle,token:u64,id:u32,revision:u64,actions:std::rc::Rc<Vec<BarAction>>,pid:u32,monitor:gdk::Monitor,x:f64,y:f64,css:gtk::CssProvider) {
-        let w=gtk::Window::new(gtk::WindowType::Toplevel);w.set_size_request(320,44);w.style_context().add_class("zwen-selection");w.style_context().add_provider(&css,600);
+        let w=gtk::Window::new(gtk::WindowType::Toplevel);
+        w.set_app_paintable(true);
+        if let Some(screen)=gtk::prelude::WidgetExt::screen(&w) { if let Some(visual)=screen.rgba_visual() { w.set_visual(Some(&visual)); } }
+        // Clear the entire ARGB surface before drawing the rounded CSS box.
+        // Otherwise compositor/theme pixels remain visible outside its corners.
+        w.connect_draw(|w,cr| {
+            cr.set_operator(gtk::cairo::Operator::Source);cr.set_source_rgba(0.0,0.0,0.0,0.0);let _=cr.paint();
+            cr.set_operator(gtk::cairo::Operator::Over);
+            let context=w.style_context();let width=w.allocated_width() as f64;let height=w.allocated_height() as f64;
+            gtk::render_background(&context,cr,0.0,0.0,width,height);gtk::render_frame(&context,cr,0.0,0.0,width,height);
+            glib::Propagation::Proceed
+        });
+        w.set_size_request(320,44);w.style_context().add_class("zwen-selection");w.style_context().add_provider(&css,600);
         let outer=gtk::Box::new(gtk::Orientation::Vertical,3);outer.set_border_width(5);
         let row=gtk::Box::new(gtk::Orientation::Horizontal,3);
         for (key,label) in [("ask","问一问 Zwen"),("translate","翻译"),("explain","详细解释")] {
@@ -263,11 +275,21 @@ mod native {
         });
     }
     #[cfg(feature="desktop-smoke")]
+    fn smoke_alpha(w:&gtk::Window)->Option<Vec<u8>> {
+        let width=w.allocated_width();let height=w.allocated_height();if width<2||height<2{return None;}
+        let mut surface=gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32,width,height).ok()?;
+        {let cr=gtk::cairo::Context::new(&surface).ok()?;w.draw(&cr);}
+        surface.flush();let stride=surface.stride() as usize;let pixels=surface.data().ok()?;
+        Some([(0,0),(width-1,0),(0,height-1),(width-1,height-1),(width/2,height/2)].iter().map(|&(x,y)|{
+            let i=y as usize*stride+x as usize*4;let value=u32::from_ne_bytes(pixels[i..i+4].try_into().unwrap());(value>>24) as u8
+        }).collect())
+    }
+    #[cfg(feature="desktop-smoke")]
     pub fn smoke_inspect(app:&tauri::AppHandle) {
         use tauri::{Emitter,Manager};
         let a=app.clone();let _=app.run_on_main_thread(move||UI.with(|ui|{
             let r=ui.borrow();let (w,h)=r.bar.as_ref().map(|w|(w.allocated_width(),w.allocated_height())).unwrap_or((0,0));
-            let _=a.emit("selection-bar-state",serde_json::json!({"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":"pointer-proximity","buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
+            let _=a.emit("selection-bar-state",serde_json::json!({"mainVisible":a.get_webview_window("main").and_then(|w|w.is_visible().ok()).unwrap_or(false),"anchorKind":"pointer-proximity","renderAlpha":r.bar.as_ref().and_then(smoke_alpha),"rgbaDepth":r.bar.as_ref().and_then(|w|w.visual()).map(|v|v.depth()),"buttons":r.buttons.iter().map(|(id,b)|serde_json::json!({"id":id,"mapped":b.is_mapped(),"sensitive":b.is_sensitive()})).collect::<Vec<_>>(),"visible":r.bar.is_some(),"probing":!r.probes.is_empty(),"selectionId":r.selection,"width":w,"height":h,"keyboardMode":"none","exclusiveZone":0}));
         }));
     }
     #[cfg(feature="desktop-smoke")]

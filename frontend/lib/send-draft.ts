@@ -10,6 +10,7 @@ export class SendDraftCoordinator {
   const ticket:Ticket={text:this.draft.snapshot.text,ids:[...ids],version:this.draft.editVersion,requestId:null,clearedVersion:null,accepted:false};
   this.pending=ticket;return ticket;
  }
+ revoke(){this.pending=null;}
  cancel(ticket:Ticket){if(this.pending===ticket)this.pending=null;}
  accept(ticket:Ticket,state:ChatState){
   if(this.pending!==ticket)return;

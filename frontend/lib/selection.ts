@@ -62,6 +62,13 @@ export class SelectionController{
   }catch(e){this.publish({notice:(e instanceof Error?e.message:'选区导入未完成')+'；材料保留，请检查草稿'});}
   finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
  }
+ async discardOwned(id:number){
+  if(this.disposed||this.state.pending?.id!==id)return;
+  if(this.state.busy)throw Error('选区正在处理，请稍后关闭');
+  this.mutating=true;this.publish({busy:true});
+  try{await this.port.acknowledge(id);if(this.state.pending?.id===id)this.publish({pending:null,inserted:false,notice:''});}
+  finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
+ }
  async discard(announce=true){
   const item=this.state.pending;if(!item||this.state.busy||this.disposed)return;
   this.mutating=true;this.publish({busy:true});
