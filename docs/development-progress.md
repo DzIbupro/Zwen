@@ -1,3 +1,13 @@
+# 2026-11-04 历史卡片第二批已验证，待重启生效
+
+状态：**unit-complete / restart-pending / followups-pending**。本批第3项历史卡片加宽、标题16px加粗最多4行，摘要80→240个Unicode字符，完整历史与上下文保留。journal/context6项、前端158项、Svelte、Vite、普通Rust release通过；独立审查通过，真实组件合成数据排版已检查。见[验证记录](validation/2026-11-04-history-cards.md)。
+
+普通二进制SHA256 811237a3d8fc71d94582842af5b3c1917d965ceb2ae8c8392548fb2995d504a5。收尾将原子更新artifacts/zwen，但不强制关闭用户正在用的第一批版本；需用户下次保存退出重开才生效，未声称新版已在当前进程运行。
+
+13项中1/11/13已部署运行；3本批完成待重启；其余2/4/5/6/7/8/9/10/12九项待做。下一批优先删除演示/格式预览并迁移原生测试入口；全选需处理8篇上限。近额度上限完成这个单元后停止，不再开启新任务。不要丢失[全部要求](superpowers/specs/2026-11-04-usability-followups.md)。
+
+---
+
 # 2026-11-04 试用反馈第一批已部署，其余10项待实施
 
 状态：**unit-complete / followups-pending**。产品提交f0ef89a已集成至feat/desktop-foundation；已安装并打开普通新版，Niri自身窗口标题确认仅Zwen（pid169166）。SHA256 f3afd3532872ffd7f49c865058642f284abbd63db947f764606f28c1b460e057，旧版备份artifacts/zwen-before-usability-one。

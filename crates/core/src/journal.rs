@@ -43,7 +43,7 @@ impl Journal {
  }
  pub fn history(&self,offset:usize,limit:usize)->Result<Vec<Summary>,Error>{
   if limit==0||limit>30||offset>100000{return Err(Error::InvalidChat);}
-  let mut statement=self.connection.prepare("SELECT CASE WHEN length(request_id)<=100 THEN request_id END,CASE WHEN length(conversation_id)<=100 THEN conversation_id END,substr(prompt,1,80),CASE WHEN length(CAST(model AS BLOB))<=200 THEN model END,substr(state,1,32),created_at FROM turns ORDER BY id DESC LIMIT ?1 OFFSET ?2")?;
+  let mut statement=self.connection.prepare("SELECT CASE WHEN length(request_id)<=100 THEN request_id END,CASE WHEN length(conversation_id)<=100 THEN conversation_id END,substr(prompt,1,240),CASE WHEN length(CAST(model AS BLOB))<=200 THEN model END,substr(state,1,32),created_at FROM turns ORDER BY id DESC LIMIT ?1 OFFSET ?2")?;
   let rows=statement.query_map(params![limit as i64,offset as i64],|r|Ok((r.get::<_,String>(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get::<_,String>(4)?,r.get(5)?)))?;
   rows.map(|row|{let(request_id,conversation_id,title,model,state,created_at)=row?;Ok(Summary{request_id,conversation_id,title,model,state:TurnState::parse(&state)?,created_at})}).collect()
  }
