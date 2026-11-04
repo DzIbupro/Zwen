@@ -1,3 +1,11 @@
+# 2026-11-05 演示删除、清晰度/知识库层级与欢迎页完成
+
+状态：**verified-awaiting-deployment**。本轮第2/5/6/8项源码、前端158项/Svelte0错误0警告/Vite、隔离原生chat/capsule/foundation/actions/knowledge回归通过，独立审查通过；欢迎页使用静态SVG磁场条纹与问候语，无持续动画或新依赖。普通构建SHA256 a882e7b0038cc8f94f20ed6eec9b050e8c13a3c2040d49684b9cf71b53da1e34已用临时数据验证启动。下一步原子安装、启动确认、同步并清理本轮缓存。
+
+现有13项中1/3/11/13前批完成，本轮2/5/6/8完成，剩余4/7/9/10/12五项未实施。线索见[剩余调查](superpowers/specs/2026-11-05-remaining-investigation.md)，完整要求见2026-11-04-usability-followups.md。验证分别见validation/2026-11-05-remove-demo.md、knowledge-legibility.md、welcome-mark.md。
+
+---
+
 # 2026-11-04 历史卡片第二批已验证，待重启生效
 
 状态：**unit-complete / restart-pending / followups-pending**。本批第3项历史卡片加宽、标题16px加粗最多4行，摘要80→240个Unicode字符，完整历史与上下文保留。journal/context6项、前端158项、Svelte、Vite、普通Rust release通过；独立审查通过，真实组件合成数据排版已检查。见[验证记录](validation/2026-11-04-history-cards.md)。
