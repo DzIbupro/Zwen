@@ -1,0 +1,5 @@
+import {it,expect,vi} from 'vitest';import {mount,unmount,tick,flushSync} from 'svelte';
+vi.mock('svelte',()=>vi.importActual<typeof import('svelte')>('../../node_modules/svelte/src/index-client.js'));
+import App from '../App.svelte';
+const settle=async()=>{for(let i=0;i<15;i++){await tick();await Promise.resolve();}flushSync();};
+it('offers real chat controls without demo or format preview on either surface',async()=>{vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});const target=document.createElement('div');document.body.append(target);const app=mount(App,{target});try{await settle();expect(target.querySelector('[data-demo],[data-preview]')).toBeNull();expect(target.textContent).not.toMatch(/排版演示|格式预览|演示回复/);(target.querySelector('.capsule-launch') as HTMLButtonElement).click();await settle();expect(target.querySelector('[data-capsule]')).not.toBeNull();expect(target.querySelector('[data-demo],[data-preview]')).toBeNull();expect(target.textContent).not.toMatch(/排版演示|格式预览|演示回复/);expect(target.querySelector('[aria-label="展开完整窗口"]')).not.toBeNull();}finally{await unmount(app);target.remove();vi.unstubAllGlobals();}});

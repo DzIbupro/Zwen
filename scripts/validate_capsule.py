@@ -1,9 +1,11 @@
 """Synthetic capsule UI validation; never reads user draft data."""
 import os,json,selectors,subprocess,tempfile,time,sys
 from pathlib import Path
+from capsule_fixture import CapsuleFixture
 binary=Path(sys.argv[1]).resolve();out=Path('artifacts/validation');out.mkdir(parents=True,exist_ok=True)
-with tempfile.TemporaryDirectory(prefix='study-capsule-') as folder:
- env=os.environ.copy();env['ZWEN_DATA_DIR']=folder;env['ZWEN_SMOKE']='capsule'
+assert subprocess.run(['pgrep','-x','zwen'],capture_output=True).returncode!=0,'Close existing Zwen first'
+with CapsuleFixture() as fixture,tempfile.TemporaryDirectory(prefix='study-capsule-') as folder:
+ env=os.environ.copy();env['ZWEN_DATA_DIR']=folder;env['ZWEN_SMOKE']='capsule';env.update(fixture.env)
  with (out/'capsule-stderr.txt').open('wb') as err:
   p=subprocess.Popen([str(binary),'capsule'],env=env,stdout=subprocess.PIPE,stderr=err,bufsize=0)
   sel=selectors.DefaultSelector();sel.register(p.stdout,selectors.EVENT_READ);buffer=b'';events=[];windows=[];start=time.monotonic()

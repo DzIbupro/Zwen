@@ -7,11 +7,19 @@
  let phase='dom';
  try {
   await wait(()=>document.querySelector('[data-capsule]')&&!document.querySelector('textarea').disabled);
+  await api.core.invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'fixture-model',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
+  await api.core.invoke('set_surface',{mode:'full'});await wait(()=>document.querySelector('[data-nav=settings]'));
+  document.querySelector('[data-nav=settings]').click();await wait(()=>document.querySelector('.settings button'));
+  [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
+  document.querySelector('.capsule-launch').click();await wait(()=>document.querySelector('[data-capsule]'));
+  if(document.querySelector('[data-demo],[data-preview]'))throw Error('removed controls remain');
   let s=await api.core.invoke('get_surface');phase='initial-size';await progress('observed',s);
   await wait(()=>Math.abs(logical(s).width-s.bounds.width)<3&&logical(s).height<=s.bounds.initialHeight+3);
   const initial=await progress('initial',s);
-  const input=document.querySelector('textarea');input.value='胶囊测试草稿';input.dispatchEvent(new Event('input',{bubbles:true}));
-  document.querySelector('[data-demo]').click();
+  const input=document.querySelector('textarea');input.value='capsule-fixture';input.dispatchEvent(new Event('input',{bubbles:true}));
+  await wait(()=>!document.querySelector('[data-send]').disabled);document.querySelector('[data-send]').click();
+  await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('合成服务回复'));
+  input.value='胶囊测试草稿';input.dispatchEvent(new Event('input',{bubbles:true}));
   phase='growing';await wait(()=>logical(s).height>initial.height+70);
   await progress('growing',s);
   phase='capped';await wait(()=>{const a=document.querySelector('[data-capsule-answer]');return a&&a.scrollHeight>a.clientHeight+30&&logical(s).height>=s.bounds.maxHeight-3;});
@@ -22,6 +30,7 @@
   await api.core.invoke('set_surface',{mode:'capsule'});s=await api.core.invoke('get_surface');
   await wait(()=>logical(s).height>=s.bounds.maxHeight-3);
   await progress('reactivated',s);
+  await wait(()=>document.querySelector('td')?.textContent==='fixture'&&document.querySelector('.katex'));
   const received=document.querySelector('[data-capsule-answer]').textContent;
   const old=s.generation;
   document.querySelector('[aria-label="展开完整窗口"]').click();
@@ -33,6 +42,6 @@
   await api.core.invoke('resize_capsule',{height:96,generation:old});await sleep(150);
   if(Math.abs(innerHeight-fullHeight)>3)throw Error('Stale resize affected full view');
   await progress('full',await api.core.invoke('get_surface'));
-  await api.event.emit('foundation-smoke',{ok:true,mode:'capsule',initial,capped,draftPreserved:true,responseTransferred:true,staleResizeIgnored:true});
+  await api.event.emit('foundation-smoke',{ok:true,mode:'capsule',syntheticHttp:true,table:true,formula:true,initial,capped,draftPreserved:true,responseTransferred:true,staleResizeIgnored:true});
  } catch(e){await api.event.emit('foundation-smoke',{ok:false,mode:'capsule',error:String(e),phase,width:innerWidth,height:innerHeight,dpr:devicePixelRatio,capsule:!!document.querySelector('[data-capsule]'),surface:await api.core.invoke('get_surface').catch(()=>null)});}
 })();

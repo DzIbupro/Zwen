@@ -35,7 +35,7 @@
   stage='stop';
   fill('stop-fixture');await wait(()=>!document.querySelector('[data-send]').disabled);send();
   await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('stoppable-partial'));
-  document.querySelector('[data-demo]').click();
+  document.querySelector('[data-stop]').click();
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='stopped'&&s.reply.saved&&!s.activeRequestId;});
   stage='history';
   const stopped=(await invoke('get_chat')).reply;
