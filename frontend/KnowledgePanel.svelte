@@ -48,7 +48,7 @@
   </div>
  {:else if info.organizeMode}
   <div class="organize" data-organize-panel>
-   <div class="knowledge-bar"><button onclick={()=>controller.exitOrganize()}>← 返回列表</button><strong class="organize-title">AI 整理</strong></div>
+   <div class="knowledge-bar organize-toolbar"><button onclick={()=>controller.exitOrganize()}>← 返回列表</button><strong class="organize-title">AI 整理</strong></div>
    {#if info.confirming}
     <div class="organize-confirm" data-organize-confirm-view>
      <p><strong>确认整理</strong> — 本次将把 <b>{selectedCount} 篇</b>笔记的标题与正文发送给模型 <b>{modelLabel}</b> 进行主题归纳。</p>
@@ -75,14 +75,14 @@
   </div>
  {:else}
   {#if exportMsg}<div class="knowledge-notice" role="status">{exportMsg}</div>{/if}
-  <div class="knowledge-bar">
-   <input data-knowledge-search type="search" placeholder="搜索标题或正文…" value={info.query} oninput={e=>{void controller.refresh(e.currentTarget.value);}}/>
+  <div class="knowledge-bar knowledge-functions" role="group" aria-label="知识库操作">
+   <input aria-label="搜索知识笔记" data-knowledge-search type="search" placeholder="搜索标题或正文…" value={info.query} oninput={e=>{void controller.refresh(e.currentTarget.value);}}/>
    <button data-export-all disabled={info.busy} onclick={()=>void controller.exportAll().then(path=>{if(path)exportMsg=`已导出全部笔记到 ${path}`;})}>导出全部</button>
    <button data-organize-start disabled={info.busy} onclick={()=>{controller.enterOrganize();void controller.loadTopics();}}>AI 整理</button>
    <button data-knowledge-rebuild disabled={info.busy} title="从 Markdown 文件重建索引（正文是权威）" onclick={()=>void controller.rebuild()}>重建索引</button>
   </div>
   {#if info.topics.length>0&&!info.query}
-   <div class="topics-strip" data-topics-strip>{#each info.topics as topicView (topicView.topic.id)}<button data-topic-chip onclick={()=>void controller.openTopic(topicView.topic.id)}>{topicView.topic.name}（{topicView.count}）{topicView.topic.locked?' 🔒':''}</button>{/each}</div>
+   <p class="topics-label">知识栏目</p><div class="topics-strip" data-topics-strip role="group" aria-label="知识栏目">{#each info.topics as topicView (topicView.topic.id)}<button data-topic-chip onclick={()=>void controller.openTopic(topicView.topic.id)}>{topicView.topic.name}（{topicView.count}）{topicView.topic.locked?' 🔒':''}</button>{/each}</div>
   {/if}
   {#if info.topicView}
    {@const lockedCurrent=info.topics.find(t=>t.topic.id===info.topicView?.id)?.topic.locked??false}
@@ -146,4 +146,6 @@
  button:disabled{opacity:.5;cursor:default}
  @media(prefers-reduced-motion:reduce){button{transition:none}}
  .knowledge{font-size:16px;line-height:1.65;color:var(--text)}.knowledge-bar input,.note-editor input,.note-editor textarea,.gov-row input{font-size:16px;box-shadow:var(--inset-shadow)}.note-editor label{font-size:14px}.note-list strong{font-size:16px}.knowledge-empty,.organize-confirm p,.organize-result p,.confirm-list{font-size:16px;line-height:1.65}.note-toolbar{flex-wrap:wrap}.note-list button{box-shadow:none;background:transparent;border-color:var(--edge)}.topic-view{border:0;background:transparent;padding:0}.organize-confirm,.organize-result{background:var(--surface-soft);border:0}.organize-title{font-size:16px}.auto-row{font-size:14px}button,.knowledge-bar button,.note-toolbar button,.editor-actions button,.organize-confirm button,.organize-result button,.topics-strip button{font-size:14px;background:var(--surface);color:var(--text)}.editor-actions .primary-edit,.organize-confirm .primary-edit{background:var(--accent);color:var(--on-accent)}.knowledge-bar input{min-width:0}@media(max-width:520px){.knowledge{padding-inline:0}.knowledge-bar{flex-wrap:wrap}.knowledge-bar input{flex-basis:100%}.editor-actions{flex-wrap:wrap}}
+
+ .knowledge-bar{align-items:center;flex-wrap:wrap}.knowledge-functions{padding:16px;border:1px solid var(--edge);border-radius:18px;background:var(--surface-soft);box-shadow:var(--hover-shadow);gap:12px;margin-bottom:24px}.knowledge-functions input{min-width:150px;height:44px}.knowledge-functions button{min-height:44px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;box-shadow:var(--hover-shadow)}.knowledge-functions [data-organize-start]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}.organize-toolbar{gap:16px;min-height:44px;margin-bottom:20px}.organize-toolbar button{display:inline-flex;align-items:center;min-height:40px;line-height:1.45}.organize-title{margin:0;font-size:18px;line-height:1.45;font-weight:600}.topics-label{font-size:14px;font-weight:600;color:var(--muted);margin:0 0 10px}.topics-strip{gap:10px;padding:2px 0 12px;border-bottom:1px solid var(--edge);margin-bottom:18px}.topics-strip button{border-radius:999px;background:transparent;box-shadow:none;border:1px solid var(--edge);font-weight:500;padding:7px 13px;line-height:1.45}.topics-strip button:hover{background:var(--surface-soft);border-color:var(--muted);box-shadow:none}.note-meta,.note-list small,.organize-hint,.note-source,.gov-hint,.auto-row,.knowledge-notice{font-weight:500}.note-toolbar,.editor-actions,.gov-row{align-items:center}@media(max-width:720px){.knowledge-functions input{flex-basis:100%;width:100%}}@media(max-width:520px){.knowledge-functions{padding:12px;gap:10px}.knowledge-functions button{flex:1 1 auto}.organize-toolbar{gap:12px}}
 </style>
