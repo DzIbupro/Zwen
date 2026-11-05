@@ -16,6 +16,13 @@
   let s=await api.core.invoke('get_surface');phase='initial-size';await progress('observed',s);
   await wait(()=>Math.abs(logical(s).width-s.bounds.width)<3&&logical(s).height<=s.bounds.initialHeight+3);
   const initial=await progress('initial',s);
+  const moveStep=async(stage)=>{
+   if(!window.__ZWEN_CAPSULE_POSITION_TEST__)return;
+   let done;const continued=new Promise(resolve=>{done=resolve;});
+   const off=await api.event.listen('capsule-position-continued',e=>{if(e.payload===stage){off();done();}});
+   await progress(stage,s);await continued;
+  };
+  await moveStep('move-empty');
   const input=document.querySelector('textarea');input.value='capsule-fixture';input.dispatchEvent(new Event('input',{bubbles:true}));
   await wait(()=>!document.querySelector('[data-send]').disabled);document.querySelector('[data-send]').click();
   await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('合成服务回复'));
@@ -25,11 +32,14 @@
   phase='capped';await wait(()=>{const a=document.querySelector('[data-capsule-answer]');return a&&a.scrollHeight>a.clientHeight+30&&logical(s).height>=s.bounds.maxHeight-3;});
   const capped=await progress('capped',s);
   if(Math.abs(capped.width-initial.width)>3||capped.height>s.bounds.maxHeight+3)throw Error('Capsule width/height bounds failed');
+  await moveStep('move-filled');
+  if(window.__ZWEN_CAPSULE_POSITION_TEST__){await api.core.invoke('resize_capsule',{height:s.bounds.maxHeight,generation:s.generation});await sleep(150);await progress('filled-resized',s);}
   const a=document.querySelector('[data-capsule-answer]');a.scrollTop=0;if(a.scrollTop!==0)throw Error('Answer cannot scroll');
   phase='reactivation';
   await api.core.invoke('set_surface',{mode:'capsule'});s=await api.core.invoke('get_surface');
   await wait(()=>logical(s).height>=s.bounds.maxHeight-3);
   await progress('reactivated',s);
+  await moveStep('move-reactivated');
   await wait(()=>document.querySelector('td')?.textContent==='fixture'&&document.querySelector('.katex'));
   const received=document.querySelector('[data-capsule-answer]').textContent;
   const old=s.generation;

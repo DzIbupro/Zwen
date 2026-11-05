@@ -31,6 +31,7 @@ export const setSurface=(mode:'full'|'capsule'):Promise<SurfaceInfo>=>{
   if(isDesktop)return command('set_surface',{mode});
   browserSurface={...browserSurface,mode,generation:browserSurface.generation+1};return Promise.resolve(browserSurface);
 };
+export const startCapsuleDrag=():Promise<void>=>isDesktop?command('plugin:window|start_dragging'):Promise.resolve();
 export const resizeCapsule=(height:number,generation:number):Promise<void>=>isDesktop?command('resize_capsule',{height,generation}):Promise.resolve();
 
 import type {ProviderPort,ProviderView} from './provider';

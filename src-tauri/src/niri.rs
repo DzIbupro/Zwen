@@ -24,15 +24,15 @@ fn own_id()->Option<u64>{
 }
 fn action(args:&[&str]){let mut argv=vec!["msg","action"];argv.extend_from_slice(args);let _=request(&argv);}
 impl Placement {
-    pub fn place(&mut self,width:u32,initial:bool){
+    pub fn place(&mut self,width:u32){
         if self.id.is_none(){for _ in 0..8 {self.id=own_id();if self.id.is_some(){break;}std::thread::sleep(Duration::from_millis(20));}}
         let Some(id)=self.id else{return;};let id=id.to_string();
-        if initial {
-            action(&["move-window-to-floating","--id",&id]);
-            action(&["move-window-to-monitor","--id",&id,&self.output]);
-        }
+        action(&["move-window-to-floating","--id",&id]);
+        action(&["move-window-to-monitor","--id",&id,&self.output]);
         let x=((self.width-width as f64)/2.0).max(0.0).round().to_string();
-        action(&["move-floating-window","--id",&id,"--x",&x,"--y","48"]);
+        // Niri interprets these in the monitor work area, below layer-shell panels.
+        // Match the small default window margin, without a screen-global Y offset.
+        action(&["move-floating-window","--id",&id,"--x",&x,"--y","8"]);
     }
     pub fn tile(&self){if let Some(id)=self.id{action(&["move-window-to-tiling","--id",&id.to_string()]);}}
 }

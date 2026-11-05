@@ -58,13 +58,13 @@ pub async fn activate_if_current(app:tauri::AppHandle,capsule:bool,intent:u64)->
     std::thread::sleep(std::time::Duration::from_millis(120));
     if !current(intent){return Ok(c.snapshot(&window));}
     window.show().map_err(|_|ClientError::window())?;
-    if capsule {let width=c.bounds.width;if let Some(p)=&mut c.placement {p.place(width,true);}else{let _=window.center();}}
+    if capsule {let width=c.bounds.width;if let Some(p)=&mut c.placement {p.place(width);}else{let _=window.center();}}
     let _=window.set_focus();Ok(snapshot)
  }).await.map_err(|_|ClientError::window())?
 }
 pub async fn resize(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{
  tauri::async_runtime::spawn_blocking(move||{
-    let shared=app.state::<Shared>();let mut c=shared.lock().map_err(|_|ClientError::window())?;
+    let shared=app.state::<Shared>();let c=shared.lock().map_err(|_|ClientError::window())?;
     if !c.state.accept_resize(generation){return Ok(());}
     let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
     let height=c.bounds.height(height);let width=c.bounds.width;
@@ -74,7 +74,7 @@ pub async fn resize(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),C
     window.as_ref().set_size(LogicalSize::new(width,height)).and_then(|_|window.set_size(LogicalSize::new(width,height))).map_err(|_|ClientError::window())?;
     window.set_min_size(Some(LogicalSize::new(width,height))).map_err(|_|ClientError::window())?;
     window.set_max_size(Some(LogicalSize::new(width,height))).map_err(|_|ClientError::window())?;
-    if let Some(p)=&mut c.placement {p.place(width,false);}
+    // Size changes leave the compositor position untouched after a user drag.
     Ok(())
  }).await.map_err(|_|ClientError::window())?
 }

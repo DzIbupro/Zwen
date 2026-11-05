@@ -1,0 +1,247 @@
+{
+  "passed": true,
+  "exit": 0,
+  "defaultInset": 8.0,
+  "emptyMoved": [
+    112.0,
+    127.33333333333331
+  ],
+  "filledMoved": [
+    572.0,
+    211.33333333333337
+  ],
+  "violations": [],
+  "geometry": [
+    {
+      "stage": "observed",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          96.0
+        ],
+        "window_size": [
+          480,
+          96
+        ],
+        "tile_pos_in_workspace_view": [
+          613.3333333333334,
+          51.333333333333336
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "initial",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          96.0
+        ],
+        "window_size": [
+          480,
+          96
+        ],
+        "tile_pos_in_workspace_view": [
+          613.3333333333334,
+          51.333333333333336
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "move-empty",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          96.0
+        ],
+        "window_size": [
+          480,
+          96
+        ],
+        "tile_pos_in_workspace_view": [
+          613.3333333333334,
+          51.333333333333336
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "growing",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          586.0
+        ],
+        "window_size": [
+          480,
+          586
+        ],
+        "tile_pos_in_workspace_view": [
+          112.0,
+          127.33333333333331
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "capped",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          586.0
+        ],
+        "window_size": [
+          480,
+          586
+        ],
+        "tile_pos_in_workspace_view": [
+          112.0,
+          127.33333333333331
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "move-filled",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          586.0
+        ],
+        "window_size": [
+          480,
+          586
+        ],
+        "tile_pos_in_workspace_view": [
+          112.0,
+          127.33333333333331
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "filled-resized",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          586.0
+        ],
+        "window_size": [
+          480,
+          586
+        ],
+        "tile_pos_in_workspace_view": [
+          572.0,
+          211.33333333333337
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "reactivated",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          586.0
+        ],
+        "window_size": [
+          480,
+          586
+        ],
+        "tile_pos_in_workspace_view": [
+          613.3333333333334,
+          51.333333333333336
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "move-reactivated",
+      "floating": true,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          480.0,
+          586.0
+        ],
+        "window_size": [
+          480,
+          586
+        ],
+        "tile_pos_in_workspace_view": [
+          613.3333333333334,
+          51.333333333333336
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "stage": "full",
+      "floating": false,
+      "layout": {
+        "pos_in_scrolling_layout": [
+          3,
+          1
+        ],
+        "tile_size": [
+          841.3333333333334,
+          1008.0
+        ],
+        "window_size": [
+          841,
+          1008
+        ],
+        "tile_pos_in_workspace_view": null,
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "evidence": "Temporary app and loopback synthetic model; actual Niri move/resize, no physical mouse drag"
+}
