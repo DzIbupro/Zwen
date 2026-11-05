@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "itemIsMenu": false,
+  "nativeActivation": true,
+  "hiddenReopen": true,
+  "capsuleExpansion": true,
+  "menuActions": [
+    "打开 Zwen",
+    "快捷胶囊",
+    "截图（Shift+Alt+S）",
+    "设置",
+    "保存并退出"
+  ],
+  "removedOnQuit": true,
+  "evidence": "Real session D-Bus protocol and Niri geometry; no physical mouse click"
+}

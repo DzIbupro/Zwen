@@ -1,5 +1,5 @@
 //! Native system tray: window actions reuse normal lifecycle/save protection.
-use tauri::{Emitter,Manager,menu::{Menu,MenuItem},tray::TrayIconBuilder};
+use tauri::{Emitter,Manager,menu::{Menu,MenuItem},tray::{TrayIconBuilder,TrayIconEvent,MouseButton,MouseButtonState}};
 use zwen_core::cli::LaunchAction;
 const ID:&str="zwen-resident";
 #[derive(Debug,PartialEq)]enum Action{Open,Capsule,Screenshot,Settings,Quit}
@@ -24,8 +24,13 @@ pub fn setup(app:&tauri::App)->tauri::Result<()>{
  let settings=MenuItem::with_id(app,"zwen.tray.settings","设置",true,None::<&str>)?;
  let quit=MenuItem::with_id(app,"zwen.tray.quit","保存并退出",true,None::<&str>)?;
  let menu=Menu::with_items(app,&[&open,&capsule,&screenshot,&settings,&quit])?;
- let mut builder=TrayIconBuilder::with_id(ID).menu(&menu).title("Zwen").tooltip("Zwen").show_menu_on_left_click(true)
-  .on_menu_event(|app,event|dispatch(app,event.id.as_ref()));
+ let mut builder=TrayIconBuilder::with_id(ID).menu(&menu).title("Zwen").tooltip("Zwen").show_menu_on_left_click(false)
+  .on_menu_event(|app,event|dispatch(app,event.id.as_ref()))
+  .on_tray_icon_event(|tray,event|{
+   if matches!(event,TrayIconEvent::Click{button:MouseButton::Left,button_state:MouseButtonState::Up,..}){
+    dispatch(tray.app_handle(),"zwen.tray.open");
+   }
+  });
  if let Some(icon)=app.default_window_icon(){builder=builder.icon(icon.clone());}
  builder.build(app)?;Ok(())
 }
