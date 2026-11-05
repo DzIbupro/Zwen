@@ -1,12 +1,13 @@
 <script lang="ts">
  import Icon from './Icon.svelte';import type {AppearanceState} from './lib/appearance';
- let {state,onTheme,onReload}:{state:AppearanceState;onTheme:(theme:'light'|'dark')=>void;onReload:()=>void}=$props();
+ let {state,onTheme,onReload}:{state:AppearanceState;onTheme:(theme:'light'|'dark'|'system')=>void;onReload:()=>void}=$props();
 </script>
 <section class="appearance-settings" aria-label="外观设置" data-appearance-settings>
  <h2>外观</h2><p>选择适合当前环境的界面明暗。</p>
  <fieldset disabled={!state.loaded}><legend class="sr-only">界面主题</legend><div class="theme-options">
   <label class:selected={state.theme==='light'}><input type="radio" name="interface-theme" value="light" checked={state.theme==='light'} onchange={()=>onTheme('light')}/><Icon name="sun"/><span>浅色</span></label>
   <label class:selected={state.theme==='dark'}><input type="radio" name="interface-theme" value="dark" checked={state.theme==='dark'} onchange={()=>onTheme('dark')}/><Icon name="moon"/><span>深色</span></label>
+  <label class:selected={state.theme==='system'}><input type="radio" name="interface-theme" value="system" checked={state.theme==='system'} onchange={()=>onTheme('system')}/><Icon name="settings"/><span>跟随系统</span></label>
  </div></fieldset>
  {#if state.status==='saving'}<small role="status">正在保存外观偏好…</small>{/if}
  {#if state.error}<div class="appearance-error" role="alert">{state.error}<button onclick={onReload}>重新读取</button></div>{/if}

@@ -8,9 +8,9 @@ pub struct BarAction { pub id: String, pub name: String }
 
 /// CSS is scoped to providers attached to our own widgets, never the desktop.
 fn theme_css(theme:crate::appearance::Theme)->String {
-    let (surface,text,edge,button,hover)=match theme {
+    let (surface,text,edge,button,hover)=match if theme==crate::appearance::Theme::System{crate::appearance::cached_theme()}else{theme} {
         crate::appearance::Theme::Light=>("#e0e5ec","#30343c","#c4cad3","#f0f0f3","#d3d9e2"),
-        crate::appearance::Theme::Dark=>("#292d35","#e7ebf3","#454c58","#30353e","#414854"),
+        crate::appearance::Theme::System | crate::appearance::Theme::Dark=>("#292d35","#e7ebf3","#454c58","#30353e","#414854"),
     };
     format!(".zwen-probe {{background-color:rgba(0,0,0,0);}} .zwen-selection {{background:{surface}; color:{text}; border:1px solid {edge}; border-radius:12px;}} button {{background:{button}; color:{text}; border:0; border-radius:8px; padding:5px 7px; min-height:22px; box-shadow:none;}} button:hover, button:checked {{background:{hover};}} button:disabled {{color:{edge};}}")
 }

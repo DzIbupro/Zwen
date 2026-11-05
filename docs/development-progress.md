@@ -1,3 +1,13 @@
+# 2026-11-05 侧栏Logo固定与跟随系统
+
+状态：**ready-for-next-unit / restart-pending**。本轮两项已实现验证：侧栏收起时Logo保持左侧原位置；外观新增浅色/深色/跟随系统。system监听桌面DMS使用的GSettings color-scheme（default浅，prefer-dark深），主窗/胶囊/划词条同步，不改用户当前桌面配色或既有主题选择。完整重启与渲染器重载可恢复最新系统状态。
+
+前端166项（29文件）、Svelte0错误0警告、Vite、Rust desktop50通过/1既有忽略、普通release通过。隔离GSettings memory+临时数据库双进程回归：浅深往返、手动浅色优先、system重启持久化、渲染器重载；收起24帧Logo横坐标全部20px。原有appearance两进程草稿/主题/侧栏恢复通过。浏览器检查三态设置。详见[规格](superpowers/specs/2026-11-05-system-theme-sidebar.md)及[验证](validation/2026-11-05-system-theme.md)。
+
+普通SHA256 8c1e0e3f593f53c5cceb9d9652b4851849422b135cc46bd06bc3087d84b199a1，安装artifacts/zwen，回退artifacts/zwen-before-system-theme；不强关/启动日常实例，下次完整退出重开生效。未读生产库/环境/密钥、未请求模型。上一批10项待办不变，下一项仍优先背景Logo80%/去黑底阴影。单元结束额度300分钟53%、周81%，未接近上限，后续续接核对最新进度与人类活跃状态。共享构建缓存保留。
+
+---
+
 # 2026-11-05 X退出图标与重新启动新对话
 
 状态：**ready-for-next-unit / restart-pending**。本轮用户两项要求已实现并验证：右上角文字改为X，悬停/无障碍名称仍为保存并退出，沿用保存守卫；完整退出后重开默认新对话，下一次提问不带旧会话上下文。历史和未发送草稿保留；正在运行或未保存的回复优先恢复。同一进程隐藏再唤出保留当前会话，页面重载只恢复已附着的回复，空白新会话重载不接回旧历史。

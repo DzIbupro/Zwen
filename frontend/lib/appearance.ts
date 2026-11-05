@@ -1,11 +1,19 @@
-export interface Appearance{theme:'light'|'dark';sidebarCollapsed:boolean}
+export interface Appearance{theme:'light'|'dark'|'system';sidebarCollapsed:boolean}
 export interface AppearanceState extends Appearance{loaded:boolean;status:'loading'|'saving'|'saved'|'error';error:string|null}
 export interface AppearancePort{load():Promise<Appearance>;save(preferences:Appearance):Promise<Appearance>}
 export const DEFAULT_APPEARANCE:Appearance={theme:'light',sidebarCollapsed:false};
 export const APPEARANCE_KEY='zwen.appearance.v1';
-export function parseAppearance(value:unknown):Appearance|null{if(!value||typeof value!=='object')return null;const v=value as Record<string,unknown>;return(v.theme==='light'||v.theme==='dark')&&typeof v.sidebarCollapsed==='boolean'?{theme:v.theme,sidebarCollapsed:v.sidebarCollapsed}:null;}
+export function parseAppearance(value:unknown):Appearance|null{if(!value||typeof value!=='object')return null;const v=value as Record<string,unknown>;return(v.theme==='light'||v.theme==='dark'||v.theme==='system')&&typeof v.sidebarCollapsed==='boolean'?{theme:v.theme,sidebarCollapsed:v.sidebarCollapsed}:null;}
 export function initialAppearance(native:unknown,storage:Pick<Storage,'getItem'>):Appearance{const n=parseAppearance(native);if(n)return n;try{return parseAppearance(JSON.parse(storage.getItem(APPEARANCE_KEY)??'null'))??{...DEFAULT_APPEARANCE};}catch{return{...DEFAULT_APPEARANCE};}}
-export function applyAppearance(preferences:Appearance){document.documentElement.dataset.theme=preferences.theme;document.documentElement.style.colorScheme=preferences.theme;}
+export type ResolvedTheme='light'|'dark';
+export function systemTheme():ResolvedTheme{const native=(window as Window & {__ZWEN_SYSTEM_THEME__?:ResolvedTheme}).__ZWEN_SYSTEM_THEME__;return native??(window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light');}
+export function applyAppearance(preferences:Appearance,system:ResolvedTheme=systemTheme()){const theme=preferences.theme==='system'?system:preferences.theme;document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;}
+export function watchSystemTheme(current:()=>Appearance):()=>void{
+ const native=(event:Event)=>{const theme=(event as CustomEvent).detail;if(theme!=='light'&&theme!=='dark')return;(window as Window & {__ZWEN_SYSTEM_THEME__?:ResolvedTheme}).__ZWEN_SYSTEM_THEME__=theme;applyAppearance(current());};
+ const media=window.matchMedia?.('(prefers-color-scheme: dark)');const changed=()=>applyAppearance(current());
+ window.addEventListener('zwen-system-theme',native);media?.addEventListener('change',changed);
+ return()=>{window.removeEventListener('zwen-system-theme',native);media?.removeEventListener('change',changed);};
+}
 export class AppearanceController{
  state:AppearanceState;private stable:Appearance;private pending:Appearance|null=null;private worker:Promise<void>|null=null;private disposed=false;private loading=false;
  constructor(private port:AppearancePort,private changed:(s:AppearanceState)=>void,preset:Appearance=DEFAULT_APPEARANCE){this.stable={...preset};this.state={...preset,loaded:false,status:'loading',error:null};}

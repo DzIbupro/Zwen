@@ -2,7 +2,7 @@
   import Sidebar from './Sidebar.svelte';
   import Icon from './Icon.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
-  import {AppearanceController,initialAppearance,applyAppearance,type AppearanceState} from './lib/appearance';
+  import {AppearanceController,initialAppearance,applyAppearance,watchSystemTheme,type AppearanceState} from './lib/appearance';
   import {appearancePort} from './lib/bridge';
   import RetryNotice from './RetryNotice.svelte';
   import ActionOutputNotice from './ActionOutputNotice.svelte';
@@ -235,7 +235,7 @@
   onMount(()=>{
     let disposed=false;const unlisteners:(()=>void)[]=[];
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
-    void appearance.start();void provider.load();void chat.load();
+    const unwatchTheme=watchSystemTheme(()=>appearanceState);void appearance.start();void provider.load();void chat.load();
     if(isDesktop)void quickActionPort.load().then(c=>{if(disposed)return;quickConfig=c;quickConfigLoaded=true;}).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'快捷提示词读取失败';});
     draftReady=controller.start();
     void draftReady.then(()=>{if(disposed)return;input?.focus();void selection.refresh();}).catch(()=>{});
@@ -249,7 +249,7 @@
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>{if(!disposed)void leave(quit);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='关闭事件暂不可用，请使用面板按钮';});
     }
-    return ()=>{clearTimeout(bookmarkTimer);disposed=true;appDisposed=true;selectionCommands.dispose();appearance.dispose();for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();actionOutput.dispose();resizeQueue.clear();};
+    return ()=>{unwatchTheme();clearTimeout(bookmarkTimer);disposed=true;appDisposed=true;selectionCommands.dispose();appearance.dispose();for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();actionOutput.dispose();resizeQueue.clear();};
   });
 </script>
 

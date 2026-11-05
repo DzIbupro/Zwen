@@ -144,6 +144,7 @@ fn main() {
                     .build()?;
                 if let Err(error)=tray::setup(app){eprintln!("Zwen 托盘暂不可用，仍可通过应用入口或快捷键唤出：{error}");}
             }
+            appearance::watch_system(app.handle());
             launch(app.handle(), action,args.get(1).map(String::as_str));
             Ok(())
         });
