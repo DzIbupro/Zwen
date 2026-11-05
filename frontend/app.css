@@ -13,3 +13,5 @@ html[data-surface=capsule],html[data-surface=capsule] body,html[data-surface=cap
 footer,.answer-label,.capsule-brand small,.capsule-response-label,.capsule-notice,.context-title{font-weight:500}button,input,textarea,select,summary{line-height:1.45}
 
 input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
+
+.quit-button{font-size:14px;line-height:1.45;font-weight:500;color:var(--text);min-height:36px;padding:8px 12px;white-space:nowrap;flex-shrink:0}

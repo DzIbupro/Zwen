@@ -13,6 +13,7 @@
   if(document.querySelector('[data-demo],[data-preview]'))throw Error('removed controls still present');
   const d=await api.core.invoke('load_draft');
   if(['edit','quit'].includes(window.__ZWEN_SMOKE_MODE__)){const input=document.querySelector('textarea');input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));}
+  if(window.__ZWEN_SMOKE_MODE__==='quit'){const button=document.querySelector('[data-quit-app]');if(!button||button.disabled)throw Error('direct quit unavailable');if(document.querySelector('[aria-label="更多操作"]'))throw Error('obsolete menu still present');button.click();return;}
   await api.event.emit('foundation-smoke',{ok:true,mode:window.__ZWEN_SMOKE_MODE__,revision:d.revision,draftLifecycle:true,width:innerWidth,height:innerHeight,dpr:devicePixelRatio});
  } catch(e) { await api.event.emit('foundation-smoke',{ok:false,error:String(e)}); }
 })();

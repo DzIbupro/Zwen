@@ -260,7 +260,7 @@
   <div class="main-panel">
   <header class="titlebar">
     <span class="context-title">{view==='settings'?'设置':view==='history'?'问答历史':view==='knowledge'?'知识库':view==='graph'?'知识网络':'当前对话'}</span>
-    <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><details><summary aria-label="更多操作" title="更多操作"><Icon name="more"/></summary><div class="menu">{#if chatState.reply||chatState.running||chatState.error}<button onclick={()=>{view='reply';}}>模型回复</button>{/if}<button onclick={()=>leave(true)}>保存并退出</button></div></details></div>
+    <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button" data-quit-app disabled={closing} onclick={()=>leave(true)}>{closing?'正在退出…':'保存并退出'}</button></div>
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器界面预览 · 不会请求模型</div>{/if}
   {#if appearanceState.error&&view!=='settings'}<div class="appearance-save-error" role="alert">{appearanceState.error}<button onclick={()=>view='settings'}>外观设置</button></div>{/if}
