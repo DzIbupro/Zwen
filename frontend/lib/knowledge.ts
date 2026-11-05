@@ -99,7 +99,12 @@ export class KnowledgeController {
   try{
    await this.port.remove(id);
    this.discardEditorDraft(id);
-   this.publish({current:null,notice:''});
+   const selected={...this.state.selected};delete selected[id];
+   const topicView=this.state.topicView;
+   const topics=this.state.topics.map(topic=>({...topic,noteIds:topic.noteIds.filter(note=>note!==id),count:topic.count-(topic.noteIds.includes(id)?1:0)})).filter(topic=>topic.count>0);
+   this.publish({current:null,selected,topics,relations:this.state.relations.filter(relation=>relation.evidence!==id&&topics.some(t=>t.topic.id===relation.fromTopic)&&topics.some(t=>t.topic.id===relation.toTopic)),topicView:topicView?{...topicView,notes:topicView.notes.filter(note=>note.meta.id!==id)}:null,notice:''});
+   await this.loadTopics();await this.loadRelations();
+   if(this.state.topicView&&!this.state.topics.some(topic=>topic.topic.id===this.state.topicView!.id))this.publish({topicView:null});
   }
   catch(error){
    this.publish({notice:error instanceof Error?error.message:'删除未完成'});

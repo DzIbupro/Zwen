@@ -193,3 +193,33 @@ impl ManualSeed for OrganizeStore{
  store.invalidate_note(&note,Some(1)).unwrap();assert_eq!(store.list_relations().unwrap().len(),1);
  store.invalidate_note(&note,Some(2)).unwrap();assert!(store.list_relations().unwrap().is_empty());assert!(store.list_topics().unwrap().iter().all(|t|t.count==1));
 }
+
+#[test]fn deleting_evidence_updates_all_counts_removes_empty_topics_and_keeps_undo_valid(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);let b="b".repeat(32);
+ let batch=store.apply_batch("m",&[a.clone(),b.clone()],&[(a.clone(),1,vec!["共有".into(),"唯一".into()]),(b.clone(),1,vec!["共有".into()])]).unwrap();
+ let topics=store.list_topics().unwrap();let shared=topics.iter().find(|t|t.topic.name=="共有").unwrap().topic.id.clone();let unique=topics.iter().find(|t|t.topic.name=="唯一").unwrap().topic.id.clone();
+ store.set_topic_locked(&unique,true).unwrap();store.add_relation(&shared,&unique,"共同证据",&a).unwrap();
+ store.invalidate_note(&a,None).unwrap();let remaining=store.list_topics().unwrap();assert_eq!(remaining.len(),1);assert_eq!(remaining[0].count,1);assert_eq!(remaining[0].note_ids,vec![b.clone()]);assert!(store.list_relations().unwrap().is_empty());
+ store.invalidate_note(&a,None).unwrap();assert_eq!(store.list_topics().unwrap().len(),1);
+ store.undo_batch(&batch.id).unwrap();assert!(store.list_topics().unwrap().is_empty());
+}
+
+#[test]fn cleanup_failure_rolls_back_membership_and_relation_removal(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);
+ store.apply_batch("m",&[a.clone()],&[(a.clone(),1,vec!["A".into(),"B".into()])]).unwrap();let topics=store.list_topics().unwrap();
+ store.add_relation(&topics[0].topic.id,&topics[1].topic.id,"证据",&a).unwrap();
+ store.raw_execute("CREATE TRIGGER fail_cleanup BEFORE DELETE ON topics BEGIN SELECT RAISE(ABORT,'fixture'); END",[]).unwrap();
+ assert!(store.invalidate_note(&a,None).is_err());assert_eq!(store.list_topics().unwrap().len(),2);assert_eq!(store.list_topics().unwrap()[0].count,1);assert_eq!(store.list_relations().unwrap().len(),1);
+}
+#[test]fn refresh_prunes_historical_empty_topics_and_dangling_relations(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);
+ store.apply_batch("m",&[a.clone()],&[(a.clone(),1,vec!["A".into(),"B".into()])]).unwrap();let topics=store.list_topics().unwrap();store.add_relation(&topics[0].topic.id,&topics[1].topic.id,"证据",&a).unwrap();
+ store.raw_execute("DELETE FROM memberships",[]).unwrap();store.prune_empty_topics().unwrap();assert!(store.list_topics().unwrap().is_empty());assert!(store.list_relations().unwrap().is_empty());store.prune_empty_topics().unwrap();
+}
+
+#[test]fn markdown_note_deletion_drives_topic_cleanup_without_removing_other_notes(){
+ let s=Scratch::new();let mut notes=zwen_core::notes::NoteStore::open(&s.0).unwrap();let a=notes.create("A","正文A","chat","fixture",&[],None).unwrap();let b=notes.create("B","正文B","chat","fixture",&[],None).unwrap();
+ let mut store=OrganizeStore::open(&s.0).unwrap();store.apply_batch("m",&[a.id.clone(),b.id.clone()],&[(a.id.clone(),content_hash("正文A".as_bytes()),vec!["共有".into(),"仅A".into()]),(b.id.clone(),content_hash("正文B".as_bytes()),vec!["共有".into()])]).unwrap();
+ notes.delete(&a.id).unwrap();assert!(notes.read(&a.id).is_err());assert_eq!(notes.read(&b.id).unwrap().body,"正文B");let topics=store.list_topics().unwrap();assert_eq!(topics.len(),1);assert_eq!(topics[0].count,1);
+ notes.delete(&b.id).unwrap();assert!(store.list_topics().unwrap().is_empty());
+}

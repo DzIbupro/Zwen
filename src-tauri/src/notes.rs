@@ -85,7 +85,7 @@ pub fn organize_store(storage:&SharedStorage)->Result<OrganizeStore,ClientError>
 #[tauri::command]
 pub async fn organize_topics(storage:tauri::State<'_,SharedStorage>)->Result<Vec<TopicAssignments>,ClientError>{
  let storage=storage.inner().clone();
- tauri::async_runtime::spawn_blocking(move||->Result<Vec<TopicAssignments>,ClientError>{Ok(organize_store(&storage)?.list_topics()?)}).await.map_err(|_|ClientError::storage())?
+ tauri::async_runtime::spawn_blocking(move||->Result<Vec<TopicAssignments>,ClientError>{let mut organize=organize_store(&storage)?;organize.prune_empty_topics()?;Ok(organize.list_topics()?)}).await.map_err(|_|ClientError::storage())?
 }
 
 /// Joins one topic's memberships with note metadata (cap 50, newest first).

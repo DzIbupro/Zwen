@@ -211,3 +211,17 @@ it('successful edit clears its cached draft while failure retains it',async()=>{
  f.port.update=update;expect(await f.controller.saveEdit(meta().id,draft.title,draft.body,{})).not.toBe(null);
  expect(f.controller.pendingEditorId()).toBeUndefined();
 });
+
+it('deleting the last note immediately refreshes topics, closes its topic and clears selected material',async()=>{
+ const f=fixture([meta()]);await f.controller.refresh();await f.controller.loadTopics();const tid=f.controller.state.topics[0].topic.id;
+ await f.controller.openTopic(tid);f.controller.state.selected={[meta().id]:true};await f.controller.remove(meta().id);
+ expect(f.controller.state.topics).toEqual([]);expect(f.controller.state.topicView).toBeNull();expect(f.controller.state.selected).toEqual({});
+});
+
+it('deletion refreshes a shared topic count and removes deleted evidence from its visible members',async()=>{
+ const a=meta(),b=meta('b'.repeat(32));const f=fixture([a,b]);
+ f.port.topics=async()=>f.notes.length?[{topic:{id:'shared',name:'共有',column:'',createdBy:'ai',batchId:'batch',createdAt:1,locked:false},noteIds:f.notes.map(n=>n.id),count:f.notes.length}]:[];
+ f.port.topicNotes=async()=>f.notes.map(meta=>({meta,body:'合成正文'}));
+ await f.controller.loadTopics();await f.controller.openTopic('shared');await f.controller.remove(a.id);
+ expect(f.controller.state.topics[0].count).toBe(1);expect(f.controller.state.topicView?.notes.map(n=>n.meta.id)).toEqual([b.id]);
+});

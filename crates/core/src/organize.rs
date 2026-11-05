@@ -336,11 +336,14 @@ impl OrganizeStore{
     tx.execute("DELETE FROM relations WHERE evidence=?1 AND added_by='ai' AND (note_hash IS NULL OR note_hash!=?2)",params![note,i64::from_ne_bytes(hash.to_ne_bytes())])?;
     tx.execute("DELETE FROM memberships WHERE note_id=?1 AND added_by='ai' AND note_hash!=?2",params![note,i64::from_ne_bytes(hash.to_ne_bytes())])?;
    },
-   None=>{tx.execute("DELETE FROM relations WHERE evidence=?1",[note])?;tx.execute("DELETE FROM memberships WHERE note_id=?1",[note])?;},
+   None=>{tx.execute("DELETE FROM relations WHERE evidence=?1",[note])?;tx.execute("DELETE FROM memberships WHERE note_id=?1",[note])?;prune_empty(&tx)?;},
   }
   cleanup_relations(&tx)?;
   tx.commit()?;Ok(())
  }
+
+ /// Remove historical empty topics on refresh, without touching batch audit rows.
+ pub fn prune_empty_topics(&mut self)->Result<(),Error>{let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;prune_empty(&tx)?;cleanup_relations(&tx)?;tx.commit()?;Ok(())}
 
  pub fn list_topics(&self)->Result<Vec<TopicAssignments>,Error>{
   let mut statement=self.connection.prepare("SELECT id,name,column_name,created_by,batch_id,created_at,locked FROM topics ORDER BY column_name,name")?;
@@ -381,6 +384,8 @@ impl OrganizeStore{
 }
 
 fn created_now()->i64{std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d|d.as_secs() as i64).unwrap_or(0)}
+
+fn prune_empty(connection:&Connection)->Result<(),Error>{connection.execute("DELETE FROM topics WHERE NOT EXISTS(SELECT 1 FROM memberships WHERE topic_id=topics.id)",[])?;Ok(())}
 
 fn cleanup_relations(connection:&Connection)->Result<(),Error>{
  connection.execute("DELETE FROM relations WHERE NOT EXISTS(SELECT 1 FROM topics WHERE id=from_topic) OR NOT EXISTS(SELECT 1 FROM topics WHERE id=to_topic) OR NOT EXISTS(SELECT 1 FROM memberships WHERE note_id=evidence AND topic_id=from_topic) OR NOT EXISTS(SELECT 1 FROM memberships WHERE note_id=evidence AND topic_id=to_topic)",[])?;
