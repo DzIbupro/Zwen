@@ -109,6 +109,12 @@ fn present(app:tauri::AppHandle,reload:bool)->impl std::future::Future<Output=Re
 // interactive screenshot so the assistant cannot obscure the captured region;
 // a user window action always wins over a stale hide.
 pub async fn hide_if_current(app:tauri::AppHandle,intent:u64)->Result<bool,ClientError>{
+ #[cfg(feature="desktop-smoke")]
+ match std::env::var("ZWEN_CAPTURE_HIDE_FIXTURE_MODE").as_deref(){
+  Ok("failure")=>return Err(ClientError::window()),
+  Ok("stale")=>{new_intent();return Ok(false);},
+  _=>{}
+ }
  tauri::async_runtime::spawn_blocking(move||{
   let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
   let shared=app.state::<Shared>();let _guard=shared.lock().map_err(|_|ClientError::window())?;

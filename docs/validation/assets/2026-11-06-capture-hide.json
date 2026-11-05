@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "cases": [
+    {
+      "case": "failure",
+      "exit": 0,
+      "helperCalls": 0,
+      "events": [
+        {
+          "draftPreserved": true,
+          "mode": "capture-hide",
+          "noAttachments": true,
+          "noModel": true,
+          "notice": "Zwen 窗口未能隐藏；未开始截图，请重试",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "case": "stale",
+      "exit": 0,
+      "helperCalls": 0,
+      "events": [
+        {
+          "draftPreserved": true,
+          "mode": "capture-hide",
+          "noAttachments": true,
+          "noModel": true,
+          "notice": "窗口状态已变化；已取消本次截图，草稿已保留",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

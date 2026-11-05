@@ -18,7 +18,7 @@
   // A send attempt must not upload the image or erase the draft.
   const input=document.querySelector('[data-capsule] textarea');
   input.value='合成旧草稿\n\n检查图片';input.dispatchEvent(new Event('input',{bubbles:true}));
-  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true}));
+  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
   await wait(()=>document.querySelector('.attachment-note')?.textContent.includes('图片模型'));
   if((await api.core.invoke('get_chat')).activeRequestId)throw Error('Blocked send still contacted the model');
   await stage('send-blocked');

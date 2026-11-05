@@ -87,6 +87,13 @@ fn finish(shared:&Shared,id:&str,notice:Option<String>){
   if let Some(notice)=notice{state.notice=Some(notice);}
  }
 }
+// Before import there is no committed result: only this pending owner may
+// finish, so a late hide failure cannot overwrite a newer request's notice.
+fn abandon_before_capture(shared:&Shared,id:&str,notice:&str)->bool{
+ let Ok(mut state)=shared.lock()else{return false;};
+ if state.pending.as_ref().is_none_or(|pending|pending.id!=id){return false;}
+ state.pending=None;state.notice=Some(notice.into());true
+}
 fn cancelled(shared:&Shared,id:&str)->bool{
  match shared.lock(){Ok(state)=>state.pending.as_ref().is_none_or(|pending|pending.id!=id||pending.cancelled),Err(_)=>true}
 }
@@ -135,7 +142,16 @@ async fn run(app:AppHandle,storage:SharedStorage,shared:Shared,id:String,path:Pa
  // window would obscure (and could contaminate) the region being captured.
  // hide_if_current keeps user window actions authoritative; the same intent
  // re-presents the capsule once the request settles, in every outcome.
- let _hidden=windows::hide_if_current(app.clone(),intent).await;
+ match windows::hide_if_current(app.clone(),intent).await{
+  Ok(true)=>{},
+  hidden=>{
+   let failed=hidden.is_err();
+   let notice=if failed{"Zwen 窗口未能隐藏；未开始截图，请重试"}else{"窗口状态已变化；已取消本次截图，草稿已保留"};
+   if abandon_before_capture(&shared,&id,notice){let _=app.emit("attachments-changed",());}
+   if failed{let _=windows::activate_if_current(app,true,intent).await;}
+   return;
+  }
+ }
  let worker_shared=shared.clone();let worker_id=id.clone();let worker_path=path.clone();
  let result=tauri::async_runtime::spawn_blocking(move||{
   zwen_core::screenshot::capture(&worker_path,capture_timeout(),||cancelled(&worker_shared,&worker_id))
@@ -209,6 +225,15 @@ fn with_current_capture<T>(shared:&Shared,id:&str,commit:impl FnOnce()->Result<T
 fn may_import(state:&State,id:&str)->bool{state.pending.as_ref().is_some_and(|pending|pending.id==id&&!pending.cancelled)}
 #[cfg(test)]mod tests{
  use super::*;
+ #[test]fn late_hide_failure_does_not_clear_newer_pending_or_completed_request(){
+  let shared=Shared::default();{
+   let mut state=shared.lock().unwrap();state.pending=Some(Pending{id:"new".into(),replace:None,cancelled:false});state.notice=Some("new status".into());
+  }
+  assert!(!abandon_before_capture(&shared,"old","old failure"));
+  {let state=shared.lock().unwrap();assert_eq!(state.pending.as_ref().unwrap().id,"new");assert_eq!(state.notice.as_deref(),Some("new status"));}
+  shared.lock().unwrap().pending=None;
+  assert!(!abandon_before_capture(&shared,"old","old failure"));assert_eq!(shared.lock().unwrap().notice.as_deref(),Some("new status"));
+ }
  #[test]fn committed_capture_is_no_longer_cancellable(){
   let shared=Shared::default();shared.lock().unwrap().pending=Some(Pending{id:"done".into(),replace:None,cancelled:false});
   with_current_capture(&shared,"done",||Ok(())).unwrap();
