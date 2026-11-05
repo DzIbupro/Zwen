@@ -17,3 +17,5 @@
 - Capsule.svelte .capsule-head目前无原生拖动绑定，须同时验证空态/满态/生成中。
 - windows.rs activate_if_current通过niri::Placement.place(width,true)设置默认，resize每次p.place(width,false)，后者可能覆盖用户拖动位置。必须联查niri.rs，不能只给前端加startDragging。
 - 此文档是需求与调查记录，不表示以上三项已经实现或部署。
+
+2026-11-05 用户最新视觉修订：不再固定要求80%，图形须完整位于输入框上方可用区域，不被遮挡；问候语稍下移并与Logo共享视觉中心。此项已完成，详见validation/2026-11-05-welcome-balance.md。此修订优先于本文第1项的固定比例描述。

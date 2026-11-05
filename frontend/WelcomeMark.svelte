@@ -15,7 +15,7 @@
  </svg>
 </div>
 <style>
- .welcome-mark{position:absolute;inset:10%;pointer-events:none;user-select:none;color:var(--text);opacity:.13;z-index:0;overflow:hidden}
+ .welcome-mark{position:absolute;inset:7% 6%;pointer-events:none;user-select:none;color:var(--text);opacity:.13;z-index:0;overflow:hidden}
  svg{display:block;width:100%;height:100%}
  :global(:root[data-theme=dark]) .welcome-mark{opacity:.11}
 </style>
