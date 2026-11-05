@@ -260,6 +260,7 @@
 <div class="shell" class:sidebar-collapsed={appearanceState.sidebarCollapsed}>
   <Sidebar collapsed={appearanceState.sidebarCollapsed} active={view==='history'?'history':view==='knowledge'?'knowledge':view==='graph'?'graph':view==='settings'?'settings':'chat'} disabled={!appearanceState.loaded} canNew={!closing&&!chatState.running&&!chatState.stopping} onToggle={()=>void appearance.update({sidebarCollapsed:!appearanceState.sidebarCollapsed})} onNavigate={navigate} onNew={newConversation}/>
   <div class="main-panel">
+  {#if view==='ask'}<WelcomeMark/>{/if}
   <header class="titlebar">
     <span class="context-title">{view==='settings'?'设置':view==='history'?'问答历史':view==='knowledge'?'知识库':view==='graph'?'知识网络':'当前对话'}</span>
     <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button icon-button" data-quit-app aria-label="保存并退出" title={closing?'正在退出…':'保存并退出'} disabled={closing} onclick={()=>leave(true)}><Icon name="close"/></button></div>
@@ -279,7 +280,7 @@
         <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()} candidateEnabled={candidateEnabled} onCandidateToggle={onCandidateToggle}/>
         {#if isDesktop}<QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{/if}
       {:else if view==='ask'}
-        <div class="empty-conversation"><WelcomeMark/></div>
+        <div class="empty-conversation"><p>今天想问 Zwen 什么问题？</p></div>
       {:else}
         <section class="answer">{#if view==='reply'&&chatState.reply}<div class="user-question"><p>{chatState.reply.prompt}</p></div>{/if}<div class="answer-label"><BrandLogo compact/><strong>{chatState.reply?.model||'模型回复'}</strong><span>{replyLabel} · {replyStatus}</span></div><div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html renderedReply}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>停止生成</button>{/if}{#if view==='reply'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save disabled={bookmarkSaving!==null} aria-live="polite" onclick={()=>void saveToKnowledge()}>{bookmarkSaving===chatState.reply.requestId?'正在收藏…':bookmarkSaved===chatState.reply.requestId?'已收藏 ✓':'收藏到知识库'}</button>{/if}{#if view==='reply'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
       {/if}

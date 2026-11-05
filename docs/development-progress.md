@@ -1,3 +1,11 @@
+# 2026-11-05 大幅透明背景Logo完成
+
+状态：**ready-for-next-unit / restart-pending**。磁场Logo已改为整个主窗格底层背景：四侧10%留白、紧贴实际字形等比容纳；移除图形外网格与近黑底，不改原Logo素材，不挡交互，浅深主题同步。167项前端、Svelte0/0、Vite、原生fresh-start两进程及foundation edit/restore/quit通过，独立审查通过。浏览器浅深/480窄窗已检查，原生像素效果仍非真人验收。见[验证](validation/2026-11-05-background-logo.md)。
+
+普通SHA256 afc7570c39e5957e505fcd62a6ba6dfb7c22407d7c0947cc0f27433cfc261560，安装artifacts/zwen，回退zwen-before-background-logo，完整退出重开生效。额度300分钟64%、周82%，未近上限。剩余9项：全选、选区取消清理、图谱防重叠、截图残影、截图无超时、胶囊上移拖动、托盘左键、主题数量/空主题清理、历史删除。继续时按最新状态，不重复做背景Logo；不强关用户实例或读生产数据/密钥。
+
+---
+
 # 2026-11-05 侧栏Logo固定与跟随系统
 
 状态：**ready-for-next-unit / restart-pending**。本轮两项已实现验证：侧栏收起时Logo保持左侧原位置；外观新增浅色/深色/跟随系统。system监听桌面DMS使用的GSettings color-scheme（default浅，prefer-dark深），主窗/胶囊/划词条同步，不改用户当前桌面配色或既有主题选择。完整重启与渲染器重载可恢复最新系统状态。
