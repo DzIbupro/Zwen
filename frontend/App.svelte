@@ -23,6 +23,7 @@
   import {getSurface,setSurface,resizeCapsule} from './lib/bridge';
   import {canApplySurface,ensureSurface,ResizeQueue,type SurfaceInfo} from './lib/surface';
   import {ChatController,type ChatState} from './lib/chat';
+  import {StartupSession} from './lib/startup';
   import {chatPort,historyPort} from './lib/bridge';
   import HistoryPanel from './HistoryPanel.svelte';
   import type {ChatReply} from './lib/chat';
@@ -64,8 +65,9 @@
   const provider=new ProviderController(providerPort,s=>settings=s);
   let surface=$state<SurfaceInfo>({mode:'full',scaleFactor:1,generation:0,bounds:{width:480,initialHeight:96,maxHeight:594}});
   let switching=$state(false);let closing=$state(false);
+  const startupSession=new StartupSession((window as Window & {__ZWEN_RUN_ID__?:unknown}).__ZWEN_RUN_ID__,{getItem:key=>sessionStorage.getItem(key),setItem:(key,value)=>sessionStorage.setItem(key,value)});
   let chatState=$state<ChatState>({answer:'',running:false,stopping:false,loaded:false,error:null,reply:null});
-  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){view='reply';}});
+  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;if(s.loaded)startupSession.markLoaded(s.reply!==null);settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){view='reply';}},{freshStart:startupSession.fresh});
   const response=$derived(chatState.answer);
   const running=$derived(chatState.running);
   const replyStatus=$derived(chatState.reply?.retry?'等待重试':chatState.reply?({streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'}[chatState.reply.state]):chatState.running?'等待回复':'');
@@ -260,7 +262,7 @@
   <div class="main-panel">
   <header class="titlebar">
     <span class="context-title">{view==='settings'?'设置':view==='history'?'问答历史':view==='knowledge'?'知识库':view==='graph'?'知识网络':'当前对话'}</span>
-    <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button" data-quit-app disabled={closing} onclick={()=>leave(true)}>{closing?'正在退出…':'保存并退出'}</button></div>
+    <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button icon-button" data-quit-app aria-label="保存并退出" title={closing?'正在退出…':'保存并退出'} disabled={closing} onclick={()=>leave(true)}><Icon name="close"/></button></div>
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器界面预览 · 不会请求模型</div>{/if}
   {#if appearanceState.error&&view!=='settings'}<div class="appearance-save-error" role="alert">{appearanceState.error}<button onclick={()=>view='settings'}>外观设置</button></div>{/if}

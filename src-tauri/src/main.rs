@@ -94,6 +94,10 @@ fn capsule_surface(action:LaunchAction)->bool{matches!(action,LaunchAction::Caps
 #[cfg(feature="desktop-smoke")]
 mod smoke;
 
+fn startup_script(preferences:appearance::Preferences)->String{
+ let run=format!("{:x}-{:x}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+ format!("window.__ZWEN_RUN_ID__={};{}",serde_json::to_string(&run).expect("launch identifier"),appearance::initialization_script(preferences))
+}
 fn main() {
     let args:Vec<String>=std::env::args().skip(1).collect();
     let action=match parse_action(&args.iter().map(String::as_str).collect::<Vec<_>>()) {
@@ -132,7 +136,7 @@ fn main() {
             if action != LaunchAction::Quit {
                 let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                     .title("Zwen").transparent(true)
-                    .theme(Some(appearance.theme.native())).initialization_script(appearance::initialization_script(appearance))
+                    .theme(Some(appearance.theme.native())).initialization_script(startup_script(appearance))
                     .inner_size(if capsule_surface(action){480.0}else{900.0},if capsule_surface(action){96.0}else{850.0})
                     .resizable(true).min_inner_size(480.0,if capsule_surface(action){96.0}else{560.0}).decorations(!capsule_surface(action)).visible(false);
                 let window=if capsule_surface(action){window.max_inner_size(480.0,96.0)}else{window};

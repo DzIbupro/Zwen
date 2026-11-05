@@ -5,8 +5,8 @@ export interface ChatPort {startSelection?(id:string,selection:string,actionId:s
 export interface ChatState {answer:string;running:boolean;stopping:boolean;loaded:boolean;error:string|null;reply:ChatReply|null}
 export class ChatController {
  state:ChatState={answer:'',running:false,stopping:false,loaded:false,error:null,reply:null};
- private active:string|null=null;private conversation:string|null=null;private revision=-1;private operation=0;private disposed=false;private unlisten:(()=>void)|null=null;private loading:Promise<void>|null=null;private stopping:Promise<void>|null=null;
- constructor(private port:ChatPort,private changed:(s:ChatState)=>void){}
+ private active:string|null=null;private conversation:string|null=null;private revision=-1;private operation=0;private disposed=false;private unlisten:(()=>void)|null=null;private loading:Promise<void>|null=null;private stopping:Promise<void>|null=null;private freshStart:boolean;
+ constructor(private port:ChatPort,private changed:(s:ChatState)=>void,options:{freshStart?:boolean}={}){this.freshStart=options.freshStart===true;}
  private publish(p:Partial<ChatState>){if(!this.disposed){this.state={...this.state,...p};this.changed(this.state);}}
  private receive(reply:ChatReply){if(reply.requestId!==this.active||reply.revision<this.revision)return;this.revision=reply.revision;this.conversation=reply.conversationId;this.publish({reply,answer:reply.answer,running:reply.state==='streaming',error:reply.saved?reply.error:reply.state!=='streaming'?'回答尚未保存，请重试保存后再退出':reply.error});}
  async load(){if(this.loading)return this.loading;this.loading=this.loadOnce().finally(()=>{this.loading=null;});return this.loading;}
@@ -14,7 +14,14 @@ export class ChatController {
   this.publish({error:null});
   let pending:ChatReply|null=null;
   try {const off=await this.port.listen(reply=>{if(!this.state.loaded)pending=reply;else this.receive(reply);});if(this.disposed){off();return;}this.unlisten?.();this.unlisten=off;
-   const view=await this.port.load();if(this.disposed)return;this.active=view.activeRequestId??view.reply?.requestId??null;this.revision=-1;this.publish({loaded:true});if(view.reply)this.receive(view.reply);if(pending)this.receive(pending);
+   const view=await this.port.load();if(this.disposed)return;
+   const queued=pending as ChatReply|null;
+   const recoverable=(r:ChatReply|null)=>!!r&&(!r.saved||r.state==='streaming');
+   if(this.freshStart&&!view.activeRequestId&&!recoverable(view.reply)&&!recoverable(queued)){
+    this.freshStart=false;this.operation++;this.active=null;this.conversation=null;this.revision=-1;
+    this.publish({loaded:true,answer:'',reply:null,running:false,error:null});return;
+   }
+   this.freshStart=false;this.active=view.activeRequestId??view.reply?.requestId??null;this.revision=-1;this.publish({loaded:true});if(view.reply)this.receive(view.reply);if(pending)this.receive(pending);
   }catch(e){this.publish({error:e instanceof Error?e.message:'对话读取失败，原有记录保留'});}
  }
  async send(prompt:string,save:()=>Promise<void>){return this.sendUsing(crypto.randomUUID(),prompt,save,id=>this.port.start(id,prompt,this.conversation));}

@@ -14,4 +14,4 @@ footer,.answer-label,.capsule-brand small,.capsule-response-label,.capsule-notic
 
 input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 
-.quit-button{font-size:14px;line-height:1.45;font-weight:500;color:var(--text);min-height:36px;padding:8px 12px;white-space:nowrap;flex-shrink:0}
+.quit-button{width:36px;height:36px;min-height:36px;display:grid;place-items:center;padding:8px;color:var(--text);flex-shrink:0}

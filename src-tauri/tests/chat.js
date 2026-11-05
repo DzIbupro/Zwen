@@ -9,7 +9,11 @@
   await wait(()=>input()&&!input().disabled);
   if(mode==='chat-recover'){
    await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='interrupted'&&s.reply.answer==='durable-partial';});
-   await wait(()=>document.querySelector('[data-capsule-answer]')?.textContent.includes('durable-partial'));
+   if(document.querySelector('[data-capsule-answer]'))throw Error('old saved answer opened on cold startup');
+   document.querySelector('[aria-label="展开完整窗口"]').click();await wait(()=>document.querySelector('[data-nav=history]'));
+   document.querySelector('[data-nav=history]').click();await wait(()=>document.querySelector('.records button'));
+   [...document.querySelectorAll('.records button')].find(b=>b.textContent.includes('partial-restart')).click();
+   await wait(()=>document.querySelector('.record-detail .prose')?.textContent.includes('durable-partial'));
    await api.event.emit('foundation-smoke',{ok:true,mode:'chat-recover',partialRecovered:true,noAutomaticRetry:true});return;
   }
   if(mode==='chat-restore'){
