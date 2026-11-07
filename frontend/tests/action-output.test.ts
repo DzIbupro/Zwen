@@ -1,0 +1,7 @@
+import {it,expect} from 'vitest';
+import {ActionOutputController} from '../lib/action-output';
+import type {ChatReply} from '../lib/chat';
+const reply=(id='r',state:ChatReply['state']='complete',saved=true):ChatReply=>({requestId:id,conversationId:'c',contextTurns:0,revision:1,answer:'正文',prompt:'问题',model:'m',state,error:null,saved,createdAt:1});
+const ticket={requestId:'r',selection:'选区',actionId:'document',actionName:'整理成文档',outputDirectory:'/tmp/zwen',output:'document' as const};
+it('saves only matching complete persisted replies once',async()=>{let calls=0;const c=new ActionOutputController({save:async()=>{calls++;return{noteId:'n',path:'/tmp/file.md'};}},()=>{});c.track(ticket);c.observe(reply('old'));c.observe(reply('r','stopped'));expect(calls).toBe(0);c.observe(reply('r','complete',false));expect(calls).toBe(0);c.observe(reply());c.observe(reply());await Promise.resolve();await Promise.resolve();expect(calls).toBe(1);expect(c.state?.path).toBe('/tmp/file.md');});
+it('failed output retries saving only, without losing its immutable selection',async()=>{let fail=true,calls=0;const c=new ActionOutputController({save:async input=>{calls++;expect(input.selection).toBe('选区');if(fail)throw Error('目录不可写');return{noteId:'n',path:'/tmp/file.md'};}},()=>{});c.track(ticket);c.observe(reply());await Promise.resolve();await Promise.resolve();expect(c.state?.stage).toBe('error');fail=false;await c.retry();expect(calls).toBe(2);expect(c.state?.stage).toBe('saved');});

@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "events": [
+    {
+      "afterAll": 0,
+      "afterBatch": 23,
+      "allPagesCleared": true,
+      "cancelPreserved": true,
+      "crossPageChecked": true,
+      "currentDetached": true,
+      "draftPreserved": true,
+      "initial": 25,
+      "mode": "history-bulk-delete",
+      "notePreserved": true,
+      "ok": true
+    }
+  ],
+  "temporaryDataOnly": true,
+  "evidence": "Native DOM driver and IPC; no physical mouse test"
+}

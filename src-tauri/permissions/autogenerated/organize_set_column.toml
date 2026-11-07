@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-set-column"
+description = "Enables the organize_set_column command without any pre-configured scope."
+commands.allow = ["organize_set_column"]
+
+[[permission]]
+identifier = "deny-organize-set-column"
+description = "Denies the organize_set_column command without any pre-configured scope."
+commands.deny = ["organize_set_column"]

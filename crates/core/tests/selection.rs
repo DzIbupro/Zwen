@@ -1,0 +1,136 @@
+#![cfg(unix)]
+use std::{process::Command,time::{Duration,Instant}};
+use zwen_core::selection::{read_from,SelectionError,Inbox,Mode,MAX_SELECTION_BYTES};
+fn run(script:&str,ms:u64)->Result<String,SelectionError>{let mut c=Command::new("/usr/bin/python3");c.args(["-c",script]);read_from(c,Duration::from_millis(ms))}
+#[test] fn exact_limit_and_unicode_are_preserved(){assert_eq!(run("import os;os.write(1,('中文\\n'+'x'*65529).encode())",750).unwrap().len(),65536);assert_eq!(MAX_SELECTION_BYTES,65536);}
+#[test] fn oversized_output_is_rejected_not_truncated(){assert_eq!(run("import os;os.write(1,b'x'*65537)",750),Err(SelectionError::TooLarge));}
+#[test] fn invalid_empty_and_failed_outputs_are_never_accepted(){for s in ["import os;os.write(1,b'\\xff')","print('   ')","import os;os.write(1,b'a\\x00b')"]{assert_eq!(run(s,750),Err(SelectionError::InvalidText));}assert_eq!(run("print('old');raise SystemExit(1)",750),Err(SelectionError::Unavailable));}
+#[test] fn partial_output_and_closed_stdout_do_not_bypass_deadline(){for s in ["import os,time;os.write(1,b'partial');time.sleep(5)","import os,time;os.close(1);time.sleep(5)"]{let t=Instant::now();assert_eq!(run(s,80),Err(SelectionError::Timeout));assert!(t.elapsed()<Duration::from_secs(1));}}
+#[test] fn inherited_pipe_does_not_leave_a_blocked_reader(){let t=Instant::now();assert_eq!(run("import os,time;pid=os.fork();time.sleep(.25) if pid==0 else None;os._exit(0)",80),Err(SelectionError::Timeout));assert!(t.elapsed()<Duration::from_millis(240));}
+#[test] fn missing_helper_is_distinct_and_stderr_is_not_returned(){assert_eq!(read_from(Command::new("/zwen-nonexistent-helper"),Duration::from_millis(50)),Err(SelectionError::MissingHelper));let err=run("import sys;print('private fixture',file=sys.stderr);sys.exit(1)",750).unwrap_err();assert!(!err.to_string().contains("private"));}
+#[test] fn inbox_never_overwrites_unacknowledged_material_and_claims_once(){let mut b=Inbox::default();let id=b.begin(Mode::Explain).unwrap();assert!(b.begin(Mode::Translate).is_none());assert!(b.claim().is_none());assert!(!b.finish(id+1,Ok("late".into())));assert!(b.finish(id,Ok("selected".into())));let first=b.claim().unwrap();assert!(!first.claimed);assert_eq!(first.text.as_deref(),Some("selected"));assert!(b.claim().unwrap().claimed);assert!(!b.acknowledge(id+1));assert!(b.begin(Mode::Translate).is_none());assert!(b.acknowledge(id));let next=b.begin(Mode::Translate).unwrap();assert!(next>id);assert!(!b.finish(id,Ok("late".into())));}
+#[test] fn failed_capture_is_a_safe_claimable_notice(){let mut b=Inbox::default();let id=b.begin(Mode::Raw).unwrap();assert!(b.finish(id,Err(SelectionError::Timeout)));let s=b.claim().unwrap();assert!(s.text.is_none());assert!(s.error.unwrap().contains("超时"));assert!(b.acknowledge(id));}
+#[test] fn selection_cli_actions_are_explicit(){use zwen_core::cli::{parse_action,LaunchAction};for (s,m) in [("select",Mode::Raw),("explain-selection",Mode::Explain),("translate-selection",Mode::Translate)]{assert_eq!(parse_action(&[s]),Ok(LaunchAction::Selection(m)));}assert!(parse_action(&["select","private text"]).is_err());}
+#[test] fn pending_capture_must_block_exit_until_explicit_acknowledgement(){let mut b=Inbox::default();assert!(!b.is_pending());let id=b.begin(Mode::Raw).unwrap();assert!(b.is_pending());assert!(!b.acknowledge(id));b.finish(id,Ok("text".into()));assert!(b.is_pending());b.claim();b.acknowledge(id);assert!(!b.is_pending());}
+
+#[test]fn revoked_read_cannot_deliver_or_clear_another_capture(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ assert!(!inbox.cancel_read(old+1));assert!(inbox.reading());assert!(inbox.cancel_read(old));
+ assert!(!inbox.is_pending());assert!(!inbox.finish(old,Ok("revoked private text".into())));
+ let new=inbox.begin(Mode::Raw).unwrap();assert!(!inbox.cancel_read(old));assert!(inbox.finish(new,Ok("explicit text".into())));
+ assert!(!inbox.cancel_read(new),"completed material requires explicit acknowledgement");
+ assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("explicit text"));
+}
+
+#[test]fn candidate_preview_does_not_claim_or_prevent_replacement(){
+ let mut inbox=Inbox::default();let first=inbox.begin(Mode::Candidate).unwrap();
+ assert!(inbox.finish(first,Ok("first".into())));
+ assert!(!inbox.claim().unwrap().claimed);
+ assert!(!inbox.claim().unwrap().claimed,"preview must not freeze a candidate");
+ let latest=inbox.begin(Mode::Candidate).expect("new candidate replaces preview");
+ assert!(latest>first);assert!(inbox.finish(latest,Ok("latest".into())));
+ assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("latest"));
+}
+#[test]fn latest_candidate_supersedes_ongoing_read_without_late_delivery(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ let latest=inbox.begin(Mode::Candidate).expect("replace ongoing candidate capture");
+ assert!(!inbox.finish(old,Ok("stale private text".into())));
+ assert!(!inbox.cancel_read(old));assert!(inbox.reading());
+ assert!(inbox.finish(latest,Ok("new selection".into())));
+ assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("new selection"));
+}
+#[test]fn automatic_candidates_never_replace_manual_material(){
+ for mode in [Mode::Raw,Mode::Explain,Mode::Translate]{
+  let mut inbox=Inbox::default();let id=inbox.begin(mode).unwrap();
+  assert!(inbox.begin(Mode::Candidate).is_none());
+  assert!(inbox.finish(id,Ok("manual text".into())));
+  assert!(inbox.begin(Mode::Candidate).is_none());
+  inbox.claim();assert!(inbox.begin(Mode::Candidate).is_none());
+  assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("manual text"));
+ }
+}
+
+#[test]fn freeze_checks_current_id_and_preserves_frozen_candidate(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ assert!(inbox.freeze(old).is_none(),"reading text cannot be frozen");
+ assert!(inbox.finish(old,Ok("old".into())));
+ let latest=inbox.begin(Mode::Candidate).unwrap();
+ assert!(inbox.finish(latest,Ok("frozen selection".into())));
+ assert!(inbox.freeze(old).is_none(),"stale action cannot freeze a new selection");
+ assert!(inbox.frozen_text().is_none());
+ let frozen=inbox.freeze(latest).unwrap();assert!(frozen.claimed);
+ assert_eq!(frozen.text.as_deref(),Some("frozen selection"));
+ assert_eq!(inbox.frozen_text(),Some("frozen selection"));
+ assert!(inbox.freeze(latest).unwrap().claimed,"retry keeps same frozen item");
+ assert!(inbox.begin(Mode::Candidate).is_none());assert!(inbox.begin(Mode::Raw).is_none());
+ assert_eq!(inbox.claim().unwrap().id,latest);
+ assert!(inbox.acknowledge(latest));assert!(inbox.begin(Mode::Candidate).is_some());
+}
+#[test]fn failed_candidate_cannot_be_frozen_as_action_material(){
+ let mut inbox=Inbox::default();let id=inbox.begin(Mode::Candidate).unwrap();
+ inbox.finish(id,Err(SelectionError::InvalidText));
+ assert!(inbox.freeze(id).is_none());assert!(inbox.frozen_text().is_none());
+}
+#[test]fn candidate_dismiss_requires_latest_completed_id_but_not_action_freeze(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();
+ assert!(!inbox.acknowledge(old));inbox.finish(old,Ok("old".into()));
+ let current=inbox.begin(Mode::Candidate).unwrap();
+ inbox.finish(current,Err(SelectionError::InvalidText));
+ assert!(!inbox.acknowledge(old));assert!(inbox.acknowledge(current));assert!(!inbox.is_pending());
+}
+#[test]fn suppressed_candidate_capture_preserves_the_last_external_selection(){
+ // Native focus suppression and empty PRIMARY captures both cancel their read.
+ for suppressed_source in ["self-focused PRIMARY event","empty PRIMARY event"]{
+  let mut inbox=Inbox::default();let external=inbox.begin(Mode::Candidate).unwrap();
+  assert!(inbox.finish(external,Ok("external selected text".into())));
+  let suppressed=inbox.begin(Mode::Candidate).unwrap();
+  assert!(inbox.cancel_read(suppressed),"{suppressed_source}");assert!(!inbox.reading());
+  let frozen=inbox.freeze(external).expect("suppression must leave old rendered candidate actionable");
+  assert_eq!(frozen.id,external);assert_eq!(frozen.text.as_deref(),Some("external selected text"));
+  assert!(!inbox.finish(suppressed,Ok("late self selection".into())));
+ }
+}
+#[test]fn candidate_rollback_tracks_only_the_latest_completed_generation(){
+ let mut inbox=Inbox::default();let first=inbox.begin(Mode::Candidate).unwrap();
+ inbox.finish(first,Ok("first".into()));
+ let pending=inbox.begin(Mode::Candidate).unwrap();let superseding=inbox.begin(Mode::Candidate).unwrap();
+ assert!(!inbox.cancel_read(pending));assert!(inbox.cancel_read(superseding));
+ assert_eq!(inbox.claim().unwrap().id,first,"replacing a pending read must keep completed backup");
+ let latest=inbox.begin(Mode::Candidate).unwrap();inbox.finish(latest,Ok("latest".into()));
+ let suppressed=inbox.begin(Mode::Candidate).unwrap();inbox.cancel_read(suppressed);
+ assert!(inbox.freeze(first).is_none());assert_eq!(inbox.freeze(latest).unwrap().text.as_deref(),Some("latest"));
+}
+
+#[test]fn native_bar_identity_can_be_checked_without_claiming_or_losing_rollback(){
+ let mut b=Inbox::default();let first=b.begin(Mode::Candidate).unwrap();b.finish(first,Ok("first".into()));
+ assert!(b.candidate_exists(first));assert!(!b.claim().unwrap().claimed);
+ let next=b.begin(Mode::Candidate).unwrap();assert!(b.candidate_exists(first));assert!(!b.candidate_exists(next));
+ b.cancel_read(next);assert!(b.candidate_exists(first));
+ b.freeze(first);assert!(b.candidate_exists(first));b.acknowledge(first);assert!(!b.candidate_exists(first));
+ let manual=b.begin(Mode::Raw).unwrap();b.finish(manual,Ok("manual".into()));assert!(!b.candidate_exists(manual));assert!(!b.claim().unwrap().claimed);
+}
+
+#[test]
+fn single_hanzi_and_ascii_letter_have_no_minimum_selection_length() {
+ for (script, expected) in [("import os;os.write(1,'中'.encode())", "中"), ("import os;os.write(1,b'a')", "a")] {
+  let captured = run(script,750).expect("one non-whitespace character is valid PRIMARY text");
+  assert_eq!(captured, expected);
+  let mut inbox = Inbox::default();
+  let id = inbox.begin(Mode::Candidate).unwrap();
+  assert!(inbox.finish(id,Ok(captured)));
+  assert!(inbox.candidate_exists(id));
+  let preview = inbox.claim().unwrap();
+  assert_eq!(preview.text.as_deref(),Some(expected));
+  assert!(!preview.claimed);
+  assert_eq!(inbox.freeze(id).unwrap().text.as_deref(),Some(expected));
+ }
+}
+
+#[test]fn confirmed_empty_read_clears_only_its_unfrozen_candidate(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();inbox.finish(old,Ok("old".into()));
+ let empty=inbox.begin(Mode::Candidate).unwrap();assert!(!inbox.clear_candidate_read(empty+1));assert!(inbox.clear_candidate_read(empty));assert!(!inbox.reading());assert!(inbox.claim().is_none());assert!(inbox.freeze(old).is_none());
+ let manual=inbox.begin(Mode::Raw).unwrap();assert!(!inbox.clear_candidate_read(manual));inbox.finish(manual,Ok("draft import".into()));assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("draft import"));
+}
+#[test]fn cancelled_old_read_cannot_clear_a_new_or_frozen_action(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();let new=inbox.begin(Mode::Candidate).unwrap();assert!(!inbox.clear_candidate_read(old));inbox.finish(new,Ok("new".into()));inbox.freeze(new).unwrap();assert!(inbox.begin(Mode::Candidate).is_none());assert!(!inbox.clear_candidate_read(new));assert_eq!(inbox.frozen_text(),Some("new"));
+}

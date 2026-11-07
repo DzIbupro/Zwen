@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-rename"
+description = "Enables the organize_rename command without any pre-configured scope."
+commands.allow = ["organize_rename"]
+
+[[permission]]
+identifier = "deny-organize-rename"
+description = "Denies the organize_rename command without any pre-configured scope."
+commands.deny = ["organize_rename"]

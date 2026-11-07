@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Zwen
+Comment=桌面学习与知识整理助手
+Exec=zwen show
+Icon=io.github.dzibupro.zwen
+Terminal=false
+Categories=Education;
+StartupWMClass=zwen

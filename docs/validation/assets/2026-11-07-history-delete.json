@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "events": [
+    {
+      "cancelPreserved": true,
+      "confirmedDelete": true,
+      "currentReplyDetached": true,
+      "draftPreserved": true,
+      "lastCacheCleared": true,
+      "mode": "history-delete",
+      "notePreserved": true,
+      "ok": true
+    }
+  ],
+  "temporaryDataOnly": true,
+  "evidence": "Native DOM driver and IPC; no physical mouse test"
+}

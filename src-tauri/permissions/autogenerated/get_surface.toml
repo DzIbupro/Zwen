@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-surface"
+description = "Enables the get_surface command without any pre-configured scope."
+commands.allow = ["get_surface"]
+
+[[permission]]
+identifier = "deny-get-surface"
+description = "Denies the get_surface command without any pre-configured scope."
+commands.deny = ["get_surface"]

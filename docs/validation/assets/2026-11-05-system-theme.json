@@ -1,0 +1,79 @@
+{
+  "passed": true,
+  "events": [
+    {
+      "mode": "system-theme",
+      "ok": true,
+      "preferences": {
+        "sidebarCollapsed": false,
+        "theme": "system"
+      },
+      "rendererReload": true,
+      "restored": false,
+      "samples": [
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20
+      ]
+    },
+    {
+      "mode": "system-theme",
+      "ok": true,
+      "preferences": {
+        "sidebarCollapsed": false,
+        "theme": "system"
+      },
+      "rendererReload": true,
+      "restored": true,
+      "samples": [
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20
+      ]
+    }
+  ]
+}

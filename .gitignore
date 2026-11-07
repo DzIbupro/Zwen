@@ -30,3 +30,15 @@ screenshots/
 **/web/vendor/
 tools/technology-probes/**/web/fixture.png
 tools/technology-probes/**/tauri-probe/icons/icon.png
+
+# Formal desktop build and execution workspace
+node_modules/
+.cache/
+.superpowers/
+src-tauri/gen/
+
+# SQLite sidecars may contain user materials
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite-wal
+*.sqlite-shm
