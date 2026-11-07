@@ -135,6 +135,7 @@
   function traceToHistory(requestId:string){traceRequestId=requestId;view='history';}
   async function saveNoteEdit(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}){return knowledge.saveEdit(id,title,body,source);}
   function newConversation(){if(closing)return;if(chat.newConversation()){quickSession.release();view='ask';notice='已准备新对话，当前草稿保留';}}
+  function historyDeleted(ids:string[]){if(ids.includes(chatState.reply?.requestId??'')&&chat.newConversation())quickSession.release();}
   function continueHistory(reply:ChatReply){if(closing)return;if(chat.adopt(reply)){quickSession.release();view='reply';notice='继续此会话将附带近期问答';}}
   function stopReply(){void chat.stop().catch(()=>{});}
   const canRestoreQuestion=$derived(!chatState.running&&!chatState.stopping&&!!chatState.reply?.saved&&['failed','stopped','interrupted','limited'].includes(chatState.reply.state));
@@ -269,7 +270,7 @@
   <div class="workspace">
     <main>
       {#if view==='history'}
-        <HistoryPanel port={historyPort} canDelete={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onDeleted={id=>{if(chatState.reply?.requestId===id&&chat.newConversation())quickSession.release();}} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
+        <HistoryPanel port={historyPort} canDelete={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onDeleted={id=>historyDeleted([id])} onBulkDeleted={historyDeleted} currentRequestId={chatState.reply?.requestId??null} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
       {:else if view==='graph'}
         <KnowledgeGraph controller={knowledge} info={knowledgeState} onOpenNote={id=>void knowledge.open(id).then(()=>{view='knowledge';})} onOpenTopic={id=>{view='knowledge';void knowledge.openTopic(id);}}/>
       {:else if view==='knowledge'}

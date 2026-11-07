@@ -20,3 +20,13 @@ fn path()->std::path::PathBuf{let p=std::env::temp_dir().join(format!("zwen-chat
 #[test]fn failed_history_delete_preserves_record(){
  let p=path();let mut j=Journal::open(&p).unwrap();let mut a=j.begin("keep","q","m").unwrap();a.state=TurnState::Complete;a.revision=1;j.checkpoint(&a).unwrap();let c=rusqlite::Connection::open(&p).unwrap();c.execute_batch("CREATE TRIGGER reject_delete BEFORE DELETE ON turns BEGIN SELECT RAISE(ABORT,'fixture'); END").unwrap();assert!(j.delete_completed("keep").is_err());assert_eq!(j.find("keep").unwrap().unwrap(),a);drop(c);drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
 }
+#[test]fn batch_delete_is_atomic_for_streaming_and_storage_failure(){
+ let p=path();let mut j=Journal::open(&p).unwrap();for id in ["a","b"]{let mut t=j.begin(id,"q","m").unwrap();t.state=TurnState::Complete;t.revision=1;j.checkpoint(&t).unwrap();}j.begin("live","q","m").unwrap();
+ assert!(j.delete_history(Some(&["a".into(),"live".into()])).is_err());assert!(j.find("a").unwrap().is_some());assert!(j.delete_history(None).is_err());assert_eq!(j.history(0,20).unwrap().len(),3);
+ let c=rusqlite::Connection::open(&p).unwrap();c.execute_batch("CREATE TRIGGER fail_second BEFORE DELETE ON turns WHEN OLD.request_id='b' BEGIN SELECT RAISE(ABORT,'fixture'); END").unwrap();assert!(j.delete_history(Some(&["a".into(),"b".into()])).is_err());assert!(j.find("a").unwrap().is_some());assert!(j.find("b").unwrap().is_some());drop(c);drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}
+#[test]fn batch_delete_counts_unique_existing_targets_and_all_reaches_other_pages(){
+ let p=path();let mut j=Journal::open(&p).unwrap();for i in 0..25{let mut t=j.begin(&format!("r-{i}"),"q","m").unwrap();t.state=TurnState::Complete;t.revision=1;j.checkpoint(&t).unwrap();}
+ assert!(j.delete_history(Some(&[])).is_err());assert!(j.delete_history(Some(&["r-0".into(),"bad/id".into()])).is_err());assert!(j.find("r-0").unwrap().is_some());
+ assert_eq!(j.delete_history(Some(&["r-0".into(),"r-0".into(),"missing".into(),"r-24".into()])).unwrap(),2);assert_eq!(j.delete_history(None).unwrap(),23);assert_eq!(j.delete_history(None).unwrap(),0);assert!(j.latest().unwrap().is_none());drop(j);let j=Journal::open(&p).unwrap();assert!(j.history(0,20).unwrap().is_empty());drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}

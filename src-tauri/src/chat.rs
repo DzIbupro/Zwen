@@ -181,12 +181,21 @@ pub async fn stop_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorag
 #[tauri::command]
 pub async fn settle_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>)->Result<Option<Reply>,ClientError>{stop(app,storage.inner().clone(),chat.inner().clone(),None).await}
 
-fn delete_saved_turn(dir:&std::path::Path,state:&Shared,request_id:&str)->Result<(),ClientError>{
+#[derive(serde::Deserialize)]
+#[serde(tag="kind",rename_all="lowercase",rename_all_fields="camelCase",deny_unknown_fields)]
+pub enum HistoryDeleteScope{Selected{request_ids:Vec<String>},All{}}
+fn delete_history_scope(dir:&std::path::Path,state:&Shared,scope:&HistoryDeleteScope)->Result<usize,ClientError>{
  let mut s=state.lock().map_err(|_|ClientError::storage())?;
  if s.active.is_some()||s.last.as_ref().is_some_and(|reply|!reply.saved){return Err(error("history_busy","请先停止生成并保存回答，再删除历史"));}
- let mut journal=Journal::open(&dir.join("chat.sqlite3"))?;journal.delete_completed(request_id)?;
- if s.last.as_ref().is_some_and(|reply|reply.turn.request_id==request_id){s.last=None;}
- Ok(())
+ let ids=match scope{HistoryDeleteScope::Selected{request_ids}=>Some(request_ids.as_slice()),HistoryDeleteScope::All{}=>None};
+ let mut journal=Journal::open(&dir.join("chat.sqlite3"))?;let count=journal.delete_history(ids)?;
+ if s.last.as_ref().is_some_and(|reply|ids.is_none_or(|ids|ids.iter().any(|id|id==&reply.turn.request_id))){s.last=None;}
+ Ok(count)
+}
+fn delete_saved_turn(dir:&std::path::Path,state:&Shared,request_id:&str)->Result<(),ClientError>{delete_history_scope(dir,state,&HistoryDeleteScope::Selected{request_ids:vec![request_id.into()]}).map(|_|())}
+#[tauri::command]
+pub async fn delete_chat_history(storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,scope:HistoryDeleteScope)->Result<usize,ClientError>{
+ let storage=storage.inner().clone();let state=chat.inner().clone();tauri::async_runtime::spawn_blocking(move||delete_history_scope(&directory(&storage)?,&state,&scope)).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]
 pub async fn delete_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,request_id:String)->Result<(),ClientError>{
@@ -226,6 +235,17 @@ pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::St
  fn screenshot(dir:&std::path::Path)->String{
   let source=dir.join("source.png");std::fs::write(&source,include_bytes!("../icons/icon.png")).unwrap();
   let id="a".repeat(32);let mut store=AttachmentStore::open(dir).unwrap();store.import(&id,&source).unwrap();id
+ }
+ #[test]fn history_bulk_scope_rejects_ambiguous_payloads_and_preserves_cache_on_failure(){
+  for payload in [r#"{"kind":"all","requestIds":["a"]}"#,r#"{"kind":"selected"}"#,r#"{"kind":"unknown"}"#]{assert!(serde_json::from_str::<HistoryDeleteScope>(payload).is_err());}
+  assert!(matches!(serde_json::from_str::<HistoryDeleteScope>(r#"{"kind":"selected","requestIds":["a"]}"#).unwrap(),HistoryDeleteScope::Selected{..}));
+  let scratch=Scratch::new();let path=scratch.0.join("chat.sqlite3");let mut j=Journal::open(&path).unwrap();let mut last=None;
+  for id in ["a","b"]{let mut t=j.begin(id,"q","m").unwrap();t.state=TurnState::Complete;t.revision=1;j.checkpoint(&t).unwrap();last=Some(t);}
+  let state=Shared::default();state.lock().unwrap().last=Some(Reply{turn:last.unwrap(),saved:true,retry:None});
+  let c=rusqlite::Connection::open(&path).unwrap();c.execute_batch("CREATE TRIGGER reject_b BEFORE DELETE ON turns WHEN OLD.request_id='b' BEGIN SELECT RAISE(ABORT,'fixture'); END").unwrap();
+  assert!(delete_history_scope(&scratch.0,&state,&HistoryDeleteScope::All{}).is_err());assert_eq!(state.lock().unwrap().last.as_ref().unwrap().turn.request_id,"b");assert_eq!(j.history(0,20).unwrap().len(),2);
+  c.execute_batch("DROP TRIGGER reject_b").unwrap();assert_eq!(delete_history_scope(&scratch.0,&state,&HistoryDeleteScope::Selected{request_ids:vec!["a".into()]}).unwrap(),1);assert!(state.lock().unwrap().last.is_some());
+  assert_eq!(delete_history_scope(&scratch.0,&state,&HistoryDeleteScope::All{}).unwrap(),1);assert!(state.lock().unwrap().last.is_none());
  }
  #[test]fn history_delete_protects_live_and_unsaved_state_and_clears_deleted_cache(){
   let scratch=Scratch::new();let path=scratch.0.join("chat.sqlite3");let mut j=Journal::open(&path).unwrap();let mut t=j.begin("delete-me","q","m").unwrap();t.state=TurnState::Complete;t.revision=1;j.checkpoint(&t).unwrap();

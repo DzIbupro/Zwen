@@ -51,7 +51,7 @@ export const chatPort:ChatPort=isDesktop?{
 }:{listen:async()=>()=>{},load:async()=>({reply:null,activeRequestId:null}),start:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中发送');},stop:async()=>null,settle:async()=>null};
 
 import type {HistoryPort,Summary} from './history';
-export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId}),remove:requestId=>command<void>('delete_chat_turn',{requestId})}:{list:async()=>[],get:async()=>null};
+export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId}),remove:requestId=>command<void>('delete_chat_turn',{requestId}),removeMany:requestIds=>command<number>('delete_chat_history',{scope:{kind:'selected',requestIds}}),clear:()=>command<number>('delete_chat_history',{scope:{kind:'all'}})}:{list:async()=>[],get:async()=>null};
 
 import type {KnowledgePort,KnowledgeState} from './knowledge';
 import type {SaveNoteInput,Note,NoteMeta,TopicView,OrganizeSummaryView,SourceMetaInput,RelationView} from './knowledge';

@@ -48,12 +48,20 @@ impl Journal {
   rows.map(|row|{let(request_id,conversation_id,title,model,state,created_at)=row?;Ok(Summary{request_id,conversation_id,title,model,state:TurnState::parse(&state)?,created_at})}).collect()
  }
  /// Delete one terminal record; the independent Markdown library is untouched.
- pub fn delete_completed(&mut self,id:&str)->Result<bool,Error>{
-  if id.is_empty()||id.len()>100||!id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'||b==b'_'){return Err(Error::InvalidChat);}
+ pub fn delete_completed(&mut self,id:&str)->Result<bool,Error>{self.delete_history(Some(&[id.to_owned()])).map(|n|n>0)}
+ /// A selected set or all terminal history is removed atomically, across pages.
+ pub fn delete_history(&mut self,ids:Option<&[String]>)->Result<usize,Error>{
+  if let Some(ids)=ids{if ids.is_empty()||ids.iter().any(|id|id.is_empty()||id.len()>100||!id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'||b==b'_')){return Err(Error::InvalidChat);}}
   let tx=self.connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-  let state:Option<String>=tx.query_row("SELECT state FROM turns WHERE request_id=?1",[id],|r|r.get(0)).optional()?;
-  if let Some(state)=state{if TurnState::parse(&state)?==TurnState::Streaming{return Err(Error::ChatConflict);}}
-  let changed=tx.execute("DELETE FROM turns WHERE request_id=?1",[id])?;tx.commit()?;Ok(changed>0)
+  let changed=if let Some(ids)=ids{
+   {let mut check=tx.prepare("SELECT CASE WHEN length(state)<=32 THEN state END FROM turns WHERE request_id=?1")?;
+    for id in ids{let state:Option<String>=check.query_row([id],|r|r.get(0)).optional()?;if let Some(state)=state{if TurnState::parse(&state)?==TurnState::Streaming{return Err(Error::ChatConflict);}}}}
+   let mut remove=tx.prepare("DELETE FROM turns WHERE request_id=?1")?;let mut count=0;for id in ids{count+=remove.execute([id])?;}count
+  }else{
+   {let mut check=tx.prepare("SELECT DISTINCT CASE WHEN length(state)<=32 THEN state END FROM turns")?;let rows=check.query_map([],|r|r.get::<_,String>(0))?;for state in rows{if TurnState::parse(&state?)?==TurnState::Streaming{return Err(Error::ChatConflict);}}}
+   tx.execute("DELETE FROM turns",[])?
+  };
+  tx.commit()?;Ok(changed)
  }
  pub fn find(&self,id:&str)->Result<Option<Turn>,Error>{read(&self.connection,Some(id))}
 

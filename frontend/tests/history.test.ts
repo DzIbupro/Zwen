@@ -14,3 +14,17 @@ it('failed history deletion keeps the visible record and never invalidates the p
 it('deletion prevents interleaved navigation and rejects streaming records',async()=>{
  let done!:()=>void;const gate=new Promise<void>(r=>done=r);let removes=0;const c=new HistoryController({list:async()=>[],get:async id=>reply(id),remove:async()=>{removes++;await gate;}},()=>{});await c.open('a');const work=c.removeSelected();await c.open('b');expect(c.state.selected?.requestId).toBe('a');done();await work;await c.open('a');c.state.selected!.state='streaming';await c.removeSelected();expect(removes).toBe(1);
 });
+it('keeps cross-page checks and deletes only the confirmed snapshot while retaining unrelated detail',async()=>{
+ const rows=Array.from({length:25},(_,i)=>({...reply(String(i)),title:String(i)}));let remaining=rows;const seen:(string[]|null)[]=[];
+ const c=new HistoryController({list:async p=>remaining.slice(p*20,p*20+21),get:async id=>reply(id),removeMany:async ids=>{remaining=remaining.filter(r=>!ids.includes(r.requestId));return ids.length;}},()=>{},()=>{},ids=>seen.push(ids));
+ await c.load(0);c.toggleChecked('0');await c.load(1);c.toggleChecked('20');expect(Object.keys(c.state.checked)).toEqual(['0','20']);await c.open('24');const snapshot=Object.keys(c.state.checked);c.toggleChecked('21');await c.removeMany(snapshot);
+ expect(seen).toEqual([['0','20']]);expect(c.state.selected?.requestId).toBe('24');expect(c.state.checked).toEqual({'21':true});expect(c.state.page).toBe(0);expect(remaining).toHaveLength(23);
+});
+it('failed batch keeps checks and details; all uses the global port and detaches every current reference',async()=>{
+ let fail=true;const callbacks:(string[]|null)[]=[];let clearCalls=0;
+ const c=new HistoryController({list:async()=>[],get:async id=>reply(id),removeMany:async()=>{if(fail)throw Error('整批删除失败');return 2;},clear:async()=>{clearCalls++;return 45;}},()=>{},()=>{},ids=>callbacks.push(ids));await c.open('a');c.state.checked={a:true,b:true};await c.removeMany(['a','b']);expect(c.state.checked).toEqual({a:true,b:true});expect(c.state.selected?.requestId).toBe('a');expect(callbacks).toEqual([]);
+ fail=false;await c.clearAll();expect(clearCalls).toBe(1);expect(callbacks).toEqual([null]);expect(c.state.checked).toEqual({});expect(c.state.selected).toBeNull();expect(c.state.notice).toContain('45');
+});
+it('select-page toggles only eligible current-page records',async()=>{
+ const c=new HistoryController({list:async()=>[],get:async()=>null},()=>{});c.state.items=[{...reply('a'),title:'a'},{...reply('live'),title:'live',state:'streaming'}];c.state.checked={other:true};c.togglePage();expect(c.state.checked).toEqual({other:true,a:true});c.togglePage();expect(c.state.checked).toEqual({other:true});
+});
