@@ -269,7 +269,7 @@
   <div class="workspace">
     <main>
       {#if view==='history'}
-        <HistoryPanel port={historyPort} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
+        <HistoryPanel port={historyPort} canDelete={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onDeleted={id=>{if(chatState.reply?.requestId===id&&chat.newConversation())quickSession.release();}} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
       {:else if view==='graph'}
         <KnowledgeGraph controller={knowledge} info={knowledgeState} onOpenNote={id=>void knowledge.open(id).then(()=>{view='knowledge';})} onOpenTopic={id=>{view='knowledge';void knowledge.openTopic(id);}}/>
       {:else if view==='knowledge'}

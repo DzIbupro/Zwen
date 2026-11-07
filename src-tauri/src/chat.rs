@@ -181,6 +181,18 @@ pub async fn stop_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorag
 #[tauri::command]
 pub async fn settle_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>)->Result<Option<Reply>,ClientError>{stop(app,storage.inner().clone(),chat.inner().clone(),None).await}
 
+fn delete_saved_turn(dir:&std::path::Path,state:&Shared,request_id:&str)->Result<(),ClientError>{
+ let mut s=state.lock().map_err(|_|ClientError::storage())?;
+ if s.active.is_some()||s.last.as_ref().is_some_and(|reply|!reply.saved){return Err(error("history_busy","请先停止生成并保存回答，再删除历史"));}
+ let mut journal=Journal::open(&dir.join("chat.sqlite3"))?;journal.delete_completed(request_id)?;
+ if s.last.as_ref().is_some_and(|reply|reply.turn.request_id==request_id){s.last=None;}
+ Ok(())
+}
+#[tauri::command]
+pub async fn delete_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,request_id:String)->Result<(),ClientError>{
+ let storage=storage.inner().clone();let state=chat.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||delete_saved_turn(&directory(&storage)?,&state,&request_id)).await.map_err(|_|ClientError::storage())?
+}
 #[tauri::command]
 pub async fn get_chat_history(storage:tauri::State<'_,SharedStorage>,page:usize)->Result<Vec<zwen_core::journal::Summary>,ClientError>{
  let storage=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||{let offset=page.checked_mul(20).ok_or(zwen_core::Error::InvalidChat)?;let journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;journal.history(offset,21).map_err(Into::into)}).await.map_err(|_|ClientError::storage())?
@@ -214,6 +226,13 @@ pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::St
  fn screenshot(dir:&std::path::Path)->String{
   let source=dir.join("source.png");std::fs::write(&source,include_bytes!("../icons/icon.png")).unwrap();
   let id="a".repeat(32);let mut store=AttachmentStore::open(dir).unwrap();store.import(&id,&source).unwrap();id
+ }
+ #[test]fn history_delete_protects_live_and_unsaved_state_and_clears_deleted_cache(){
+  let scratch=Scratch::new();let path=scratch.0.join("chat.sqlite3");let mut j=Journal::open(&path).unwrap();let mut t=j.begin("delete-me","q","m").unwrap();t.state=TurnState::Complete;t.revision=1;j.checkpoint(&t).unwrap();
+  let state=Shared::default();state.lock().unwrap().last=Some(Reply{turn:t.clone(),saved:false,retry:None});assert!(delete_saved_turn(&scratch.0,&state,"delete-me").is_err());assert!(j.find("delete-me").unwrap().is_some());
+  {let mut s=state.lock().unwrap();s.last.as_mut().unwrap().saved=true;let(cancel,_)=watch::channel(false);s.active=Some(Active{id:"live".into(),cancel,handle:None});}
+  assert!(delete_saved_turn(&scratch.0,&state,"delete-me").is_err());state.lock().unwrap().active=None;
+  delete_saved_turn(&scratch.0,&state,"delete-me").unwrap();assert!(state.lock().unwrap().last.is_none());assert!(j.find("delete-me").unwrap().is_none());
  }
  #[test]fn selection_request_has_new_conversation_and_no_screenshot_or_prior_context(){
   let dir=Scratch::new();let config=config();let mut journal=history(&dir.0,&config);let attachment=screenshot(&dir.0);

@@ -225,3 +225,10 @@ it('deletion refreshes a shared topic count and removes deleted evidence from it
  await f.controller.loadTopics();await f.controller.openTopic('shared');await f.controller.remove(a.id);
  expect(f.controller.state.topics[0].count).toBe(1);expect(f.controller.state.topicView?.notes.map(n=>n.meta.id)).toEqual([b.id]);
 });
+it('explains the eight-note selection cap, preserves selected materials and clears only its own limit notice',async()=>{
+ const notes=Array.from({length:9},(_,i)=>meta(i.toString(16).padStart(32,'0')));const f=fixture(notes);let calls=0;f.port.run=async ids=>{calls++;return{batchId:'fixture',topics:ids.length,assignments:ids.length};};await f.controller.refresh();f.controller.enterOrganize();
+ for(const n of notes)f.controller.toggleSelect(n.id);
+ expect(Object.keys(f.controller.state.selected)).toHaveLength(8);expect(f.controller.state.selected[notes[8].id]).toBeUndefined();expect(f.controller.state.notice).toContain('最多整理 8 篇');expect(calls).toBe(0);
+ f.controller.toggleSelect(notes[0].id);expect(f.controller.state.notice).toBe('');f.controller.toggleSelect(notes[8].id);expect(Object.keys(f.controller.state.selected)).toHaveLength(8);
+ f.controller.state.notice='合成保存失败';f.controller.toggleSelect(notes[1].id);expect(f.controller.state.notice).toBe('合成保存失败');
+});

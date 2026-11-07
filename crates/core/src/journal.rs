@@ -47,6 +47,14 @@ impl Journal {
   let rows=statement.query_map(params![limit as i64,offset as i64],|r|Ok((r.get::<_,String>(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get::<_,String>(4)?,r.get(5)?)))?;
   rows.map(|row|{let(request_id,conversation_id,title,model,state,created_at)=row?;Ok(Summary{request_id,conversation_id,title,model,state:TurnState::parse(&state)?,created_at})}).collect()
  }
+ /// Delete one terminal record; the independent Markdown library is untouched.
+ pub fn delete_completed(&mut self,id:&str)->Result<bool,Error>{
+  if id.is_empty()||id.len()>100||!id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'||b==b'_'){return Err(Error::InvalidChat);}
+  let tx=self.connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+  let state:Option<String>=tx.query_row("SELECT state FROM turns WHERE request_id=?1",[id],|r|r.get(0)).optional()?;
+  if let Some(state)=state{if TurnState::parse(&state)?==TurnState::Streaming{return Err(Error::ChatConflict);}}
+  let changed=tx.execute("DELETE FROM turns WHERE request_id=?1",[id])?;tx.commit()?;Ok(changed>0)
+ }
  pub fn find(&self,id:&str)->Result<Option<Turn>,Error>{read(&self.connection,Some(id))}
 
  pub fn open(path:&Path)->Result<Self,Error>{

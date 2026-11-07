@@ -39,6 +39,7 @@ export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null
 
 export interface NoteEditDraft {title:string;body:string;sourceTitle:string;sourceUrl:string;sourceLoc:string}
 
+const ORGANIZE_LIMIT_NOTICE='每次最多整理 8 篇笔记；请先整理当前所选，再选择其他笔记。';
 export class KnowledgeController {
  private navigation=0;
  private editorDrafts=new Map<string,NoteEditDraft>();
@@ -163,10 +164,10 @@ export class KnowledgeController {
   const selected={...this.state.selected};
   if(selected[id])delete selected[id];
   else{
-   if(Object.keys(selected).length>=8)return;
+   if(Object.keys(selected).length>=8){this.publish({notice:ORGANIZE_LIMIT_NOTICE});return;}
    selected[id]=true;
   }
-  this.publish({selected});
+  this.publish({selected,...(this.state.notice===ORGANIZE_LIMIT_NOTICE?{notice:''}:{})});
  }
  async runOrganize(modelLabel:string){
   if(this.disposed||this.state.organizeBusy)return;

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-chat-turn"
+description = "Enables the delete_chat_turn command without any pre-configured scope."
+commands.allow = ["delete_chat_turn"]
+
+[[permission]]
+identifier = "deny-delete-chat-turn"
+description = "Denies the delete_chat_turn command without any pre-configured scope."
+commands.deny = ["delete_chat_turn"]
