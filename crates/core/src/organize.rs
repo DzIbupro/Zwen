@@ -306,24 +306,20 @@ impl OrganizeStore{
   self.connection.execute("INSERT INTO meta(key,value) VALUES('auto_organize',?1) ON CONFLICT(key) DO UPDATE SET value=?1",[if on {"on"}else{"off"}])?;
   Ok(())
  }
-  pub fn undo_batch(&mut self,batch_id:&str)->Result<(),Error>{
-  if !crate::notes::valid_id(batch_id){return Err(Error::InvalidChat);}
-  let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-  let status:String=tx.query_row("SELECT status FROM batches WHERE id=?1",[batch_id],|r|r.get(0)).optional()?.ok_or(Error::InvalidChat)?;
-  if status!="applied"{return Err(Error::InvalidChat);}
-  tx.execute("DELETE FROM relations WHERE batch_id=?1",[batch_id])?;
-  tx.execute("UPDATE memberships SET added_by='manual',batch_id=NULL WHERE batch_id=?1 AND EXISTS(SELECT 1 FROM relations WHERE added_by='manual' AND evidence=memberships.note_id AND (from_topic=memberships.topic_id OR to_topic=memberships.topic_id))",[batch_id])?;
-  tx.execute("DELETE FROM memberships WHERE batch_id=?1",[batch_id])?;
-  let ai_topics:String=tx.query_row("SELECT coalesce(json_group_array(id),'[]') FROM topics WHERE created_by='ai' AND batch_id=?1",[batch_id],|r|r.get::<_,String>(0)).optional()?.unwrap_or_else(||"[]".to_string());
-  let ids:Vec<String>=serde_json::from_str(&ai_topics).map_err(|_|Error::InvalidChat)?;
-  for topic_id in ids{
-   let used:i64=tx.query_row("SELECT count(*) FROM memberships WHERE topic_id=?1",[&topic_id],|r|r.get(0))?;
-   if used==0{tx.execute("DELETE FROM topics WHERE id=?1",[&topic_id])?;}
+ pub fn undo_batch(&mut self,batch_id:&str)->Result<(),Error>{
+  self.undo_batches(&[batch_id.to_string()])
+ }
+
+ /// Undo a chronological group newest first in one transaction. Validation or
+ /// SQL failure in any member rolls back all members, including audit status.
+ pub fn undo_batches(&mut self,batch_ids:&[String])->Result<(),Error>{
+  let mut seen=std::collections::HashSet::new();
+  if batch_ids.is_empty()||batch_ids.iter().any(|id|!crate::notes::valid_id(id)||!seen.insert(id)){
+   return Err(Error::InvalidChat);
   }
-  cleanup_relations(&tx)?;
-  tx.execute("UPDATE batches SET status='undone',finished_at=?1 WHERE id=?2",params![created_now(),batch_id])?;
-  tx.commit()?;
-  Ok(())
+  let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+  for batch_id in batch_ids.iter().rev(){undo_batch_in(&tx,batch_id)?;}
+  tx.commit()?;Ok(())
  }
 
  /// Invalidate only AI derivations on edit; deletion removes all references
@@ -390,4 +386,21 @@ fn prune_empty(connection:&Connection)->Result<(),Error>{connection.execute("DEL
 fn cleanup_relations(connection:&Connection)->Result<(),Error>{
  connection.execute("DELETE FROM relations WHERE NOT EXISTS(SELECT 1 FROM topics WHERE id=from_topic) OR NOT EXISTS(SELECT 1 FROM topics WHERE id=to_topic) OR NOT EXISTS(SELECT 1 FROM memberships WHERE note_id=evidence AND topic_id=from_topic) OR NOT EXISTS(SELECT 1 FROM memberships WHERE note_id=evidence AND topic_id=to_topic)",[])?;
  Ok(())
+}
+
+fn undo_batch_in(tx:&rusqlite::Transaction<'_>,batch_id:&str)->Result<(),Error>{
+  let status:String=tx.query_row("SELECT status FROM batches WHERE id=?1",[batch_id],|r|r.get(0)).optional()?.ok_or(Error::InvalidChat)?;
+  if status!="applied"{return Err(Error::InvalidChat);}
+  tx.execute("DELETE FROM relations WHERE batch_id=?1",[batch_id])?;
+  tx.execute("UPDATE memberships SET added_by='manual',batch_id=NULL WHERE batch_id=?1 AND EXISTS(SELECT 1 FROM relations WHERE added_by='manual' AND evidence=memberships.note_id AND (from_topic=memberships.topic_id OR to_topic=memberships.topic_id))",[batch_id])?;
+  tx.execute("DELETE FROM memberships WHERE batch_id=?1",[batch_id])?;
+  let ai_topics:String=tx.query_row("SELECT coalesce(json_group_array(id),'[]') FROM topics WHERE created_by='ai' AND batch_id=?1",[batch_id],|r|r.get::<_,String>(0)).optional()?.unwrap_or_else(||"[]".to_string());
+  let ids:Vec<String>=serde_json::from_str(&ai_topics).map_err(|_|Error::InvalidChat)?;
+  for topic_id in ids{
+   let used:i64=tx.query_row("SELECT count(*) FROM memberships WHERE topic_id=?1",[&topic_id],|r|r.get(0))?;
+   if used==0{tx.execute("DELETE FROM topics WHERE id=?1",[&topic_id])?;}
+  }
+  cleanup_relations(&tx)?;
+  tx.execute("UPDATE batches SET status='undone',finished_at=?1 WHERE id=?2",params![created_now(),batch_id])?;
+  Ok(())
 }

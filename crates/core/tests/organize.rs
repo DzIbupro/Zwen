@@ -223,3 +223,43 @@ impl ManualSeed for OrganizeStore{
  notes.delete(&a.id).unwrap();assert!(notes.read(&a.id).is_err());assert_eq!(notes.read(&b.id).unwrap().body,"正文B");let topics=store.list_topics().unwrap();assert_eq!(topics.len(),1);assert_eq!(topics[0].count,1);
  notes.delete(&b.id).unwrap();assert!(store.list_topics().unwrap().is_empty());
 }
+
+#[test] fn undo_batches_reverses_all_commits_and_keeps_manual_evidence(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);let b="b".repeat(32);
+ let first=store.apply_batch_details("m",&[a.clone()],&[(a.clone(),1,vec!["A".into(),"B".into()])],&[],&[("A".into(),"B".into(),"AI".into(),a.clone())]).unwrap();
+ let relation=store.list_relations().unwrap()[0].clone();store.add_relation(&relation.from_topic,&relation.to_topic,"已手工确认",&a).unwrap();
+ store.set_topic_locked(&relation.from_topic,true).unwrap();
+ let second=store.apply_batch("m",&[b.clone()],&[(b.clone(),1,vec!["B".into(),"C".into()])]).unwrap();
+ store.undo_batches(&[first.id.clone(),second.id.clone()]).unwrap();
+ let topics=store.list_topics().unwrap();assert_eq!(topics.len(),2);assert!(topics.iter().all(|t|t.note_ids==vec![a.clone()]));
+ assert!(topics.iter().any(|t|t.topic.id==relation.from_topic&&t.topic.locked));
+ let relations=store.list_relations().unwrap();assert_eq!(relations.len(),1);assert_eq!(relations[0].added_by,"manual");assert_eq!(relations[0].reason,"已手工确认");
+ assert!(store.undo_batch(&first.id).is_err());assert!(store.undo_batch(&second.id).is_err());
+}
+
+#[test] fn undo_batches_midway_sql_failure_rolls_back_every_batch_and_status(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);let b="b".repeat(32);
+ let first=store.apply_batch("m",&[a.clone()],&[(a.clone(),1,vec!["A".into()])]).unwrap();
+ let second=store.apply_batch("m",&[b.clone()],&[(b.clone(),1,vec!["B".into()])]).unwrap();
+ // Reverse order removes B first; failure on A must restore B as well.
+ store.raw_execute("CREATE TRIGGER fail_older BEFORE DELETE ON topics WHEN OLD.name='A' BEGIN SELECT RAISE(ABORT,'fixture'); END",[]).unwrap();
+ assert!(store.undo_batches(&[first.id.clone(),second.id.clone()]).is_err());
+ let topics=store.list_topics().unwrap();assert_eq!(topics.len(),2);assert!(topics.iter().any(|t|t.note_ids==vec![a.clone()]));assert!(topics.iter().any(|t|t.note_ids==vec![b.clone()]));
+ store.raw_execute("DROP TRIGGER fail_older",[]).unwrap();
+ drop(store);let mut store=OrganizeStore::open(&s.0).unwrap();
+ store.undo_batches(&[first.id,second.id]).unwrap();assert!(store.list_topics().unwrap().is_empty());
+}
+
+#[test] fn undo_batches_rejects_empty_duplicate_missing_or_undone_scope_without_partial_changes(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);let b="b".repeat(32);
+ let first=store.apply_batch("m",&[a.clone()],&[(a.clone(),1,vec!["A".into()])]).unwrap();
+ let second=store.apply_batch("m",&[b.clone()],&[(b.clone(),1,vec!["B".into()])]).unwrap();
+ assert!(store.undo_batches(&[]).is_err());
+ assert!(store.undo_batches(&[first.id.clone(),first.id.clone()]).is_err());
+ assert!(store.undo_batches(&["bad".into(),second.id.clone()]).is_err());
+ assert!(store.undo_batches(&["0".repeat(32),second.id.clone()]).is_err());
+ assert_eq!(store.list_topics().unwrap().len(),2);
+ store.undo_batch(&first.id).unwrap();
+ assert!(store.undo_batches(&[first.id,second.id.clone()]).is_err());
+ assert_eq!(store.list_topics().unwrap().len(),1);store.undo_batch(&second.id).unwrap();
+}
