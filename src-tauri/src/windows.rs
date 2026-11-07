@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::sync::{Arc,Mutex,atomic::{AtomicU64,Ordering}};
 static WINDOW_INTENT:AtomicU64=AtomicU64::new(0);
 pub fn new_intent()->u64{WINDOW_INTENT.fetch_add(1,Ordering::SeqCst).wrapping_add(1)}
-fn current(intent:u64)->bool{WINDOW_INTENT.load(Ordering::SeqCst)==intent}
+pub(crate) fn current(intent:u64)->bool{WINDOW_INTENT.load(Ordering::SeqCst)==intent}
 use zwen_core::surface::{CapsuleBounds,SurfaceState};
 use tauri::{Emitter,Manager,LogicalSize};
 use crate::{ClientError,niri};
@@ -24,7 +24,9 @@ pub fn activate(app:tauri::AppHandle,capsule:bool)->impl std::future::Future<Out
  let intent=new_intent();activate_if_current(app,capsule,intent)
 }
 pub async fn activate_if_current(app:tauri::AppHandle,capsule:bool,intent:u64)->Result<Snapshot,ClientError>{
- tauri::async_runtime::spawn_blocking(move||{
+ let blank=crate::capture_frame::blank(app.clone(),intent).await?;
+ let restore_app=app.clone();
+ let result=tauri::async_runtime::spawn_blocking(move||{
     // Query the reading display before showing/focusing our own surface.
     let placement=if capsule{niri::focused()}else{None};
     let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
@@ -60,7 +62,8 @@ pub async fn activate_if_current(app:tauri::AppHandle,capsule:bool,intent:u64)->
     window.show().map_err(|_|ClientError::window())?;
     if capsule {let width=c.bounds.width;if let Some(p)=&mut c.placement {p.place(width);}else{let _=window.center();}}
     let _=window.set_focus();Ok(snapshot)
- }).await.map_err(|_|ClientError::window())?
+ }).await.unwrap_or_else(|_|Err(ClientError::window()));
+ crate::capture_frame::restore(restore_app,blank).await;result
 }
 pub async fn resize(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{
  tauri::async_runtime::spawn_blocking(move||{
@@ -95,7 +98,9 @@ pub fn hide(app:tauri::AppHandle)->impl std::future::Future<Output=Result<(),Cli
 pub fn recover(app:tauri::AppHandle)->impl std::future::Future<Output=Result<(),ClientError>>{present(app,true)}
 fn present(app:tauri::AppHandle,reload:bool)->impl std::future::Future<Output=Result<(),ClientError>>{
  let intent=new_intent();
- async move{tauri::async_runtime::spawn_blocking(move||{
+ async move{
+ if !reload{return hide_if_current(app,intent).await.map(|_|());}
+ tauri::async_runtime::spawn_blocking(move||{
   let shared=app.state::<Shared>();let _guard=shared.lock().map_err(|_|ClientError::window())?;
   if !current(intent){return Ok(());}
   let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
@@ -119,6 +124,8 @@ pub async fn hide_if_current(app:tauri::AppHandle,intent:u64)->Result<bool,Clien
   let window=app.get_webview_window("main").ok_or_else(ClientError::window)?;
   let shared=app.state::<Shared>();let _guard=shared.lock().map_err(|_|ClientError::window())?;
   if !current(intent){return Ok(false);}
-  window.hide().map_err(|_|ClientError::window())?;Ok(true)
- }).await.map_err(|_|ClientError::window())?
+  let blank=tauri::async_runtime::block_on(crate::capture_frame::blank(app.clone(),intent))?;
+  let result=if current(intent){window.hide().map(|_|true).map_err(|_|ClientError::window())}else{Ok(false)};
+  tauri::async_runtime::block_on(crate::capture_frame::restore(app.clone(),blank));result
+ }).await.unwrap_or_else(|_|Err(ClientError::window()))
 }

@@ -18,6 +18,8 @@ if args[:3]==['msg','action','screenshot']:
  sys.exit(2)
 sys.exit(2)
 ''');helper.chmod(0o700)
+  for name in ['slurp','grim']:
+   guarded=helpers/name;guarded.write_text("#!/usr/bin/python3\nfrom pathlib import Path\np=Path(__file__).resolve().parent.parent/'capture-calls'\nwith p.open('a') as f:f.write('capture\\n')\nraise SystemExit(2)\n");guarded.chmod(0o700)
   with sqlite3.connect(root/'state.sqlite3') as db:
    db.executescript("CREATE TABLE drafts(id INTEGER PRIMARY KEY CHECK(id=1),text TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0));INSERT INTO drafts VALUES(1,'合成隐藏草稿',0);PRAGMA user_version=1;")
   env=os.environ.copy();env.update({'ZWEN_DATA_DIR':folder,'ZWEN_SMOKE':'capture-hide','ZWEN_CAPTURE_HIDE_FIXTURE_MODE':mode,'PATH':str(helpers)+':'+env['PATH'],'NIRI_SOCKET':str(root/'unused.sock')})

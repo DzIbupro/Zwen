@@ -205,12 +205,12 @@
     if(quit&&(actionBusy||actionOutputState&&actionOutputState.stage!=='saved')){notice='请先完成或取消文档自动保存，再退出';return;}
     if(quit&&knowledge.pendingEditorId()){notice='知识库仍有编辑未完成，请先保存编辑或取消；切换页面会保留本次编辑';view='knowledge';void knowledge.open(knowledge.pendingEditorId()!);return;}
     if(quit&&(selectionState.busy||selectionState.pending)){notice='请先处理待导入选区，再退出';return;}
-    if(quit&&attachmentState.pending){notice='请先取消等待截图，再退出';return;}
     if(closing)return;
     const endQuick=surface.mode==='capsule'&&quickSession.active;
-    if(endQuick&&(actionBusy||selectionState.busy||attachmentState.pending)){notice='请等待选区处理完成，或先取消截图，再关闭胶囊';return;}
+    if(endQuick&&(actionBusy||selectionState.busy||(!quit&&attachmentState.pending))){notice='请等待选区处理完成，或先取消截图，再关闭胶囊';return;}
     closing=true;
     try {
+      if(quit&&attachmentState.pending)await attachmentPort.cancel();
       await appearance.flush();
       if(endQuick){
         let recoveryDraft='';

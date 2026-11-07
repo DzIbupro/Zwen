@@ -7,7 +7,7 @@ use std::{fs,path::{Path,PathBuf},sync::{Arc,Mutex,atomic::{AtomicU64,Ordering}}
 use tauri::{AppHandle,Emitter,Manager};
 use zwen_core::{
  attachment::{Attachment,AttachmentStore,MAX_ATTACHMENTS,valid_id},
- screenshot::{CaptureError,DEFAULT_CAPTURE_TIMEOUT,cleanup_incoming,default_incoming},
+ screenshot::{CaptureError,cleanup_incoming,default_incoming},
 };
 
 #[derive(Clone,Serialize)]
@@ -22,7 +22,7 @@ pub struct View{items:Vec<Item>,capture:CaptureView,notice:Option<String>,max:us
 
 struct Pending{id:String,replace:Option<String>,cancelled:bool}
 #[derive(Default)]
-pub struct State{pending:Option<Pending>,notice:Option<String>}
+pub struct State{pending:Option<Pending>,notice:Option<String>,settled:Option<String>}
 pub type Shared=Arc<Mutex<State>>;
 static COUNTER:AtomicU64=AtomicU64::new(0);
 
@@ -33,11 +33,11 @@ fn ensure_private_dir(path:&Path)->Result<(),ClientError>{
  #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
  builder.create(path).map_err(|_|ClientError::storage())
 }
-fn capture_timeout()->Duration{
+fn capture_timeout()->Option<Duration>{
  #[cfg(feature="desktop-smoke")]{
-  if let Ok(value)=std::env::var("ZWEN_SCREENSHOT_TIMEOUT_MS"){if let Ok(ms)=value.parse::<u64>(){return Duration::from_millis(ms.clamp(300,60_000));}}
+  if let Ok(value)=std::env::var("ZWEN_SCREENSHOT_TIMEOUT_MS"){if let Ok(ms)=value.parse::<u64>(){return Some(Duration::from_millis(ms.clamp(300,60_000)));}}
  }
- DEFAULT_CAPTURE_TIMEOUT
+ None
 }
 fn request_id()->String{
  use std::io::Read;
@@ -58,13 +58,15 @@ fn capture_view(state:&State)->CaptureView{
  }
 }
 fn view(storage:&SharedStorage,shared:&Shared)->Result<View,ClientError>{
+ // Match commit lock order: items and pending state must describe one instant.
+ let state=shared.lock().map_err(|_|ClientError::window())?;
  let directory=storage_dir(storage)?;
  let store=AttachmentStore::open(&directory)?;
  let items=store.list()?.into_iter().map(|attachment|match store.thumbnail(&attachment.id){
   Ok(bytes)=>Item{attachment,thumbnail:Some(format!("data:image/png;base64,{}",STANDARD.encode(bytes))),error:None},
   Err(error)=>Item{attachment,thumbnail:None,error:Some(error.to_string())},
  }).collect();
- let (capture,notice)={let state=shared.lock().map_err(|_|ClientError::window())?;(capture_view(&state),state.notice.clone())};
+ let (capture,notice)=(capture_view(&state),state.notice.clone());
  Ok(View{items,capture,notice,max:MAX_ATTACHMENTS})
 }
 
@@ -81,9 +83,9 @@ fn finish(shared:&Shared,id:&str,notice:Option<String>){
  let Ok(mut state)=shared.lock()else{return;};
  let current=state.pending.as_ref().map(|pending|pending.id.as_str());
  if current==Some(id){
-  state.pending=None;
+  state.pending=None;state.settled=Some(id.into());
   if let Some(notice)=notice{state.notice=Some(notice);}
- }else if current.is_none(){
+ }else if current.is_none()&&state.settled.as_deref()==Some(id){
   if let Some(notice)=notice{state.notice=Some(notice);}
  }
 }
@@ -108,7 +110,7 @@ pub fn start_from_app(app:&AppHandle,replace:Option<String>){
 }
 
 pub fn start(app:AppHandle,storage:SharedStorage,shared:Shared,replace:Option<String>){
- // Niri's Esc produces no event, so a previous wait may still be pending.
+ // Re-trigger owns a new selector; the previous process observes cancellation.
  // Re-triggering means "restart the capture": drop the stale wait and begin
  // a fresh request instead of only reopening the capsule.
  if cancel_pending(&shared,"已取消上一次截图等待"){
@@ -130,7 +132,7 @@ pub fn start(app:AppHandle,storage:SharedStorage,shared:Shared,replace:Option<St
   let Ok(mut state)=shared.lock()else{return;};
   // The stale entry above stays Some until its worker exits; the new request
   // takes the slot now and the old worker sees an id mismatch and stops.
-  state.pending=Some(Pending{id:id.clone(),replace:replace.clone(),cancelled:false});
+  state.settled=None;state.pending=Some(Pending{id:id.clone(),replace:replace.clone(),cancelled:false});
   state.notice=None;
  }
  let _=app.emit("attachments-changed",());
@@ -203,7 +205,7 @@ pub fn capture_screenshot(app:AppHandle,storage:tauri::State<'_,SharedStorage>,s
 }
 #[tauri::command]
 pub fn cancel_screenshot(app:AppHandle,state:tauri::State<'_,Shared>)->Result<(),ClientError>{
- if cancel_pending(state.inner(),"已取消等待截图；若 Niri 截图界面仍打开，可按 Esc 关闭"){let _=app.emit("attachments-changed",());}
+ if cancel_pending(state.inner(),"截图已取消"){let _=app.emit("attachments-changed",());}
  Ok(())
 }
 #[tauri::command]
@@ -220,7 +222,7 @@ pub async fn remove_attachment(app:AppHandle,storage:tauri::State<'_,SharedStora
 fn with_current_capture<T>(shared:&Shared,id:&str,commit:impl FnOnce()->Result<T,ClientError>)->Result<T,ClientError>{
  let mut state=shared.lock().map_err(|_|ClientError::window())?;
  if !may_import(&state,id){return Err(error("capture_cancelled","截图请求已取消；未附加图片"));}
- let result=commit();if result.is_ok(){state.pending=None;}drop(state);result
+ let result=commit();if result.is_ok(){state.pending=None;state.settled=Some(id.into());}drop(state);result
 }
 fn may_import(state:&State,id:&str)->bool{state.pending.as_ref().is_some_and(|pending|pending.id==id&&!pending.cancelled)}
 #[cfg(test)]mod tests{
@@ -260,4 +262,15 @@ fn may_import(state:&State,id:&str)->bool{state.pending.as_ref().is_some_and(|pe
   state.pending.as_mut().unwrap().cancelled=true;assert!(!may_import(&state,"old"));
   state.pending=Some(Pending{id:"new".into(),replace:None,cancelled:false});assert!(!may_import(&state,"old"));assert!(may_import(&state,"new"));
  }
+}
+
+/// Exit invalidates every pending selector without reactivating a window.
+pub fn shutdown(app:&AppHandle){
+ windows::new_intent();if let Some(state)=app.try_state::<Shared>(){let _=cancel_pending(state.inner(),"截图已取消");}
+ zwen_core::screenshot::shutdown_capture_processes();
+ if let Some(storage)=app.try_state::<SharedStorage>(){if let Ok(directory)=storage_dir(storage.inner()){let _=cleanup_incoming(&default_incoming(&directory),Duration::ZERO);}}
+}
+
+#[cfg(test)]mod settled_tests{use super::*;
+ #[test]fn old_completion_cannot_replace_new_committed_notice(){let shared=Shared::default();shared.lock().unwrap().pending=Some(Pending{id:"new".into(),replace:None,cancelled:false});with_current_capture(&shared,"new",||Ok(())).unwrap();finish(&shared,"new",Some("new saved".into()));finish(&shared,"old",Some("old error".into()));assert_eq!(shared.lock().unwrap().notice.as_deref(),Some("new saved"));}
 }

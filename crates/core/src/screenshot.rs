@@ -1,8 +1,9 @@
-//! Explicit Niri screenshot capture. Every request owns one unique absolute path.
+//! Explicit owned region capture. Every request owns one unique absolute path.
 //! A saved file is attributed only to the request that named it; cancel, expiry
 //! and late results discard that exact path instead of attaching it elsewhere.
 use std::{fmt,fs,io::{BufRead,BufReader},path::{Path,PathBuf},process::{Child,Command,Stdio},sync::mpsc,thread,time::{Duration,Instant,SystemTime}};
 
+/// Legacy Niri adapter timeout; production region selection uses None.
 pub const DEFAULT_CAPTURE_TIMEOUT:Duration=Duration::from_secs(60);
 const ACTION_TIMEOUT:Duration=Duration::from_secs(3);
 const SUBSCRIBE_TIMEOUT:Duration=Duration::from_millis(1500);
@@ -15,10 +16,10 @@ pub const INCOMING_MAX_AGE:Duration=Duration::from_secs(10*60);
 pub enum CaptureError{Unavailable,CommandFailed,Timeout,Cancelled,Empty,Io}
 impl fmt::Display for CaptureError{
  fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{f.write_str(match self{
-  Self::Unavailable=>"当前桌面不支持 Niri 截图；未附加图片，原草稿已保留",
-  Self::CommandFailed=>"Niri 未能完成截图请求；未附加图片，原草稿已保留",
-  Self::Timeout=>"等待截图超时（可能已取消）；未附加图片，原草稿已保留",
-  Self::Cancelled=>"已取消等待截图；若 Niri 截图界面仍打开，可按 Esc 关闭",
+  Self::Unavailable=>"当前桌面截图组件不可用（需要 slurp 和 grim）；未附加图片，原草稿已保留",
+  Self::CommandFailed=>"截图组件未能完成请求；未附加图片，原草稿已保留",
+  Self::Timeout=>"截图测试等待超时；未附加图片，原草稿已保留",
+  Self::Cancelled=>"截图已取消",
   Self::Empty=>"截图文件为空或尚未写入；未附加图片，原草稿已保留",
   Self::Io=>"截图文件无法读取；未附加图片，原草稿已保留",
  })}}
@@ -31,12 +32,13 @@ impl Guard{
 }
 impl Drop for Guard{fn drop(&mut self){self.stop();}}
 
-pub fn capture(path:&Path,timeout:Duration,cancelled:impl Fn()->bool)->Result<(),CaptureError>{
- if std::env::var_os("NIRI_SOCKET").is_none(){return Err(CaptureError::Unavailable);}
- capture_with(Path::new("niri"),path,timeout,cancelled)
+#[path="screenshot_region.rs"] mod region;
+pub use region::{capture_region_with,shutdown_capture_processes};
+pub fn capture(path:&Path,timeout:Option<Duration>,cancelled:impl Fn()->bool)->Result<(),CaptureError>{
+ capture_region_with(Path::new("slurp"),Path::new("grim"),path,timeout,cancelled)
 }
 
-/// Test seam: the production path always calls the fixed `niri` binary.
+/// Legacy Niri adapter retained for compatibility tests; production uses slurp/grim.
 #[doc(hidden)]
 pub fn capture_with(program:&Path,path:&Path,timeout:Duration,cancelled:impl Fn()->bool)->Result<(),CaptureError>{
  if cancelled(){return Err(CaptureError::Cancelled);}

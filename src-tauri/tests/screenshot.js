@@ -39,6 +39,7 @@
   let view=await state();
   if(view.items.length!==1||view.items[0].id!==second.id)throw Error('Cancel changed the attachment set');
   await stage('cancelled');
+  phase='escape';await api.event.emit('screenshot-fixture-mode','escape');await api.core.invoke('capture_screenshot',{replaceId:null});await wait(async()=>{const v=await state();return v.capture.state==='idle'&&(v.notice||'').includes('取消');});if((await state()).items.length!==1)throw Error('Esc changed attachments');await stage('escape');
   // Expiry keeps the item and reports timeout; the late file stays unattached.
   phase='timeout';
   await api.event.emit('screenshot-fixture-mode','timeout');
@@ -79,6 +80,6 @@
   await wait(async()=>(await state()).items.length===0);
   await api.event.emit('foundation-smoke',{ok:true,mode:'screenshot',thumbnail:true,sendBlocked:true,replaced:true,cancelled:true,expired:true,removed:true,restarted:true});
  }catch(error){
-  await api.event.emit('foundation-smoke',{ok:false,mode:'screenshot',phase,error:error&&typeof error==='object'?JSON.stringify(error):String(error)});
+  await api.event.emit('foundation-smoke',{ok:false,mode:'screenshot',phase,state:await state(),error:error instanceof Error?error.message:JSON.stringify(error)});
  }
 })();

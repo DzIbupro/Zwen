@@ -32,6 +32,27 @@ sys.exit(2)
 ''')
 fake.chmod(0o700)
 
+selector_helper=helpers/'slurp'
+selector_helper.write_text("""#!/usr/bin/python3
+import pathlib,sys,time
+root=pathlib.Path(__file__).resolve().parent.parent
+mode=(root/'mode').read_text()
+with (root/'selector-modes').open('a') as f:f.write(mode+'\\n')
+if mode=='escape':sys.exit(1)
+if mode=='cancel':time.sleep(.8)
+elif mode=='timeout':time.sleep(5)
+else:time.sleep(.15)
+print('0,0 64x48')
+""")
+selector_helper.chmod(0o700)
+grab_helper=helpers/'grim'
+grab_helper.write_text("""#!/usr/bin/python3
+import pathlib,shutil,sys
+root=pathlib.Path(__file__).resolve().parent.parent
+shutil.copyfile(root/'image.png',sys.argv[-1])
+""")
+grab_helper.chmod(0o700)
+
 def png(width,height):
  row=b'\x00'+bytes([80,120,90,255])*width
  raw=row*height
@@ -46,7 +67,7 @@ db.close()
 env=os.environ.copy()
 env.update({'PATH':str(helpers)+':'+env['PATH'],'ZWEN_DATA_DIR':str(root),'ZWEN_SMOKE':'screenshot','ZWEN_SCREENSHOT_TIMEOUT_MS':'600','ZWEN_SCREENSHOT_FIXTURE_MODE_FILE':str(root/'mode'),'NIRI_SOCKET':str(root/'fake.sock')})
 process=subprocess.Popen([str(binary),'screenshot'],env=env,stdout=subprocess.PIPE,stderr=(root/'stderr.log').open('wb'),bufsize=0,start_new_session=True)
-selector=selectors.DefaultSelector();selector.register(process.stdout,selectors.EVENT_READ);buffer=b'';events=[];passed=False
+selector=selectors.DefaultSelector();selector.register(process.stdout,selectors.EVENT_READ);buffer=b'';events=[];passed=False;proofs=[]
 try:
  began=time.monotonic()
  while time.monotonic()-began<40:
@@ -54,6 +75,7 @@ try:
    chunk=os.read(key.fd,65536);buffer+=chunk
    while b'\n' in buffer:
     line,buffer=buffer.split(b'\n',1);text=line.decode(errors='replace');print(text,flush=True)
+    if text.startswith('CAPTURE_FRAME_PROOF:'):proofs.append(json.loads(text.split(':',1)[1]))
     if text.startswith('SCREENSHOT_PROGRESS:'):events.append({'progress':json.loads(text.split(':',1)[1])})
     if text.startswith('FOUNDATION_SMOKE:'):
      event=json.loads(text.split(':',1)[1]);events.append(event)
@@ -61,6 +83,8 @@ try:
   if process.poll() is not None:break
  process.wait(timeout=5)
  stderr=(root/'stderr.log').read_text(errors='replace')[-2000:]
+ print('SELECTOR_MODES', (root/'selector-modes').read_text() if (root/'selector-modes').exists() else 'none',flush=True)
+ assert any(p.get('complete') for p in proofs) and all((p.get('stale') is True) or (p.get('complete') and p.get('alphaMax')==0) for p in proofs),proofs
  assert process.returncode==0 and passed,(process.returncode,events,stderr)
  db=sqlite3.connect(root/'state.sqlite3');draft=db.execute('SELECT text FROM drafts').fetchone()[0];db.close()
  assert '合成旧草稿' in draft,draft

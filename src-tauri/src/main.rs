@@ -5,6 +5,8 @@ mod chat;
 mod provider;
 mod windows;
 mod attachment;
+mod capture_frame;
+mod wayland_ack;
 mod secret;
 mod notes;
 mod organize_job;
@@ -62,7 +64,7 @@ fn quit_app(app:tauri::AppHandle) -> Result<(),ClientError> {
     if app.state::<selection::Shared>().lock().map_err(|_|ClientError::window())?.is_pending() {
         return Err(ClientError{code:"selection_pending",message:"有待处理选区；请先检查草稿并确认或丢弃，再退出".into()});
     }
-    organize_round::cancel_all(&app);selection::stop_candidate_watcher();app.exit(0);Ok(())
+    attachment::shutdown(&app);organize_round::cancel_all(&app);selection::stop_candidate_watcher();app.exit(0);Ok(())
 }
 #[tauri::command]
 async fn get_surface(app:tauri::AppHandle)->Result<windows::Snapshot,ClientError>{tauri::async_runtime::spawn_blocking(move||windows::snapshot(&app)).await.map_err(|_|ClientError::window())?}
@@ -153,7 +155,7 @@ fn main() {
     #[cfg(feature="desktop-smoke")]
     let builder=builder.on_page_load(smoke::page_loaded);
     let result=builder.build(tauri::generate_context!());
-    if let Ok(app)=result {app.run(|handle,event|{if matches!(event,tauri::RunEvent::Exit|tauri::RunEvent::ExitRequested{..}){organize_round::cancel_all(handle);selection::stop_candidate_watcher();}});} else {
+    if let Ok(app)=result {app.run(|handle,event|{if matches!(event,tauri::RunEvent::Exit|tauri::RunEvent::ExitRequested{..}){attachment::shutdown(handle);organize_round::cancel_all(handle);selection::stop_candidate_watcher();}});} else {
         eprintln!("Zwen 启动失败；本地数据未被删除。请检查显示会话及系统依赖。");
         std::process::exit(1);
     }

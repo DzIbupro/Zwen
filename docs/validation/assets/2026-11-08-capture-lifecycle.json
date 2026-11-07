@@ -1,0 +1,200 @@
+{
+  "pixelFinal": {
+    "passed": true,
+    "nonBackgroundPixels": [
+      0,
+      0,
+      0
+    ],
+    "scenes": [
+      "full",
+      "capsule",
+      "already-hidden"
+    ],
+    "restoredUI": true,
+    "actualScale": 1.5,
+    "proofs": [
+      {
+        "alphaMax": 0,
+        "complete": true,
+        "frame": 26,
+        "waylandSync": true
+      },
+      {
+        "alphaMax": 0,
+        "complete": true,
+        "frame": 34,
+        "waylandSync": true
+      },
+      {
+        "alphaMax": 0,
+        "complete": true,
+        "frame": 99,
+        "waylandSync": true
+      },
+      {
+        "alphaMax": 0,
+        "complete": true,
+        "frame": 123,
+        "waylandSync": true
+      }
+    ],
+    "scale": "1.5"
+  },
+  "lifecycle": {
+    "passed": true,
+    "exit": 0,
+    "events": [
+      {
+        "progress": {
+          "stage": "initial"
+        }
+      },
+      {
+        "progress": {
+          "stage": "send-blocked"
+        }
+      },
+      {
+        "progress": {
+          "stage": "replaced"
+        }
+      },
+      {
+        "progress": {
+          "stage": "cancelled"
+        }
+      },
+      {
+        "progress": {
+          "stage": "escape"
+        }
+      },
+      {
+        "progress": {
+          "stage": "expired"
+        }
+      },
+      {
+        "progress": {
+          "stage": "cleaned"
+        }
+      },
+      {
+        "progress": {
+          "stage": "removed"
+        }
+      },
+      {
+        "progress": {
+          "stage": "restarted"
+        }
+      },
+      {
+        "cancelled": true,
+        "expired": true,
+        "mode": "screenshot",
+        "ok": true,
+        "removed": true,
+        "replaced": true,
+        "restarted": true,
+        "sendBlocked": true,
+        "thumbnail": true
+      }
+    ],
+    "draftPreserved": true,
+    "orphanRequestFiles": 0
+  },
+  "quit": {
+    "passed": true,
+    "quitKilledWriter": true,
+    "partialRemoved": true
+  },
+  "hideGuards": [
+    {
+      "case": "failure",
+      "exit": 0,
+      "helperCalls": 0,
+      "events": [
+        {
+          "draftPreserved": true,
+          "mode": "capture-hide",
+          "noAttachments": true,
+          "noModel": true,
+          "notice": "Zwen 窗口未能隐藏；未开始截图，请重试",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "case": "stale",
+      "exit": 0,
+      "helperCalls": 0,
+      "events": [
+        {
+          "draftPreserved": true,
+          "mode": "capture-hide",
+          "noAttachments": true,
+          "noModel": true,
+          "notice": "窗口状态已变化；已取消本次截图，草稿已保留",
+          "ok": true
+        }
+      ]
+    }
+  ],
+  "longWait": {
+    "passed": true,
+    "seconds": 61.25,
+    "source": "explicit ignored test human_selection_can_exceed_sixty_seconds"
+  },
+  "regressionActions": {
+    "passed": true,
+    "requests": 8,
+    "anchorMode": "synthetic-fixed",
+    "events": [
+      {
+        "ask": true,
+        "autoRetry": true,
+        "closeReset": true,
+        "disable": true,
+        "document": true,
+        "endFocus": true,
+        "expandPreserves": true,
+        "explain": true,
+        "failedClose": true,
+        "idempotent": true,
+        "independentBar": true,
+        "manualRestore": true,
+        "mode": "actions",
+        "nextSelection": true,
+        "noCandidatePopup": true,
+        "noteId": "18e5d759547b61fe0000000000000000",
+        "ok": true,
+        "ordinaryDraftPreserved": true,
+        "partialPreserved": true,
+        "path": "/tmp/zwen-actions-native-001q0guq/output/整理成文档-18e5d759547b61fe0000000000000000-0.md",
+        "presentations": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rawDraft": true,
+        "replaced": true,
+        "runningClose": true,
+        "settings": true,
+        "sourceWindowSwitch": true,
+        "stopBackoff": true,
+        "translate": true,
+        "waitingBeforeFirstToken": true
+      }
+    ]
+  },
+  "scope": "Synthetic temporary data; pixels only from isolated nested Niri; no host desktop or real clipboard/model"
+}

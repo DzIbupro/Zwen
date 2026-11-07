@@ -10,7 +10,7 @@
 {#if state.loaded&&(state.items.length>0||state.pending)}
  <div class="attachments" data-attachments>
   {#if state.pending}
-   <div class="attachment-pending" role="status"><span>正在等待截图…</span><button disabled={disabled} onclick={onCancel}>取消等待</button></div>
+   <div class="attachment-pending" role="status"><span>正在框选截图… 松开鼠标保存，Esc 取消。</span><button disabled={disabled} onclick={onCancel}>取消截图</button></div>
   {/if}
   {#each state.items as item (item.id)}
    <figure class="attachment" data-attachment={item.id}>

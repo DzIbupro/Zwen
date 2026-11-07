@@ -1,3 +1,17 @@
+# 2026-11-08 截图残影及生命周期完成
+
+状态：**ready-for-trial / restart-pending**。用户选择Zwen管理框选（slurp+grim）：松开鼠标保存、Esc取消、用户选择无60秒上限；写图单独5秒故障超时。透明根缓冲提交后等待同一Wayland连接异步确认再隐藏；窗口操作串行，错误/取消恢复widgets。Niri26.04隔离桌面关闭动画1500ms、实际scale1.5，主窗/胶囊/已隐藏三场景截图非背景像素均0，截图后红色合成UI均恢复。
+
+主动取消/重触发/退出回收owned进程组，waitid WNOWAIT防PGID复用，退出自动取消并清半写incoming；旧结果不覆盖新提示，附件列表与状态同提交锁。原先前端阻止pending截图退出已修，保留其他未保存内容保护。真实61.25秒等待后保存成功。
+
+Rust217通过/0失败/2默认忽略（既有钥匙环；显式61秒用例另行通过）；前端188/Svelte0/0/Vite、普通release、独立审查及原生截图全流程/退出/隐藏失败过期/划词胶囊回归通过。只用临时数据、假PRIMARY/截图助手、本机合成模型；像素只截隔离嵌套Niri，没有真实桌面或剪贴板读取。实体鼠标键盘及长期日常使用仍未人工验收，不混淆证据。详见[验证记录](validation/2026-11-08-capture-lifecycle.md)。
+
+普通已安装artifacts/zwen，SHA256 91a02db43068ef9bd3c918386a3a6f16e85d8c6f8f84584c81f1cb45dd15878a，备份zwen-before-capture-lifecycle；不含smoke/测试超时。不强关/启动用户实例，完整退出重开生效。无数据迁移，slurp/grim已存在，未改用户Niri配置。
+
+此前反馈的历史删除、全库分批整理、选区取消清理和这两类截图问题均有实现及验证，不重做。剩余是重启后的真人试用反馈，不宣称长期稳定性。**用户已明确持续授权每次修复的开发分支推送，无需逐次再问；仅feat/desktop-foundation及既有私有开发PR，不合并main、不强推。**
+
+---
+
 # 2026-11-07 选区取消自动清理完成
 
 状态：**ready-for-next-unit / restart-pending**。稳定外部来源的空/无可用文字PRIMARY读取清空匹配的未冻结候选，不恢复旧预览；self/unknown/source-switch仍抑制回滚。来源PID+window ID/read ID/watcher token/操作条epoch共同防迟到；按钮左键按下同步冻结并撤销epoch，后台验证来源后执行，防取消事件清掉已点击命令。单epoch不能重复派发，草稿不在清空路径修改。移除手动丢弃/重新读取按钮和无意义成功提示，保留错误/恢复重试。
