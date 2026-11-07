@@ -32,7 +32,7 @@
   if(bar.mainVisible)throw Error('source dismissal opened main');
   stage='close-candidate';await choose('close fixture');await click('__dismiss');await wait(async()=>!(await inspect()).visible,'close button did not dismiss');await wait(async()=>(await invoke('claim_selection')).item===null,'closed candidate remained pending');if(bar.mainVisible)throw Error('close opened main');
   stage='focus-race';await api.event.emit('actions-fixture-selection','focus-race fixture');await new Promise(r=>setTimeout(r,350));await api.event.emit('actions-fixture-source-window',102);await new Promise(r=>setTimeout(r,650));if((await inspect()).visible)throw Error('late read followed focus to wrong source');
-  stage='cleared-selection';await choose('clear fixture');await api.event.emit('actions-fixture-selection','');await wait(async()=>!(await inspect()).visible,'cleared selection left stale bar');
+  stage='cleared-selection';await choose('clear fixture');await api.event.emit('actions-fixture-selection','');await wait(async()=>!(await inspect()).visible,'cleared selection left stale bar');await wait(async()=>!(await invoke('claim_selection')).item,'cleared selection restored old inbox');
   stage='ask';await openAsk('ask fixture');
   await wait(()=>document.querySelector('#capsule-question')?.value.includes('ask fixture'));
   if(document.querySelector('[data-capsule-answer]'))throw Error('ask retained previous reply');

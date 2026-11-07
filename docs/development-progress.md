@@ -1,3 +1,15 @@
+# 2026-11-07 选区取消自动清理完成
+
+状态：**ready-for-next-unit / restart-pending**。稳定外部来源的空/无可用文字PRIMARY读取清空匹配的未冻结候选，不恢复旧预览；self/unknown/source-switch仍抑制回滚。来源PID+window ID/read ID/watcher token/操作条epoch共同防迟到；按钮左键按下同步冻结并撤销epoch，后台验证来源后执行，防取消事件清掉已点击命令。单epoch不能重复派发，草稿不在清空路径修改。移除手动丢弃/重新读取按钮和无意义成功提示，保留错误/恢复重试。
+
+Rust209通过/1既有忽略、前端188、Svelte0/0、Vite及普通release通过。原生合成actions完整回归含清空后inbox为空、source-window切换、其他/设置、草稿保护等；显式selection/recovery/lifecycle三场景通过。独立审查发现静默确认误清错误提示，回归复现后修复，复审无重要发现。详情见[验证](validation/2026-11-07-selection-clear.md)。原生证据是GTK/DOM/IPC驱动、固定合成anchor，不冒充真人点击/长期验收。
+
+普通已安装artifacts/zwen，SHA256 71ee6a819ffac40c65d64a74e7ba2c59bdab2c6f939b1fe1e999881418b1369e，备份zwen-before-selection-clear，不含smoke；不强关/启动日常实例，完整退出重开生效。无数据库迁移/新依赖。未读取真实PRIMARY/生产库/进程环境/密钥，无真实模型请求，文档输出仅临时合成目录。
+
+剩余两类：截图完整动画消退；截图无限等待及Esc/保存/重触发/退出/子进程清理。已核对仍是60秒DEFAULT_CAPTURE_TIMEOUT，仅Ready/Captured事件；不能直接删超时制造永久等待，也不能加随意sleep冒充无残影。下一单元先验证可靠的合成器呈现/截图结束信号，再实现并记录证据。
+
+---
+
 # 2026-11-07 全库选择与分批整理完成
 
 状态：**ready-for-next-unit / restart-pending**。桌面全库选择复用完整ID枚举，不受200条浏览/搜索限制；确认固定数量/服务/模型/发送片段，前置选择不发模型。后台原生逐批最多8篇、固定本轮模型、进度、停止、失败保留、剩余重试、同轮全部撤销已接通。持久化与提交原子关联，停止与提交共用所有权锁；渲染器重载可查询，进程重启仅恢复中断记录，明确确认后才继续，不自动发送。

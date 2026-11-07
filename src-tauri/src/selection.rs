@@ -154,15 +154,10 @@ fn capture_guarded(app:tauri::AppHandle,mode:Mode,token:Option<String>){
      Some(source)
     }else{None};
     let result=read_primary_text();
-    // A cleared/no-owner PRIMARY commonly exits wl-paste with status 1; it
-    // must preserve the prior menu just like an empty text payload.
-    if mode==Mode::Candidate{
-     if external_source()!=source{return None;}
-     if matches!(result,Err(zwen_core::selection::SelectionError::InvalidText|zwen_core::selection::SelectionError::Unavailable)){
-      if read_shared.lock().is_ok_and(|inbox|inbox.is_current_read(id)){if let Some(epoch)=bar_epoch{bar::revoke_epoch(&read_app,epoch);}}
-      return None;
-     }
-    }
+    // Source identity is checked on both sides of the read. Only a real
+    // external clear may discard the provisional candidate; self/unknown focus
+    // remains suppressed and restores its previous preview.
+    if mode==Mode::Candidate&&external_source()!=source{return None;}
     Some((result,source))
    }).await;
    let (result,source)=worker.ok().flatten().map(|(result,source)|(Some(result),source)).unwrap_or((None,None));
@@ -170,13 +165,17 @@ fn capture_guarded(app:tauri::AppHandle,mode:Mode,token:Option<String>){
    // read cannot finish, cancel, or activate a newer candidate's surface.
    // Cancelling a suppressed self/empty capture restores the last completed
    // candidate, keeping the existing menu's ID actionable.
+   let mut cleared=false;
    let delivered={
     let mut watcher=WATCHER.lock().ok();
     let allowed=token.as_deref().is_none_or(|token|watcher.as_mut().is_some_and(|watcher|watcher.accepts(Some(token))));
     if let Ok(mut inbox)=shared.lock(){
-     if let Some(result)=result.filter(|_|allowed){inbox.finish(id,result)}else{inbox.cancel_read(id);false}
+     if allowed&&mode==Mode::Candidate&&source.is_some()&&matches!(result,Some(Err(zwen_core::selection::SelectionError::InvalidText|zwen_core::selection::SelectionError::Unavailable))){
+      cleared=inbox.clear_candidate_read(id);false
+     }else if let Some(result)=result.filter(|_|allowed){inbox.finish(id,result)}else{inbox.cancel_read(id);false}
     }else{false}
    };
+   if cleared{if let Some(epoch)=bar_epoch{bar::revoke_epoch(&app,epoch);}}
    let _=app.emit("selection-ready",());
    if !delivered{if mode==Mode::Candidate{bar::discard_prime(&app,id);}return;}
    if mode==Mode::Candidate{if let Some(source)=source{if let Some(generation)=candidate_generation{bar::present(app,id,token,source,generation).await;}}return;}

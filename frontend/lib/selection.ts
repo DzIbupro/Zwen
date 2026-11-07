@@ -24,7 +24,7 @@ export class SelectionController{
     this.publish({pending:item,inserted:false});
     if(item.error){this.publish({notice:item.error});await this.discard(false);continue;}
     if(item.mode==='candidate'){this.publish({notice:'选中文字后，选择要执行的操作；点击前不会发送'});continue;}
-    if(item.claimed){this.publish({notice:'上次导入未确认，请先检查草稿，再决定重新添加或丢弃待处理选区'});continue;}
+    if(item.claimed){this.publish({notice:'上次导入未确认，请先检查草稿，再决定是否重新添加'});continue;}
     await this.applyPending();
    }catch(e){if(this.mutating){this.again=true;return;}this.publish({busy:false,notice:e instanceof Error?e.message:'选区状态读取失败，请重试'});}
   }while(this.again&&!this.disposed);
@@ -58,7 +58,7 @@ export class SelectionController{
    }
    await this.draft.flush();if(this.disposed)return;
    await this.port.acknowledge(item.id);if(this.disposed)return;
-   this.publish({pending:null,inserted:false,notice:'选区已添加并保存到草稿 · 未发送'});
+   this.publish({pending:null,inserted:false,notice:''});
   }catch(e){this.publish({notice:(e instanceof Error?e.message:'选区导入未完成')+'；材料保留，请检查草稿'});}
   finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
  }
@@ -72,7 +72,7 @@ export class SelectionController{
  async discard(announce=true){
   const item=this.state.pending;if(!item||this.state.busy||this.disposed)return;
   this.mutating=true;this.publish({busy:true});
-  try{await this.port.acknowledge(item.id);if(!this.disposed)this.publish({pending:null,inserted:false,...(announce?{notice:'待处理选区已丢弃，现有草稿保留'}:{})});}
+  try{await this.port.acknowledge(item.id);if(!this.disposed)this.publish({pending:null,inserted:false,...(announce?{notice:''}:{})});}
   catch(e){this.publish({notice:e instanceof Error?e.message:'选区确认未完成'});}
   finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
  }

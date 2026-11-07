@@ -83,6 +83,11 @@ impl Inbox{
   if !self.reading||!self.item.as_ref().is_some_and(|item|item.id==id){return false;}
   self.item=self.previous_candidate.take();self.reading=false;true
  }
+ /// A positively identified external clear must not restore the old preview.
+ pub fn clear_candidate_read(&mut self,id:u32)->bool{
+  if !self.is_current_read(id)||!self.item.as_ref().is_some_and(|item|item.mode==Mode::Candidate&&!item.claimed){return false;}
+  self.item=None;self.previous_candidate=None;self.reading=false;true
+ }
  pub fn finish(&mut self,id:u32,result:Result<String,SelectionError>)->bool{
   let Some(item)=self.item.as_mut().filter(|s|s.id==id&&self.reading)else{return false;};
   match result.and_then(|text|validate(text.into_bytes())){Ok(text)=>item.text=Some(text),Err(e)=>item.error=Some(e.to_string())};

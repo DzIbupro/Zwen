@@ -1,7 +1,7 @@
 <script lang="ts">
  import type {SelectionState} from './lib/selection';
  import type {QuickAction} from './lib/quick-actions';
- let {state,onRetry,onDiscard,onReload,onAction,onSettings,actions=[],actionBusy=false}:{state:SelectionState;onRetry:()=>void;onDiscard:()=>void;onReload:()=>void;onAction?:(id:string)=>void;onSettings?:()=>void;actions?:QuickAction[];actionBusy?:boolean}=$props();
+ let {state,onRetry,onAction,onSettings,actions=[],actionBusy=false}:{state:SelectionState;onRetry:()=>void;onDiscard:()=>void;onReload:()=>void;onAction?:(id:string)=>void;onSettings?:()=>void;actions?:QuickAction[];actionBusy?:boolean}=$props();
 </script>
 {#if state.busy||state.notice||state.pending}
  <div class="selection-notice" role="status" data-selection-state>
@@ -19,8 +19,7 @@
      </div></details>
     </div>
    {:else if state.pending.text}<button disabled={state.busy} onclick={onRetry}>{state.inserted?'重试保存并确认':state.pending.mode==='candidate'?'添加到草稿':'已检查草稿，重新添加'}</button>{/if}
-   <button disabled={state.busy||actionBusy} onclick={onDiscard}>丢弃待处理选区</button>
-  {:else if !state.busy&&state.notice&&!state.notice.includes('未发送')}<button onclick={onReload}>重新读取状态</button>{/if}
+  {/if}
  </div>
 {/if}
 <style>

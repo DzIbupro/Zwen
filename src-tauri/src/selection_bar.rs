@@ -267,6 +267,15 @@ mod native {
         // Shared provider also restyles already-visible buttons after saving.
         b.style_context().add_provider(&style(),600);
         let app=app.clone();let key=key.to_string();let action=key.clone();
+        let pressed_app=app.clone();let pressed_action=action.clone();
+        b.add_events(gdk::EventMask::BUTTON_PRESS_MASK);
+        b.connect_button_press_event(move|_,event|{
+            if event.button()!=1{return glib::Propagation::Proceed;}
+            if current(token)&&crate::selection::bar_is_current(&pressed_app,id,pid){
+                crate::selection::toolbar_action(&pressed_app,id,&pressed_action,revision);cancel(token);
+            }
+            glib::Propagation::Stop
+        });
         b.connect_clicked(move|_| {
             if !current(token) {return;}
             if !crate::selection::bar_is_current(&app,id,pid) {cancel(token);return;}

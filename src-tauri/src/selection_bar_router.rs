@@ -13,6 +13,11 @@ impl Ledger{
  fn start_for_candidate(&mut self,inbox:&zwen_core::selection::Inbox,generation:u64,id:u32,source:super::FocusSource,revision:u64,actions:Vec<String>)->Option<Session>{if inbox.reading()||!inbox.candidate_exists(id){return None;}self.start_if_current(generation,id,source,revision,actions)}
  fn revoke(&mut self,epoch:u64)->bool{if self.active.as_ref().is_some_and(|s|s.epoch==epoch){if self.anchor.as_ref().is_some_and(|a|self.active.as_ref().is_some_and(|s|a.id==s.id)){self.anchor=None;}self.active=None;true}else{false}}
 }
+fn bind_action(ledger:&mut Ledger,inbox:&mut zwen_core::selection::Inbox,epoch:u64,id:u32,settings:bool)->bool{
+ if !ledger.active.as_ref().is_some_and(|s|s.epoch==epoch&&s.id==id){return false;}
+ if settings{if !inbox.acknowledge(id){return false;}}else if inbox.freeze(id).is_none(){return false;}
+ ledger.revoke(epoch)
+}
 static LEDGER:Mutex<Ledger>=Mutex::new(Ledger{next:0,generation:0,active:None,anchor:None});
 pub(super) fn generation()->Option<u64>{LEDGER.lock().ok().map(|l|l.generation)}
 pub(super) fn prime(app:&tauri::AppHandle,id:u32,pid:u32,generation:u64){
@@ -92,14 +97,20 @@ pub fn toolbar_action(app:&tauri::AppHandle,id:u32,action:&str,revision:u64){
   if let Ok(mut inbox)=app.state::<Shared>().lock(){let _=inbox.acknowledge(id);}
   let _=app.emit("selection-ready",());return;
  }
+ // Bind the action before compositor IPC; a PRIMARY clear caused by this
+ // press must not replace the material while the lookup is in flight.
+ {
+  let shared=app.state::<Shared>();let Ok(mut inbox)=shared.lock()else{return;};
+  let Ok(mut ledger)=LEDGER.lock()else{return;};
+  if !bind_action(&mut ledger,&mut inbox,session.epoch,id,action=="__settings"){return;}
+ }
  let app=app.clone();let action=action.to_owned();
  tauri::async_runtime::spawn_blocking(move||{
-  // This compositor lookup must never block GTK's signal callback. Recheck the
-  // exact source window immediately before claiming material for a command.
-  if super::external_source()!=Some(session.source){revoke_epoch(&app,session.epoch);return;}
-  if !LEDGER.lock().is_ok_and(|l|l.active.as_ref().is_some_and(|s|s.epoch==session.epoch)){return;}
+  if super::external_source()!=Some(session.source){
+   if let Ok(mut inbox)=app.state::<Shared>().lock(){let _=inbox.acknowledge(id);}
+   let _=app.emit("selection-ready",());return;
+  }
   if action!="__settings"&&app.state::<Shared>().lock().ok().and_then(|mut inbox|inbox.freeze(id)).is_none(){return;}
-  if !LEDGER.lock().is_ok_and(|mut l|l.revoke(session.epoch)){return;}
   crate::selection_bar::dismiss(&app);
   let activation=crate::windows::activate(app.clone(),action!="__settings");
   tauri::async_runtime::spawn(async move{
@@ -125,4 +136,18 @@ pub fn toolbar_action(app:&tauri::AppHandle,id:u32,action:&str,revision:u64){
  #[test]fn disabled_or_dismissed_bar_cannot_be_recreated_by_an_old_lookup(){let mut l=Ledger::default();let g=l.generation;l.dismiss();let source=super::super::FocusSource{pid:2,window_id:10};assert!(l.start_if_current(g,1,source,3,vec![]).is_none());let g=l.generation;let session=l.start_if_current(g,1,source,3,vec![]).unwrap();let pending=l.generation;assert!(l.revoke(session.epoch));l.dismiss();assert!(l.start_if_current(pending,2,source,3,vec![]).is_none());}
  #[test]fn same_process_other_window_is_a_different_source(){let first=super::super::FocusSource{pid:2,window_id:10};let other=super::super::FocusSource{pid:2,window_id:11};assert!(first!=other);}
  #[test]fn a_stale_focus_worker_cannot_revoke_a_new_bar(){let mut l=Ledger::default();let old=l.start(1,super::super::FocusSource{pid:2,window_id:10},3,vec![]);let current=l.start(2,super::super::FocusSource{pid:2,window_id:11},3,vec![]);assert!(!l.revoke(old.epoch));assert_eq!(l.active.as_ref().unwrap().id,2);assert!(l.revoke(current.epoch));assert!(!l.revoke(current.epoch));}
+}
+
+#[cfg(test)]mod clear_tests{
+ use super::*;
+ #[test]fn action_binding_precedes_empty_callbacks_and_dispatches_once(){
+  let mut inbox=zwen_core::selection::Inbox::default();let id=inbox.begin(zwen_core::selection::Mode::Candidate).unwrap();inbox.finish(id,Ok("material".into()));
+  let mut ledger=Ledger::default();let s=ledger.start(id,super::super::FocusSource{pid:9,window_id:10},1,vec!["ask".into()]);
+  assert!(bind_action(&mut ledger,&mut inbox,s.epoch,id,false));assert!(inbox.begin(zwen_core::selection::Mode::Candidate).is_none());assert!(!bind_action(&mut ledger,&mut inbox,s.epoch,id,false));assert_eq!(inbox.frozen_text(),Some("material"));
+ }
+ #[test]fn stale_epoch_cannot_claim_another_window_and_settings_drops_preview(){
+  let mut inbox=zwen_core::selection::Inbox::default();let id=inbox.begin(zwen_core::selection::Mode::Candidate).unwrap();inbox.finish(id,Ok("material".into()));
+  let mut ledger=Ledger::default();let old=ledger.start(id,super::super::FocusSource{pid:9,window_id:10},1,vec![]);let new=ledger.start(id,super::super::FocusSource{pid:9,window_id:11},1,vec![]);
+  assert!(!bind_action(&mut ledger,&mut inbox,old.epoch,id,false));assert!(inbox.frozen_text().is_none());assert!(bind_action(&mut ledger,&mut inbox,new.epoch,id,true));assert!(inbox.claim().is_none());
+ }
 }

@@ -125,3 +125,12 @@ fn single_hanzi_and_ascii_letter_have_no_minimum_selection_length() {
   assert_eq!(inbox.freeze(id).unwrap().text.as_deref(),Some(expected));
  }
 }
+
+#[test]fn confirmed_empty_read_clears_only_its_unfrozen_candidate(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();inbox.finish(old,Ok("old".into()));
+ let empty=inbox.begin(Mode::Candidate).unwrap();assert!(!inbox.clear_candidate_read(empty+1));assert!(inbox.clear_candidate_read(empty));assert!(!inbox.reading());assert!(inbox.claim().is_none());assert!(inbox.freeze(old).is_none());
+ let manual=inbox.begin(Mode::Raw).unwrap();assert!(!inbox.clear_candidate_read(manual));inbox.finish(manual,Ok("draft import".into()));assert_eq!(inbox.claim().unwrap().text.as_deref(),Some("draft import"));
+}
+#[test]fn cancelled_old_read_cannot_clear_a_new_or_frozen_action(){
+ let mut inbox=Inbox::default();let old=inbox.begin(Mode::Candidate).unwrap();let new=inbox.begin(Mode::Candidate).unwrap();assert!(!inbox.clear_candidate_read(old));inbox.finish(new,Ok("new".into()));inbox.freeze(new).unwrap();assert!(inbox.begin(Mode::Candidate).is_none());assert!(!inbox.clear_candidate_read(new));assert_eq!(inbox.frozen_text(),Some("new"));
+}
