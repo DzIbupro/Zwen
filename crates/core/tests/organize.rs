@@ -263,3 +263,54 @@ impl ManualSeed for OrganizeStore{
  assert!(store.undo_batches(&[first.id,second.id.clone()]).is_err());
  assert_eq!(store.list_topics().unwrap().len(),1);store.undo_batch(&second.id).unwrap();
 }
+
+#[test] fn round_persists_scope_and_commits_progress_with_each_batch(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();
+ let ids:Vec<String>=(1..=205).map(|i|format!("{i:032x}")).collect();
+ let round=store.create_round(&ids,"fixture-profile").unwrap();
+ let batch_scope=ids[..8].to_vec();let assignments=vec![(ids[0].clone(),1,vec!["A".into()])];
+ store.apply_round_batch(&round.id,"m",&batch_scope,&assignments,&[],&[]).unwrap();
+ drop(store);let mut store=OrganizeStore::open(&s.0).unwrap();let saved=store.round(&round.id).unwrap();
+ assert_eq!(saved.note_ids,ids);assert_eq!(saved.completed,8);assert_eq!(saved.profile,"fixture-profile");assert_eq!(saved.batch_ids.len(),1);
+ // A retry must continue the remaining scope, never recommit an earlier chunk.
+ assert!(store.apply_round_batch(&round.id,"m",&batch_scope,&assignments,&[],&[]).is_err());
+ store.apply_round_batch(&round.id,"m",&ids[8..16],&[(ids[8].clone(),1,vec!["B".into()])],&[],&[]).unwrap();
+ assert_eq!(store.round(&round.id).unwrap().completed,16);assert_eq!(store.round(&round.id).unwrap().batch_ids.len(),2);
+ store.undo_round(&round.id).unwrap();assert!(store.list_topics().unwrap().is_empty());assert!(store.round(&round.id).unwrap().undone);
+ assert!(store.apply_round_batch(&round.id,"m",&ids[8..16],&[],&[],&[]).is_err());
+}
+
+#[test] fn round_progress_failure_rolls_back_applied_content_and_audit(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);
+ let round=store.create_round(&[a.clone()],"fixture-profile").unwrap();
+ store.raw_execute("CREATE TRIGGER fail_round BEFORE UPDATE ON organize_rounds BEGIN SELECT RAISE(ABORT,'fixture'); END",[]).unwrap();
+ assert!(store.apply_round_batch(&round.id,"m",&[a.clone()],&[(a.clone(),1,vec!["A".into()])],&[],&[]).is_err());
+ assert!(store.list_topics().unwrap().is_empty());assert_eq!(store.round(&round.id).unwrap().completed,0);assert!(store.round(&round.id).unwrap().batch_ids.is_empty());
+ store.raw_execute("DROP TRIGGER fail_round",[]).unwrap();
+ store.apply_round_batch(&round.id,"m",&[a.clone()],&[(a.clone(),1,vec!["A".into()])],&[],&[]).unwrap();
+ store.raw_execute("CREATE TRIGGER fail_undo_round BEFORE UPDATE ON organize_rounds BEGIN SELECT RAISE(ABORT,'fixture'); END",[]).unwrap();
+ assert!(store.undo_round(&round.id).is_err());assert_eq!(store.list_topics().unwrap().len(),1);assert!(!store.round(&round.id).unwrap().undone);
+ store.raw_execute("DROP TRIGGER fail_undo_round",[]).unwrap();store.undo_round(&round.id).unwrap();
+}
+
+#[test] fn round_rejects_invalid_scope_and_cross_round_batches(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let a="a".repeat(32);let b="b".repeat(32);
+ assert!(store.create_round(&[],"p").is_err());assert!(store.create_round(&[a.clone(),a.clone()],"p").is_err());assert!(store.create_round(&["bad".into()],"p").is_err());
+ let r=store.create_round(&[a.clone()],"p").unwrap();
+ assert!(store.apply_round_batch(&r.id,"m",&[b.clone()],&[(b,1,vec!["B".into()])],&[],&[]).is_err());
+ assert!(store.round("bad").is_err());assert!(store.list_topics().unwrap().is_empty());
+}
+
+#[test] fn round_handles_205_notes_through_final_partial_chunk_and_content_failure(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();let ids:Vec<String>=(1..=205).map(|i|format!("{i:032x}")).collect();
+ let round=store.create_round(&ids,"p").unwrap();
+ store.raw_execute("CREATE TRIGGER fail_content BEFORE INSERT ON memberships BEGIN SELECT RAISE(ABORT,'fixture'); END",[]).unwrap();
+ let assign=vec![(ids[0].clone(),1,vec!["A".into()])];
+ assert!(store.apply_round_batch(&round.id,"m",&ids[..8],&assign,&[],&[]).is_err());
+ assert_eq!(store.round(&round.id).unwrap().completed,0);assert!(store.round(&round.id).unwrap().batch_ids.is_empty());assert!(store.list_topics().unwrap().is_empty());
+ store.raw_execute("DROP TRIGGER fail_content",[]).unwrap();
+ for chunk in ids.chunks(8){let assignments:Vec<_>=chunk.iter().map(|id|(id.clone(),1,vec!["A".into()])).collect();store.apply_round_batch(&round.id,"m",chunk,&assignments,&[],&[]).unwrap();}
+ let saved=store.round(&round.id).unwrap();assert_eq!(saved.completed,205);assert_eq!(saved.batch_ids.len(),26);assert_eq!(store.list_topics().unwrap()[0].count,205);
+ assert!(store.apply_round_batch(&round.id,"m",&[],&[],&[],&[]).is_err());
+ store.undo_round(&round.id).unwrap();assert!(store.list_topics().unwrap().is_empty());
+}

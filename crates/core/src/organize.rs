@@ -5,6 +5,8 @@ use crate::{Error,open_private_database};
 use rusqlite::{Connection,OptionalExtension,TransactionBehavior,params};
 use serde::Serialize;
 use std::path::Path;
+mod rounds;
+pub use rounds::OrganizeRound;
 
 pub const MAX_TOPIC_NAME:usize=80;
 pub const MAX_COLUMN:usize=80;
@@ -95,6 +97,7 @@ fn connection_init(connection:&mut Connection)->Result<(),Error>{
  // body even when a user has made both memberships manual.
  let has_hash:i64=connection.query_row("SELECT count(*) FROM pragma_table_info('relations') WHERE name='note_hash'",[],|r|r.get(0))?;
  if has_hash==0{connection.execute("ALTER TABLE relations ADD COLUMN note_hash INTEGER",[])?;}
+ connection.execute_batch("CREATE TABLE IF NOT EXISTS organize_rounds(id TEXT PRIMARY KEY, profile TEXT NOT NULL, scope TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0, batches TEXT NOT NULL DEFAULT '[]', undone INTEGER NOT NULL DEFAULT 0)")?;
  Ok(())
 }
 
@@ -129,6 +132,9 @@ impl OrganizeStore{
  /// Optional model columns and shared-note evidenced relations commit with the
  /// membership batch. Existing manual columns/relations are never overwritten.
  pub fn apply_batch_details(&mut self,model:&str,scope:&[String],assignments:&[(String,u64,Vec<String>)],columns:&[(String,String)],relations:&[(String,String,String,String)])->Result<Batch,Error>{
+  self.apply_batch_in_round(None,model,scope,assignments,columns,relations)
+ }
+ fn apply_batch_in_round(&mut self,round_id:Option<&str>,model:&str,scope:&[String],assignments:&[(String,u64,Vec<String>)],columns:&[(String,String)],relations:&[(String,String,String,String)])->Result<Batch,Error>{
   if model.is_empty()||model.len()>200{return Err(Error::InvalidChat);}
   if scope.len()>MAX_SCOPE||assignments.len()>MAX_BATCH_ASSIGN{return Err(Error::InvalidChat);}
   let scope_set:std::collections::BTreeSet<&String>=scope.iter().collect();
@@ -156,6 +162,7 @@ impl OrganizeStore{
   let id=crate::notes::generate_id();
   let created_at=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d|d.as_secs() as i64).unwrap_or(0);
   let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+  if let Some(round)=round_id{rounds::advance(&tx,round,scope,&id)?;}
   tx.execute("INSERT INTO batches(id,model,scope,status,created_at) VALUES(?1,?2,?3,'running',?4)",params![id,model,serde_json::to_string(scope).map_err(|_|Error::InvalidChat)?,created_at])?;
   let mut changeset:Vec<serde_json::Value>=Vec::new();
   for (note,hash,topics) in &cleaned{
