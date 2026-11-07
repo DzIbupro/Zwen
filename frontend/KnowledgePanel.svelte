@@ -1,4 +1,5 @@
 <script lang="ts">
+ import OrganizeRoundPanel from './OrganizeRoundPanel.svelte';
  import {untrack} from 'svelte';
  import {renderMarkdown} from './lib/render';import {proseLinkClick} from './lib/links';import {openExternal} from './lib/bridge';
  import type {KnowledgeController,KnowledgeState,NoteMeta} from './lib/knowledge';
@@ -49,7 +50,10 @@
  {:else if info.organizeMode}
   <div class="organize" data-organize-panel>
    <div class="knowledge-bar organize-toolbar"><button onclick={()=>controller.exitOrganize()}>← 返回列表</button><strong class="organize-title">AI 整理</strong></div>
-   {#if info.confirming}
+   {#if controller.rounds}
+    <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏（开启即同意将以后新收藏的标题与正文发送给当前模型 {modelLabel}；更换模型后需重新开启）</label>
+    <OrganizeRoundPanel controller={controller.rounds} state={info.roundState??controller.rounds.state} notes={info.notes} selected={info.selected} onToggle={id=>controller.toggleSelect(id)}/>
+   {:else if info.confirming}
     <div class="organize-confirm" data-organize-confirm-view>
      <p><strong>确认整理</strong> — 本次将把 <b>{selectedCount} 篇</b>笔记的标题与正文发送给模型 <b>{modelLabel}</b> 进行主题归纳。</p>
      <ul class="confirm-list">{#each Object.keys(info.selected) as id}{#if info.notes.find(n=>n.id===id)}<li>{info.notes.find(n=>n.id===id)!.title}</li>{/if}{/each}</ul>

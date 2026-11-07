@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-round-status"
+description = "Enables the organize_round_status command without any pre-configured scope."
+commands.allow = ["organize_round_status"]
+
+[[permission]]
+identifier = "deny-organize-round-status"
+description = "Denies the organize_round_status command without any pre-configured scope."
+commands.deny = ["organize_round_status"]

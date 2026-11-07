@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-round-undo"
+description = "Enables the organize_round_undo command without any pre-configured scope."
+commands.allow = ["organize_round_undo"]
+
+[[permission]]
+identifier = "deny-organize-round-undo"
+description = "Denies the organize_round_undo command without any pre-configured scope."
+commands.deny = ["organize_round_undo"]

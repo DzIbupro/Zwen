@@ -1,3 +1,4 @@
+import {RoundController,type RoundPort,type RoundState} from './organize-round';
 export interface NoteMeta {id:string;title:string;createdAt:number;source:string;model:string;attachments:string[];request?:string|null;sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}
 export interface Note {meta:NoteMeta;body:string}
 export interface SourceMetaInput {sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}
@@ -7,6 +8,7 @@ export interface TopicView {topic:TopicInfo;noteIds:string[];count:number}
 export interface OrganizeSummaryView {batchId:string;topics:number;assignments:number}
 export interface RelationView {id:string;fromTopic:string;toTopic:string;reason:string;evidence:string;addedBy:string}
 export interface KnowledgePort {
+ rounds?:RoundPort;
  list(query:string):Promise<NoteMeta[]>;
  read(id:string):Promise<Note>;
  save(input:SaveNoteInput):Promise<NoteMeta>;
@@ -35,7 +37,7 @@ export interface KnowledgePort {
 export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null;busy:boolean;loaded:boolean;notice:string;
  topics:TopicView[];organizeMode:boolean;selected:Record<string,boolean>;confirming:boolean;organizeBusy:boolean;
  lastBatch:string|null;lastSummary:OrganizeSummaryView|null;topicView:{id:string;title:string;notes:Note[]}|null;
- relations:RelationView[];auto:boolean}
+ relations:RelationView[];auto:boolean;roundState?:RoundState}
 
 export interface NoteEditDraft {title:string;body:string;sourceTitle:string;sourceUrl:string;sourceLoc:string}
 
@@ -52,7 +54,13 @@ export class KnowledgeController {
  private disposed=false;
  private refreshing:Promise<void>|null=null;
  private refreshAgain=false;
- constructor(private port:KnowledgePort,private changed:(s:KnowledgeState)=>void){}
+ readonly rounds:RoundController|undefined;
+ constructor(private port:KnowledgePort,private changed:(s:KnowledgeState)=>void){
+  if(port.rounds)this.rounds=new RoundController(port.rounds,state=>{
+   const previous=this.state.roundState?.view?.status;this.publish({roundState:state});
+   if(state.view&&state.view.status!==previous&&['complete','stopped','failed','undone'].includes(state.view.status)){void this.loadTopics();void this.refresh();}
+  });
+ }
  private publish(patch:Partial<KnowledgeState>):void{
   if(this.disposed)return;
   this.state={...this.state,...patch};
@@ -60,6 +68,7 @@ export class KnowledgeController {
  }
  refresh(query?:string):Promise<void>{
   if(this.disposed)return Promise.resolve();
+  void this.rounds?.restore();
   if(typeof query==='string')this.publish({query});
   if(this.refreshing){this.refreshAgain=true;return this.refreshing;}
   if(this.state.busy)return Promise.resolve();
@@ -164,7 +173,7 @@ export class KnowledgeController {
   const selected={...this.state.selected};
   if(selected[id])delete selected[id];
   else{
-   if(Object.keys(selected).length>=8){this.publish({notice:ORGANIZE_LIMIT_NOTICE});return;}
+   if(!this.rounds&&Object.keys(selected).length>=8){this.publish({notice:ORGANIZE_LIMIT_NOTICE});return;}
    selected[id]=true;
   }
   this.publish({selected,...(this.state.notice===ORGANIZE_LIMIT_NOTICE?{notice:''}:{})});
@@ -288,5 +297,5 @@ export class KnowledgeController {
   this.publish({busy:false});
   await this.refresh();
  }
- dispose():void{this.disposed=true;}
+ dispose():void{this.disposed=true;this.rounds?.dispose();}
 }

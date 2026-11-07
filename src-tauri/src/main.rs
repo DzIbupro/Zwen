@@ -8,6 +8,7 @@ mod attachment;
 mod secret;
 mod notes;
 mod organize_job;
+mod organize_round;
 mod quick_actions;
 mod tray;
 mod selection_bar;
@@ -61,7 +62,7 @@ fn quit_app(app:tauri::AppHandle) -> Result<(),ClientError> {
     if app.state::<selection::Shared>().lock().map_err(|_|ClientError::window())?.is_pending() {
         return Err(ClientError{code:"selection_pending",message:"有待处理选区；请先检查草稿并确认或丢弃，再退出".into()});
     }
-    selection::stop_candidate_watcher();app.exit(0);Ok(())
+    organize_round::cancel_all(&app);selection::stop_candidate_watcher();app.exit(0);Ok(())
 }
 #[tauri::command]
 async fn get_surface(app:tauri::AppHandle)->Result<windows::Snapshot,ClientError>{tauri::async_runtime::spawn_blocking(move||windows::snapshot(&app)).await.map_err(|_|ClientError::window())?}
@@ -108,7 +109,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action,refs.get(1).copied()); }
         }))
-        .invoke_handler(tauri::generate_handler![appearance::load_appearance,appearance::save_appearance,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document])
+        .invoke_handler(tauri::generate_handler![organize_round::organize_prepare,organize_round::organize_round_status,organize_round::organize_round_start,organize_round::organize_round_stop,organize_round::organize_round_undo,appearance::load_appearance,appearance::save_appearance,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -127,6 +128,7 @@ fn main() {
             app.manage(chat::Shared::default());
             app.manage(selection::Shared::default());
             app.manage(attachment::Shared::default());
+            app.manage(organize_round::State::default());
             app.manage(organize_job::JobState(Mutex::new(false)));
             app.manage(Arc::new(Storage { directory, connection:Mutex::new(None),provider:Mutex::new(None) }));
             selection::restore_candidate_watcher_if_enabled(app.handle());
@@ -151,7 +153,7 @@ fn main() {
     #[cfg(feature="desktop-smoke")]
     let builder=builder.on_page_load(smoke::page_loaded);
     let result=builder.build(tauri::generate_context!());
-    if let Ok(app)=result {app.run(|_,event|{if matches!(event,tauri::RunEvent::Exit|tauri::RunEvent::ExitRequested{..}){selection::stop_candidate_watcher();}});} else {
+    if let Ok(app)=result {app.run(|handle,event|{if matches!(event,tauri::RunEvent::Exit|tauri::RunEvent::ExitRequested{..}){organize_round::cancel_all(handle);selection::stop_candidate_watcher();}});} else {
         eprintln!("Zwen 启动失败；本地数据未被删除。请检查显示会话及系统依赖。");
         std::process::exit(1);
     }

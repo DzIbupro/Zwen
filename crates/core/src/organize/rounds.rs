@@ -28,6 +28,11 @@ pub(super) fn advance(tx:&rusqlite::Transaction<'_>,id:&str,scope:&[String],batc
  Ok(())
 }
 impl OrganizeStore{
+ pub fn latest_round(&self)->Result<Option<OrganizeRound>,Error>{
+  let id:Option<String>=self.connection.query_row("SELECT id FROM organize_rounds ORDER BY rowid DESC LIMIT 1",[],|r|r.get(0)).optional()?;
+  id.map(|id|self.round(&id)).transpose()
+ }
+
  /// `profile` must be a non-secret identity of the confirmed provider config.
  pub fn create_round(&mut self,scope:&[String],profile:&str)->Result<OrganizeRound,Error>{
   let mut seen=std::collections::HashSet::new();

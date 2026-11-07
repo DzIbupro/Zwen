@@ -106,7 +106,7 @@ pub fn parse_model_details(text:&str,scope:&[OrganizeNote])->Result<ModelDetails
  Ok(ModelDetails{assignments,columns,relations})
 }
 
-fn run_prompt_text(prompt:&str,config:&ProviderConfig,key:&ApiKey,cancel:watch::Receiver<bool>)->Result<String,ClientError>{
+pub(crate) fn run_prompt_text(prompt:&str,config:&ProviderConfig,key:&ApiKey,cancel:watch::Receiver<bool>)->Result<String,ClientError>{
  let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_|ClientError{code:"organize_invalid",message:"整理任务启动失败".into()})?;
  let mut collected=String::new();
  let messages=[Message{role:Role::User,content:prompt.to_string(),images:Vec::new()}];
@@ -166,36 +166,13 @@ pub async fn run_organize_job(app:AppHandle,storage:SharedStorage,note_ids:Vec<S
     return Err(ClientError{code:"organize_consent",message:"自动整理授权已失效；请确认当前模型与新收藏范围后重新启用".into()});
    }
   }
-  let key=match config.read_key(){
-   Ok(key)=>key,
-   Err(_)=>match crate::secret::read_model_key(){
-    Ok(Some(value))=>ApiKey::new(&value).map_err(|_|ClientError{code:"invalid_provider",message:"钥匙环中的密钥无效；请在设置中重新保存".into()})?,
-    _=>return Err(ClientError{code:"invalid_provider",message:"未找到模型密钥；请先在模型设置中配置".into()}),
-   },
-  };
+  let key=model_key(&config)?;
   let prompt=build_prompt(&notes)?;
   let (_cancel,rx)=watch::channel(false);
   let prompt_ref=prompt.clone();
   let config_ref=config.clone();
   let answer=tokio::task::spawn_blocking(move||run_prompt_text(&prompt_ref,&config_ref,&key,rx)).await.map_err(|_|ClientError::storage())??;
-  let details=parse_model_details(&answer,&notes)?;
-  if details.assignments.is_empty(){return Err(ClientError{code:"organize_invalid",message:"模型没有返回有效主题归属；本次未应用整理".into()});}
-  let assignments=details.assignments;
-  let current=NoteStore::open(&dir)?;
-  for note in &notes{
-   let unchanged=current.read(&note.id).map(|now|now.body==note.body&&now.meta.title==note.title).unwrap_or(false);
-   if !unchanged{return Err(ClientError{code:"organize_stale",message:"整理期间笔记已修改或删除；本次结果未应用，请重试".into()});}
-  }
-  let mut store=OrganizeStore::open(&dir)?;
-  let scope:Vec<String>=notes.iter().map(|n|n.id.clone()).collect();
-  let prepared:Vec<(String,u64,Vec<String>)>=assignments.into_iter().map(|(note,topics)|{
-   let note_ref=notes.iter().find(|n|n.id==note).ok_or_else(||ClientError{code:"organize_invalid",message:"整理结果引用了未知笔记；知识库未被修改".into()})?;
-   Ok((note,zwen_core::organize::content_hash(note_ref.body.as_bytes()),topics))
-  }).collect::<Result<Vec<_>,ClientError>>()?;
-  let batch:Batch=store.apply_batch_details(config.model(),&scope,&prepared,&details.columns,&details.relations)?;
-  let topics=store.list_topics()?;
-  let new_topics=topics.iter().filter(|t|t.topic.batch_id.as_deref()==Some(batch.id.as_str())).count();
-  Ok(OrganizeSummary{batch_id:batch.id,topics:new_topics,assignments:prepared.len()})
+  apply_answer(&storage,&config,&notes,&answer,None)
  }.await;
  if let Some(state)=app.try_state::<JobState>(){if let Ok(mut guard)=state.0.lock(){*guard=false;}}
  result
@@ -254,4 +231,37 @@ mod structured_tests{
   assert_eq!(details.columns,vec![("A".into(),"C".into())]);assert_eq!(details.relations.len(),1);assert_eq!(details.relations[0].3,id);
   assert!(build_prompt(&scope).unwrap().contains("relations"));
  }
+}
+
+pub(crate) fn model_key(config:&ProviderConfig)->Result<ApiKey,ClientError>{
+ match config.read_key(){
+   Ok(key)=>Ok(key),
+   Err(_)=>match crate::secret::read_model_key(){
+    Ok(Some(value))=>ApiKey::new(&value).map_err(|_|ClientError{code:"invalid_provider",message:"钥匙环中的密钥无效；请在设置中重新保存".into()}),
+    _=>return Err(ClientError{code:"invalid_provider",message:"未找到模型密钥；请先在模型设置中配置".into()}),
+   },
+  }
+
+}
+
+pub(crate) fn apply_answer(storage:&SharedStorage,config:&ProviderConfig,notes:&[OrganizeNote],answer:&str,round:Option<&str>)->Result<OrganizeSummary,ClientError>{
+ let dir=storage.directory.as_ref().map_err(Clone::clone)?;
+  let details=parse_model_details(&answer,&notes)?;
+  if details.assignments.is_empty(){return Err(ClientError{code:"organize_invalid",message:"模型没有返回有效主题归属；本次未应用整理".into()});}
+  let assignments=details.assignments;
+  let current=NoteStore::open(&dir)?;
+  for note in notes{
+   let unchanged=current.read(&note.id).map(|now|now.body==note.body&&now.meta.title==note.title).unwrap_or(false);
+   if !unchanged{return Err(ClientError{code:"organize_stale",message:"整理期间笔记已修改或删除；本次结果未应用，请重试".into()});}
+  }
+  let mut store=OrganizeStore::open(&dir)?;
+  let scope:Vec<String>=notes.iter().map(|n|n.id.clone()).collect();
+  let prepared:Vec<(String,u64,Vec<String>)>=assignments.into_iter().map(|(note,topics)|{
+   let note_ref=notes.iter().find(|n|n.id==note).ok_or_else(||ClientError{code:"organize_invalid",message:"整理结果引用了未知笔记；知识库未被修改".into()})?;
+   Ok((note,zwen_core::organize::content_hash(note_ref.body.as_bytes()),topics))
+  }).collect::<Result<Vec<_>,ClientError>>()?;
+  let batch:Batch=match round{Some(id)=>store.apply_round_batch(id,config.model(),&scope,&prepared,&details.columns,&details.relations)?,None=>store.apply_batch_details(config.model(),&scope,&prepared,&details.columns,&details.relations)?};
+  let topics=store.list_topics()?;
+  let new_topics=topics.iter().filter(|t|t.topic.batch_id.as_deref()==Some(batch.id.as_str())).count();
+  Ok(OrganizeSummary{batch_id:batch.id,topics:new_topics,assignments:prepared.len()})
 }

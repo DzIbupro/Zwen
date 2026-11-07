@@ -56,6 +56,7 @@ export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('g
 import type {KnowledgePort,KnowledgeState} from './knowledge';
 import type {SaveNoteInput,Note,NoteMeta,TopicView,OrganizeSummaryView,SourceMetaInput,RelationView} from './knowledge';
 export const knowledgePort:KnowledgePort=isDesktop?{
+ rounds:{prepare:noteIds=>command('organize_prepare',{noteIds}),status:()=>command('organize_round_status'),start:roundId=>command('organize_round_start',{roundId}),stop:roundId=>command('organize_round_stop',{roundId}),undo:roundId=>command('organize_round_undo',{roundId})},
  list:query=>command<NoteMeta[]>('notes_list',{query}),
  read:id=>command<Note>('notes_read',{id}),
  save:(input:SaveNoteInput)=>command<NoteMeta>('notes_save',{input}),

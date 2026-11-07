@@ -314,3 +314,9 @@ impl ManualSeed for OrganizeStore{
  assert!(store.apply_round_batch(&round.id,"m",&[],&[],&[],&[]).is_err());
  store.undo_round(&round.id).unwrap();assert!(store.list_topics().unwrap().is_empty());
 }
+
+#[test] fn latest_round_survives_reopen_without_resuming_execution(){
+ let s=Scratch::new();let mut store=OrganizeStore::open(&s.0).unwrap();assert!(store.latest_round().unwrap().is_none());
+ let a=store.create_round(&["a".repeat(32)],"p").unwrap();let b=store.create_round(&["b".repeat(32)],"p").unwrap();drop(store);
+ let store=OrganizeStore::open(&s.0).unwrap();assert_eq!(store.latest_round().unwrap().unwrap().id,b.id);assert_ne!(a.id,b.id);
+}
