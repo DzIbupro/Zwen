@@ -38,13 +38,15 @@ import type {ProviderPort,ProviderView} from './provider';
 export const providerPort:ProviderPort=isDesktop?{
  load:()=>command<ProviderView>('load_provider'),
  save:(revision,config)=>command<ProviderView>('save_provider',{expectedRevision:revision,config}),
- saveSecret:value=>command<void>('save_model_secret',{secret:value}),
+ saveSecret:(value,expectedRevision)=>command<void>('save_model_secret',{secret:value,expectedRevision}),
  clearSecret:()=>command<void>('clear_model_secret'),
 }:{load:async()=>({config:null,revision:0,keyAvailable:false,keySource:null}),save:async()=>{throw Error('浏览器仅预览设置，请在桌面应用中保存');},saveSecret:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中保存密钥');},clearSecret:async()=>{throw Error('浏览器仅用于预览；请在桌面应用中操作');}};
 
 import {listen} from '@tauri-apps/api/event';
 import type {ChatPort,ChatReply,Overview} from './chat';
+import type {ReadingOptions,PaperMetadata} from './papers';
 export const chatPort:ChatPort=isDesktop?{
+ startPaper:(requestId,paperId,options)=>command<ChatReply>('paper_start',{requestId,paperId,options}),
  listen:cb=>listen<ChatReply>('chat-update',e=>cb(e.payload)),
  load:()=>command<Overview>('get_chat'),startSelection:(requestId,selection,actionId,expectedRevision)=>command<ChatReply>('start_selection_chat',{requestId,selection,actionId,expectedRevision}),start:(requestId,prompt,conversationId)=>command<ChatReply>('start_chat',{requestId,prompt,conversationId:conversationId??null}),
  stop:requestId=>command<ChatReply|null>('stop_chat',{requestId}),settle:()=>command<ChatReply|null>('settle_chat'),
@@ -109,4 +111,16 @@ import {APPEARANCE_KEY,DEFAULT_APPEARANCE,parseAppearance,type Appearance,type A
 export const appearancePort:AppearancePort=isDesktop?{load:()=>command<Appearance>('load_appearance'),save:preferences=>command<Appearance>('save_appearance',{preferences})}:{
  load:async()=>{const raw=localStorage.getItem(APPEARANCE_KEY);if(raw===null)return{...DEFAULT_APPEARANCE};const value=parseAppearance(JSON.parse(raw));if(!value)throw Error('外观偏好格式无效，请重新读取');return value;},
  save:async preferences=>{localStorage.setItem(APPEARANCE_KEY,JSON.stringify(preferences));return preferences;}
+};
+
+export const paperPort={
+ legacyPapers:()=>isDesktop?command<PaperMetadata[]>('paper_legacy_papers'):Promise.resolve([]),
+ legacyOpen:(paperId:string)=>command<void>('paper_legacy_open',{paperId}),
+ sessionInfo:(conversationId:string)=>command<import('./papers').SessionInfo>('paper_session_info',{conversationId}),
+ legacy:()=>isDesktop?command<import('./papers').LegacyRun[]>('paper_legacy'):Promise.resolve([]),
+ legacyReport:(runId:string)=>command<string>('paper_legacy_report',{runId}),
+ list:()=>isDesktop?command<PaperMetadata[]>('paper_list'):Promise.resolve([]),
+ choose:()=>command<PaperMetadata|null>('paper_choose'),
+ sessions:(paperId:string)=>command<ChatReply[]>('paper_sessions',{paperId}).then(rows=>rows.map(r=>({...r,saved:true}))),
+ source:(paperId:string)=>command<string[]>('paper_source',{paperId}),
 };

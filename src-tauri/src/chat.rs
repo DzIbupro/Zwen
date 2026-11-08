@@ -104,7 +104,25 @@ fn prepare_turn(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::pro
  messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt,images});
  Ok(Prepared{turn,config:request_config,messages,consume_ids})
 }
-enum StartScope {Conversation(Option<String>),Selection{selection:String,action_id:String,expected_revision:u64}}
+enum StartScope {Paper{source:String,options:zwen_core::paper::ReadingOptions},Conversation(Option<String>),Selection{selection:String,action_id:String,expected_revision:u64}}
+pub async fn start_paper(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_id:String,source:String,options:zwen_core::paper::ReadingOptions)->Result<Reply,ClientError>{
+ start(app,storage,state,request_id,String::new(),StartScope::Paper{source,options}).await
+}
+fn bound_document(dir:&std::path::Path,id:&str)->Result<Option<(zwen_core::paper::Source,zwen_core::paper::ReadingOptions)>,ClientError>{
+ let document=if dir.join("papers-v2/library.sqlite3").exists(){zwen_core::paper::Library::open(dir).map_err(crate::paper::error)?.session(id).map_err(crate::paper::error)?}else{None};
+ if id.starts_with("paper-")&&document.is_none(){return Err(error("paper_source_missing","论文来源或会话绑定丢失，已停止发送；请重新导入并新建分析"));}Ok(document)
+}
+fn prepare_document(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::provider::ProviderConfig,request_id:&str,prompt:String,conversation:Option<&str>,source:&zwen_core::paper::Source,options:&zwen_core::paper::ReadingOptions)->Result<Prepared,ClientError>{
+ let _=dir; // File access stays in the paper adapter; screenshots are never inspected here.
+ let full=source.request(options,&prompt).map_err(crate::paper::error)?;
+ let profile=serde_json::to_string(config).map_err(|_|ClientError::storage())?;
+ let mut messages=match journal.context(conversation,&profile,full.len()){
+  Ok(messages)=>messages,Err(zwen_core::Error::ContextTooLarge)=>Vec::new(),Err(e)=>return Err(e.into())
+ };let count=messages.len()/2;
+ let turn=journal.begin_in(request_id,&prompt,config.model(),conversation,&profile,count)?;
+ messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:full,images:Vec::new()});
+ Ok(Prepared{turn,config:config.clone(),messages,consume_ids:Vec::new()})
+}
 #[tauri::command]
 pub async fn start_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,request_id:String,prompt:String,conversation_id:Option<String>)->Result<Reply,ClientError>{
  start(app,storage.inner().clone(),chat.inner().clone(),request_id,prompt,StartScope::Conversation(conversation_id)).await
@@ -123,21 +141,39 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
   if s.revoked.contains(&request_id){return Err(error("chat_cancelled","此请求已取消"));}
   if s.last.as_ref().is_some_and(|r|!r.saved){return Err(error("chat_unsaved","上一条回答尚未保存，请先重试保存"));}
   let config=provider::configured(&storage)?;
-  // Environment wins (run-with-key and smoke paths); otherwise the keyring.
-  let key=match config.read_key(){
-   Ok(key)=>key,
-   Err(_)=>match crate::secret::read_model_key(){
-    Ok(Some(value))=>zwen_core::provider::ApiKey::new(&value).map_err(|_|error("invalid_provider","钥匙环中的密钥无效；请在设置中重新保存"))?,
-    _=>return Err(error("invalid_provider","未找到模型密钥；请在设置中保存到系统钥匙环，或用启动环境提供")),
-   },
-  };
   let dir=directory(&storage)?;
   let mut journal=Journal::open(&dir.join("chat.sqlite3"))?;
+  let mut document=None;let mut new_binding=None;
+  if !matches!(&scope,StartScope::Paper{..})&&request_id.starts_with("paper-"){return Err(error("invalid_paper_session","论文请求标识保留给论文分析入口"));}
   let (prompt,conversation_id,isolated)=match scope{
-   StartScope::Conversation(conversation)=>(prompt,conversation,false),
+   StartScope::Paper{source,options}=>{
+    if !request_id.starts_with("paper-"){return Err(error("invalid_paper_session","论文会话标识无效"));}
+    let lib=crate::paper::library(&storage)?;let paper=lib.get(&source).map_err(crate::paper::error)?;
+    let label=format!("论文阅读 · {}\n阅读模式：{}；关注点：{}",paper.meta.name,options.mode,options.focus);
+    paper.request(&options,&label).map_err(crate::paper::error)?;
+    new_binding=Some((source,options.clone()));document=Some((paper,options));(label,None,true)
+   },
+   StartScope::Conversation(conversation)=>{
+    if let Some(id)=conversation.as_deref(){document=bound_document(&dir,id)?;}
+    (prompt,conversation,false)
+   },
    StartScope::Selection{selection,action_id,expected_revision}=>(crate::quick_actions::prepare_request(&storage,&request_id,&selection,&action_id,expected_revision)?,None,true),
   };
-  let prepared=prepare_turn(&mut journal,&dir,&config,&request_id,prompt,conversation_id.as_deref(),isolated)?;
+  // A document may use only an explicitly configured environment key or a
+  // service-bound keyring entry, never an unbound key for another endpoint.
+  let key=match config.read_key(){
+   Ok(key)=>key,
+   Err(_)=>match if document.is_some(){crate::secret::read_paper_key(&config)}else{crate::secret::read_model_key()}{
+    Ok(Some(value))=>zwen_core::provider::ApiKey::new(&value).map_err(|_|error("invalid_provider","钥匙环中的密钥无效；请在设置中重新保存"))?,
+    _=>return Err(error("invalid_provider","未找到当前服务的密钥；请在模型设置中重新保存对应密钥，或用配置的环境变量提供")),
+   },
+  };
+  let prepared=if let Some((source,options))=document{prepare_document(&mut journal,&dir,&config,&request_id,prompt,conversation_id.as_deref(),&source,&options)?}else{prepare_turn(&mut journal,&dir,&config,&request_id,prompt,conversation_id.as_deref(),isolated)?};
+  if let Some((id,options))=new_binding{
+   if let Err(e)=crate::paper::library(&storage)?.bind(&prepared.turn.conversation_id,&id,&options){
+    let mut failed=prepared.turn;failed.revision+=1;failed.state=TurnState::Failed;failed.error=Some(e.to_string());let _=journal.checkpoint(&failed);return Err(crate::paper::error(e));
+   }
+  }
   let reply=Reply{turn:prepared.turn.clone(),saved:true,retry:None};s.last=Some(reply.clone());
   let (cancel,rx)=watch::channel(false);let id=request_id;let worker=state.clone();
   let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,rx));
@@ -279,4 +315,27 @@ pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::St
   assert_eq!(prepared.messages[2].content,"question");assert_eq!(prepared.messages[2].images.len(),1);
   assert_eq!(prepared.consume_ids,vec![attachment]);
  }
+ #[test]fn paper_context_resends_source_without_opening_draft_screenshots(){
+  let dir=Scratch::new();let config=config();let mut journal=history(&dir.0,&config);
+  std::fs::write(dir.0.join("attachment.sqlite3"),b"invalid screenshot database").unwrap();
+  let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:"0123456789abcdef0123456789abcdef".into(),name:"paper.pdf".into(),page_count:1,readable_pages:1},pages:vec!["original paper evidence".into()]};
+  let p=prepare_document(&mut journal,&dir.0,&config,"paper-followup","解释证据".into(),Some("old-conversation"),&source,&Default::default()).unwrap();
+  assert_eq!(p.messages.len(),3);assert!(p.messages[2].content.contains("original paper evidence"));
+  assert!(p.messages.iter().all(|m|m.images.is_empty()));assert!(p.consume_ids.is_empty());
+  assert_eq!(p.config.model(),config.model());assert_eq!(p.turn.prompt,"解释证据");
+  assert_eq!(std::fs::read(dir.0.join("attachment.sqlite3")).unwrap(),b"invalid screenshot database");
+ }
+
+ #[test]fn missing_paper_binding_never_falls_back_to_ordinary_chat(){
+  let dir=Scratch::new();assert!(bound_document(&dir.0,"paper-missing").is_err());assert!(bound_document(&dir.0,"ordinary").unwrap().is_none());
+  let _=zwen_core::paper::Library::open(&dir.0).unwrap();assert!(bound_document(&dir.0,"paper-missing").is_err());
+ }
+ #[test]fn large_source_followup_can_drop_history_but_keeps_original(){
+  let dir=Scratch::new();let config=config();let mut journal=history(&dir.0,&config);
+  let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:"0123456789abcdef0123456789abcdef".into(),name:"paper.pdf".into(),page_count:1,readable_pages:1},pages:vec!["x".repeat(245000)]};
+  let first=prepare_document(&mut journal,&dir.0,&config,"paper-large","分析".into(),None,&source,&Default::default()).unwrap();
+  let mut turn=first.turn;turn.revision+=1;turn.answer="y".repeat(32768);turn.state=TurnState::Complete;journal.checkpoint(&turn).unwrap();
+  let follow=prepare_document(&mut journal,&dir.0,&config,"followup","解释原文".into(),Some("paper-large"),&source,&Default::default()).unwrap();assert_eq!(follow.turn.context_turns,0);assert!(follow.messages[0].content.contains(&"x".repeat(245000)));
+ }
+
 }

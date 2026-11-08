@@ -22,6 +22,11 @@ fn read(connection:&Connection,id:Option<&str>)->Result<Option<Turn>,Error>{
  row.map(|(request_id,prompt,model,answer,revision,state,error,created_at,conversation_id,provider_profile,context_turns)|Ok(Turn{conversation_id,provider_profile,context_turns:usize::try_from(context_turns).map_err(|_|Error::InvalidChat)?,request_id,prompt,model,answer,revision:u64::try_from(revision).map_err(|_|Error::InvalidChat)?,state:TurnState::parse(&state)?,error,created_at})).transpose()
 }
 impl Journal {
+ pub fn latest_in(&self,conversation:&str)->Result<Option<Turn>,Error>{
+  let id:Option<String>=self.connection.query_row("SELECT request_id FROM turns WHERE conversation_id=?1 ORDER BY id DESC LIMIT 1",[conversation],|r|r.get(0)).optional()?;
+  match id{Some(id)=>read(&self.connection,Some(&id)),None=>Ok(None)}
+ }
+
  pub fn binding(&self,conversation:&str,profile:&str)->Result<(),Error>{
   let saved:Option<String>=self.connection.query_row("SELECT CASE WHEN length(CAST(provider_profile AS BLOB))<=8192 THEN provider_profile END FROM turns WHERE conversation_id=?1 ORDER BY id LIMIT 1",[conversation],|r|r.get(0)).optional()?;
   if saved.as_deref()!=Some(profile){return Err(Error::ConversationChanged);}Ok(())

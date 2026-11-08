@@ -1,6 +1,6 @@
 export interface ProviderConfig {baseUrl:string;model:string;keyEnv:string;imageModel?:string}
 export interface ProviderView {config:ProviderConfig|null;revision:number;keyAvailable:boolean;keySource?:'environment'|'keyring'|null}
-export interface ProviderPort {load():Promise<ProviderView>;save(revision:number,config:ProviderConfig):Promise<ProviderView>;saveSecret(value:string):Promise<void>;clearSecret():Promise<void>}
+export interface ProviderPort {load():Promise<ProviderView>;save(revision:number,config:ProviderConfig):Promise<ProviderView>;saveSecret(value:string,expectedRevision:number):Promise<void>;clearSecret():Promise<void>}
 export interface SettingsState extends ProviderView {fields:ProviderConfig;status:'loading'|'saved'|'dirty'|'saving'|'error';loaded:boolean;error:string|null;secretSaving:boolean;secretNotice:string|null}
 export function imageModelOf(config:ProviderConfig|null|undefined):string{return typeof config?.imageModel==='string'?config.imageModel:'';}
 export class ProviderController {
@@ -22,9 +22,11 @@ export class ProviderController {
  }
  async saveSecret(value:string){
   if(!this.state.loaded||this.state.secretSaving||!value.trim())return;
+  if(this.state.status!=='saved'||!this.state.config){this.publish({secretNotice:'请先保存模型服务设置，再保存对应密钥'});return;}
+  const revision=this.state.revision;
   this.publish({secretSaving:true,secretNotice:null});
   try{
-   await this.port.saveSecret(value);
+   await this.port.saveSecret(value,revision);
    await this.load();
    this.publish({secretNotice:null});
   }

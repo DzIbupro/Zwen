@@ -1,5 +1,7 @@
 <script lang="ts">
   import Sidebar from './Sidebar.svelte';
+  import PaperPanel from './PaperPanel.svelte';
+  import {paperPort} from './lib/bridge';
   import Icon from './Icon.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
   import {AppearanceController,initialAppearance,applyAppearance,watchSystemTheme,type AppearanceState} from './lib/appearance';
@@ -46,7 +48,7 @@
   const initialUi=initialAppearance((window as Window & {__ZWEN_APPEARANCE__?:unknown}).__ZWEN_APPEARANCE__,{getItem:key=>localStorage.getItem(key)});
   let appearanceState=$state<AppearanceState>({...initialUi,loaded:false,status:'loading',error:null});
   const appearance=new AppearanceController(appearancePort,s=>{appearanceState=s;applyAppearance(s);},initialUi);
-  function navigate(destination:'chat'|'history'|'knowledge'|'graph'|'settings'){
+  function navigate(destination:'chat'|'papers'|'history'|'knowledge'|'graph'|'settings'){
     if(closing)return;
     if(destination==='chat'){view=chatState.reply||chatState.running||chatState.error?'reply':'ask';}
     else{view=destination;if(destination==='knowledge')void knowledge.refresh();if(destination==='graph'){void knowledge.refresh();void knowledge.loadTopics();void knowledge.loadRelations();}}
@@ -60,7 +62,7 @@
   const actionOutput=new ActionOutputController(actionOutputPort,s=>actionOutputState=s);
   let notice=$state('');
   let bookmarkSaving=$state<string|null>(null);let bookmarkSaved=$state<string|null>(null);let bookmarkTimer:ReturnType<typeof setTimeout>|undefined;
-  let view=$state<'ask'|'reply'|'settings'|'history'|'knowledge'|'graph'>('ask');
+  let view=$state<'ask'|'reply'|'settings'|'history'|'papers'|'knowledge'|'graph'>('ask');
   let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,keySource:null,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'loading',loaded:false,error:null,secretSaving:false,secretNotice:null});
   const provider=new ProviderController(providerPort,s=>settings=s);
   let surface=$state<SurfaceInfo>({mode:'full',scaleFactor:1,generation:0,bounds:{width:480,initialHeight:96,maxHeight:594}});
@@ -72,6 +74,9 @@
   const running=$derived(chatState.running);
   const replyStatus=$derived(chatState.reply?.retry?'等待重试':chatState.reply?({streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'}[chatState.reply.state]):chatState.running?'等待回复':'');
   const replyLabel='模型回复';
+  const paperContext=$derived(chatState.reply?.conversationId.startsWith('paper-')??false);
+  let paperScope=$state<import('./lib/papers').SessionInfo|null>(null);let scopeKey='';
+  $effect(()=>{const id=chatState.reply?.conversationId;if(!id?.startsWith('paper-')){scopeKey='';paperScope=null;return;}if(id===scopeKey)return;scopeKey=id;void paperPort.sessionInfo(id).then(info=>{if(chatState.reply?.conversationId===id)paperScope=info;}).catch(()=>{paperScope=null;});});
   const combinedNotice=$derived(chatState.error||notice);
 
   let traceRequestId=$state<string|null>(null);
@@ -86,12 +91,12 @@
     if(actionOutputState&&actionOutputState.stage!=='saved'){notice='请先处理或取消文档自动保存';return;}
     if(selectionState.busy){notice='请等待选区处理完成';return;}
     if(attachmentState.pending){attachmentController.note('请等待截图完成');return;}
-    if(attachmentState.items.length>0&&!imageModelOf(settings.config)){attachmentController.note('截图尚未接入模型；请先在模型设置中配置图片模型');return;}
+    if(!paperContext&&attachmentState.items.length>0&&!imageModelOf(settings.config)){attachmentController.note('截图尚未接入模型；请先在模型设置中配置图片模型');return;}
     if(!isDesktop){notice='浏览器仅预览，请在桌面应用中发送';return;}
     if(settings.status==='loading'||!chatState.loaded){notice='正在读取本机配置，请稍后发送';return;}
     if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥';await switchSurface('full');view='settings';return;}
-    view='reply';const sent=draft.text;const sentIds=attachmentState.items.map(item=>item.id);
-    const ticket=sendDraft.begin(sentIds);if(!ticket)return;
+    view='reply';const sent=draft.text;const sentIds=paperContext?[]:attachmentState.items.map(item=>item.id);
+    const ticket=sendDraft.begin(sentIds,paperContext?'paper':'draft');if(!ticket)return;
     const accepted=await chat.send(sent,()=>controller.flush());
     if(accepted)sendDraft.accept(ticket,chatState);else sendDraft.cancel(ticket);
   }
@@ -156,7 +161,7 @@
     const title=reply.prompt.replace(/\s+/g,' ').trim().slice(0,60);
     const body=`## 问题\n\n${reply.prompt}\n\n## 回答\n\n${reply.answer}`;
     try{
-      const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:attachmentState.items.map(item=>item.id),requestId:reply.requestId});
+      const saved=await knowledge.save({title,body,source:'chat',model:reply.model,attachmentIds:paperContext?[]:attachmentState.items.map(item=>item.id),requestId:reply.requestId});
       if(saved){clearTimeout(bookmarkTimer);bookmarkSaved=reply.requestId;bookmarkTimer=setTimeout(()=>{bookmarkSaved=null;},2500);notice='已收藏到知识库';void knowledge.runAutoFor(saved.id);}
       else notice=knowledge.state.notice||'收藏未完成，请重试';
     }catch{notice='收藏未完成，请重试';}finally{bookmarkSaving=null;}
@@ -259,17 +264,19 @@
 <Capsule retry={chatState.reply?.retry??null} {canRestoreQuestion} onRestoreQuestion={()=>void restoreQuestion()} {focusRequest} quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!attachmentState.items.length||!!imageModelOf(settings.config))&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching||closing} onEdit={s=>{if(!closing)controller.edit(s);}} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
 {:else}
 <div class="shell" class:sidebar-collapsed={appearanceState.sidebarCollapsed}>
-  <Sidebar collapsed={appearanceState.sidebarCollapsed} active={view==='history'?'history':view==='knowledge'?'knowledge':view==='graph'?'graph':view==='settings'?'settings':'chat'} disabled={!appearanceState.loaded} canNew={!closing&&!chatState.running&&!chatState.stopping} onToggle={()=>void appearance.update({sidebarCollapsed:!appearanceState.sidebarCollapsed})} onNavigate={navigate} onNew={newConversation}/>
+  <Sidebar collapsed={appearanceState.sidebarCollapsed} active={view==='papers'?'papers':view==='history'?'history':view==='knowledge'?'knowledge':view==='graph'?'graph':view==='settings'?'settings':'chat'} disabled={!appearanceState.loaded} canNew={!closing&&!chatState.running&&!chatState.stopping} onToggle={()=>void appearance.update({sidebarCollapsed:!appearanceState.sidebarCollapsed})} onNavigate={navigate} onNew={newConversation}/>
   <div class="main-panel">
   <header class="titlebar">
-    <span class="context-title">{view==='settings'?'设置':view==='history'?'问答历史':view==='knowledge'?'知识库':view==='graph'?'知识网络':'当前对话'}</span>
+    <span class="context-title">{view==='papers'?'论文阅读':view==='settings'?'设置':view==='history'?'问答历史':view==='knowledge'?'知识库':view==='graph'?'知识网络':'当前对话'}</span>
     <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button icon-button" data-quit-app aria-label="保存并退出" title={closing?'正在退出…':'保存并退出'} disabled={closing} onclick={()=>leave(true)}><Icon name="close"/></button></div>
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器界面预览 · 不会请求模型</div>{/if}
   {#if appearanceState.error&&view!=='settings'}<div class="appearance-save-error" role="alert">{appearanceState.error}<button onclick={()=>view='settings'}>外观设置</button></div>{/if}
   <div class="workspace">
     <main>
-      {#if view==='history'}
+      {#if view==='papers'}
+        <PaperPanel port={paperPort} chat={chatState} desktop={isDesktop} model={settings.config?.model??'未配置模型'} onStart={(id,options)=>chat.sendPaper(id,options)} onFollowup={q=>chat.send(q,async()=>{})} onAdopt={r=>{chat.adopt(r);}} onStop={()=>void stopReply()} onSave={saveToKnowledge} onExport={async()=>{if(!chatState.reply)return '';return invoke<string>('paper_export',{requestId:chatState.reply.requestId});}}/>
+      {:else if view==='history'}
         <HistoryPanel port={historyPort} canDelete={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onDeleted={id=>historyDeleted([id])} onBulkDeleted={historyDeleted} currentRequestId={chatState.reply?.requestId??null} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
       {:else if view==='graph'}
         <KnowledgeGraph controller={knowledge} info={knowledgeState} onOpenNote={id=>void knowledge.open(id).then(()=>{view='knowledge';})} onOpenTopic={id=>{view='knowledge';void knowledge.openTopic(id);}}/>
@@ -291,10 +298,11 @@
     {#if canRestoreQuestion&&(view==='reply'||view==='ask')}<button class="text-button" data-restore-question onclick={()=>void restoreQuestion()}>恢复问题，重新提问</button>{/if}
     {#if chatState.error}<div class="error" role="alert"><strong>{chatState.error}</strong>{#if !chatState.loaded}<button onclick={()=>void chat.load()}>重新读取对话</button>{/if}{#if chatState.reply&&!chatState.reply.saved&&!chatState.running}<button onclick={()=>void retryReplySave()}>重试保存回答</button>{/if}</div>{/if}
     {#if draft.error}<div class="error" role="alert"><strong>{draft.error}</strong><span>原有文件不会被自动替换。</span><button onclick={()=>draft.loaded ? save() : controller.start().then(()=>selection.refresh()).catch(()=>{})}>{draft.loaded ? '重试保存' : '重新读取'}</button></div>{/if}
-    {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">
+    {#if view!=='settings'&&view!=='history'&&view!=='papers'}<section class="composer" aria-label="问题草稿">
+      {#if paperContext}<p class="description">论文追问：本轮会重新发送该会话已选范围的论文原文。{#if paperScope}{paperScope.source.name} · 第{paperScope.options.startPage}–{paperScope.options.endPage||paperScope.source.pageCount}页 · {paperScope.endpoint}。关注点：{paperScope.options.focus||'未指定'}；研究背景：{paperScope.options.background||'未提供'}。{/if}草稿截图保留在本机。开启新对话可恢复普通问答。</p>{/if}
       <Attachments state={attachmentState} onCancel={()=>void attachmentController.cancel()} onRemove={id=>void attachmentController.remove(id)} onRetake={id=>captureScreenshot(id)}/>
       <label class="sr-only" for="question">问题草稿</label><textarea bind:this={input} id="question" disabled={!draft.loaded||closing} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder="输入问题，或粘贴内容…" spellcheck="false" rows="2"></textarea>
-      <div class="composer-tools"><div><button class="tool-button" data-capture aria-label="附加截图" title="附加截图" disabled={!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿" title="保存草稿 · Ctrl S" disabled={!draft.loaded} onclick={save}><Icon name="save" size={18}/></button>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title="Enter 发送 · Shift+Enter 换行" disabled={selectionState.busy||attachmentState.pending||(attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>Enter ↵</kbd></button></div>
+      <div class="composer-tools"><div><button class="tool-button" data-capture aria-label="附加截图" title="附加截图" disabled={paperContext||!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿" title="保存草稿 · Ctrl S" disabled={!draft.loaded} onclick={save}><Icon name="save" size={18}/></button>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title="Enter 发送 · Shift+Enter 换行" disabled={selectionState.busy||attachmentState.pending||(!paperContext&&attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||!draft.text.trim()} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>Enter ↵</kbd></button></div>
     </section>
     {/if}
     <footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{statusText}</span><span role="status">{notice}</span></footer>

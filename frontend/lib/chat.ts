@@ -1,7 +1,8 @@
+import type {ReadingOptions} from './papers';
 export interface RetryState {attempt:number;nextRetryAt:number;reason:'timeout'|'rate-limit'}
 export interface ChatReply {retry?:RetryState;requestId:string;conversationId:string;contextTurns:number;revision:number;answer:string;prompt:string;model:string;state:'streaming'|'complete'|'stopped'|'failed'|'interrupted'|'limited'|'filtered';error:string|null;saved:boolean;createdAt:number}
 export interface Overview {reply:ChatReply|null;activeRequestId:string|null}
-export interface ChatPort {startSelection?(id:string,selection:string,actionId:string,expectedRevision:number):Promise<ChatReply>;listen(cb:(r:ChatReply)=>void):Promise<()=>void>;load():Promise<Overview>;start(id:string,prompt:string,conversationId?:string|null):Promise<ChatReply>;stop(id:string):Promise<ChatReply|null>;settle():Promise<ChatReply|null>}
+export interface ChatPort {startPaper?(id:string,paperId:string,options:ReadingOptions):Promise<ChatReply>;startSelection?(id:string,selection:string,actionId:string,expectedRevision:number):Promise<ChatReply>;listen(cb:(r:ChatReply)=>void):Promise<()=>void>;load():Promise<Overview>;start(id:string,prompt:string,conversationId?:string|null):Promise<ChatReply>;stop(id:string):Promise<ChatReply|null>;settle():Promise<ChatReply|null>}
 export interface ChatState {answer:string;running:boolean;stopping:boolean;loaded:boolean;error:string|null;reply:ChatReply|null}
 export class ChatController {
  state:ChatState={answer:'',running:false,stopping:false,loaded:false,error:null,reply:null};
@@ -25,6 +26,10 @@ export class ChatController {
   }catch(e){this.publish({error:e instanceof Error?e.message:'对话读取失败，原有记录保留'});}
  }
  async send(prompt:string,save:()=>Promise<void>){return this.sendUsing(crypto.randomUUID(),prompt,save,id=>this.port.start(id,prompt,this.conversation));}
+ async sendPaper(paperId:string,options:ReadingOptions){
+  if(!this.port.startPaper){this.publish({error:'论文阅读需要新版桌面程序'});return false;}
+  return this.sendUsing('paper-'+crypto.randomUUID(),'论文阅读',async()=>{},id=>this.port.startPaper!(id,paperId,options));
+ }
  async sendSelection(requestId:string,selection:string,actionId:string,expectedRevision=0){
   if(!this.port.startSelection){this.publish({error:'划词操作不可用，请更新桌面程序'});return false;}
   return this.sendUsing(requestId,selection,async()=>{},id=>this.port.startSelection!(id,selection,actionId,expectedRevision));

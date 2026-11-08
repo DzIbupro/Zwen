@@ -4,12 +4,12 @@
 
 用户已决定放弃旧严格流水线，改为：**导入PDF → 成熟文件输入/提取适配 → 阅读skill → 模型直接生成Markdown → 保存与追问**。
 
-当前停在文档准备阶段。用户五小时额度接近耗尽，明确要求不再开发，额度恢复后另开会话实施。不要接着给旧流水线打补丁，也不要把本文视为已实施完成。
+2026-11-09用户已恢复并授权开始开发。当前工作在干净基线创建的 `feat/paper-analysis-v2`，采用Poppler全文文字适配及现有聊天生命周期。最新实现、验证与限制以 `docs/validation/2026-11-09-paper-v2.md` 为准；不要继续旧流水线。
 
 - 仓库：`/home/dzibupro/Zwen/Zwen`
-- 当前旧实现与方案记录分支：`feat/paper-analysis`；新实现计划分支：`feat/paper-analysis-v2`（尚未创建）。
+- 当前旧实现与方案记录分支：`feat/paper-analysis`；新实现分支：`feat/paper-analysis-v2`（已从main 9337398创建）。
 - 旧实现最后一次代码修复提交：`5f659b2`
-- 运行产物：`artifacts/zwen-paper-analysis`，仍是旧路线，不能当新方案测试结果。
+- 运行产物：交付时将 `artifacts/zwen-paper-analysis` 更新为v2普通构建，日常主程序 `artifacts/zwen` 保留。以最新验收记录与文件哈希为准。
 - 当前方案：`docs/superpowers/specs/2026-11-08-paper-analysis-design.md`
 - 当前计划：`docs/superpowers/plans/2026-11-08-paper-analysis.md`
 - 用户需求原件：`/home/dzibupro/background/文献阅读skill(2).txt`
@@ -25,7 +25,7 @@
 
 旧分支仅作历史参考，不再继续开发；没有必要reset主分支、强推GitHub或逐个revert旧提交。新分支不继承旧论文源码、测试、依赖、权限与界面接线。确有价值的基础能力应逐项审核后复用，不能把整条旧流水线搬回来。安全要求仍须在新代码中实现，不能因回到旧基线而遗漏。
 
-这次只完成核查和方案更新，尚未切换分支、删除代码或回退。Git管理源码与本地PDF/数据库/产物不同：不使用 `git clean -fdx`，不删除用户论文、历史、笔记、密钥；旧产物也不能当新构建运行。
+此前核查阶段只改文档；开发阶段已建立v2分支并实现文字分析路径，旧分支保留历史。Git管理源码与本地PDF/数据库/产物不同：不使用 `git clean -fdx`，不删除用户论文、历史、笔记、密钥；旧产物也不能当新构建运行。
 
 ## 为什么要换路线
 
@@ -37,14 +37,23 @@
 
 ## 新路线已确定的边界
 
-- 优先借鉴OpenCode/OpenClaw等成熟文件适配；具体代码/库复用尚未选定、未安装。
+- 当前选择参考OpenClaw的提取降级方式，实际复用已安装Poppler与Zwen现有聊天；未安装通用agent运行时。原生PDF路径仍待确认。
 - 原生PDF仅在服务真实支持时使用；否则本地提取文字，必要时按能力读取页图。
 - 全文能放下就直接分析；超限才采用成熟分页/按需读取，不机械切成许多约1 KiB任务。
 - 默认Markdown报告；引用无法核对时清楚标注，不让整篇失败。
 - 保留有效的服务凭据归属保护、文件权限、停止、保存和净化渲染。
 - 保留用户旧PDF、报告、笔记及历史记录；新分析替换默认流程。
 
-## 当前实现地图（只为审计与复用，不是继续旧流程的指令）
+## v2当前实现地图
+
+- `crates/core/src/paper.rs`：全文材料、物理页范围、会话源绑定、新库及旧库只读兼容。
+- `crates/core/src/paper/SKILL.md`：单一运行阅读规则。
+- `src-tauri/src/paper.rs` / `paper_process.rs`：原生文件选择、Poppler适配、保存范围、导出与旧原件。
+- `src-tauri/src/chat.rs`：复用原生聊天生命周期，论文会话失败关闭与每轮原文注入。
+- `frontend/PaperPanel.svelte`：论文工作区；`frontend/App.svelte`、`lib/send-draft.ts`：跨界面截图隔离。
+- `scripts/validate_paper_v2.py`：仅合成数据的原生闭环验收。
+
+## 旧实现地图（仅Git历史，不再是当前代码）
 
 - `crates/core/src/papers`：旧存储、版本化解析、预算、提示词、JSON/引用校验。
 - `src-tauri/src/papers`：导入/解析、原生任务、模型调用、恢复、追问、导出。
@@ -57,7 +66,7 @@
 
 ## 下一会话第一步
 
-先按上面的清理决定准备新分支，再读取新设计与计划，核查当前服务的原生文件/上下文能力，并定向比较成熟文件适配实现，选定最短可行路径后实施。不要先跑全套旧测试或请求用户重复说明需求。真实API测试先说明调用范围，避免为排查大量消耗用户服务额度。
+留在当前 `feat/paper-analysis-v2`，先读最新验收记录，不要重复创建分支或带回旧引擎。当前文字闭环已实现，普通构建与试用入口以验收记录为准。后续优先用户真实论文试读反馈，再按需核实原生PDF、OCR/图表及自动长文工具。此前授权的两次真实服务合成调用已经用完，不能自行追加付费/消耗额度的调试请求。
 
 官方线索（本会话已查阅，实施时复核版本）：
 - https://opencode.ai/docs/tools/
@@ -65,4 +74,4 @@
 
 ## 可直接发给新会话
 
-> 请在 `/home/dzibupro/Zwen/Zwen` 先从现有 `feat/paper-analysis` 分支读取 `docs/PAPER-READING-HANDOFF.md` 及其中的新设计、新计划，再按交接说明从干净主分支基线新建 `feat/paper-analysis-v2`，只带入新方案文档。新路线已经确定：成熟文件适配 → 阅读skill → Markdown分析与追问，旧严格JSON/片段ID流水线退出主流程。保留现有数据和有效安全边界，按计划实施；不要再修补旧流程。
+> 请在 `/home/dzibupro/Zwen/Zwen` 的当前 `feat/paper-analysis-v2` 分支继续。先读 `docs/PAPER-READING-HANDOFF.md` 和 `docs/validation/2026-11-09-paper-v2.md`。文字全文→阅读skill→Markdown与原文追问已实现，旧严格JSON流水线未带入。先核对当前提交和用户试读反馈，保留数据及安全边界，按验收记录中的未完成能力推进，不要重建分支或重做旧方案。

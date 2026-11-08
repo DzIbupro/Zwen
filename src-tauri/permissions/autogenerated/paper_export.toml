@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paper-export"
+description = "Enables the paper_export command without any pre-configured scope."
+commands.allow = ["paper_export"]
+
+[[permission]]
+identifier = "deny-paper-export"
+description = "Denies the paper_export command without any pre-configured scope."
+commands.deny = ["paper_export"]

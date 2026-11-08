@@ -22,11 +22,11 @@
   {#if desktop}
    <label for="api-secret">模型密钥（可选，保存到系统钥匙环）</label><input id="api-secret" type="password" autocomplete="off" maxlength="4096" value={secretValue} disabled={secretBusy||!settings.loaded} oninput={e=>secretValue=e.currentTarget.value} placeholder="粘贴一次，之后启动无需再输入"/>
    <div class="secret-row">
-    <button type="button" disabled={secretBusy||!settings.loaded||!secretValue.trim()} onclick={()=>void submitSecret()}>保存密钥</button>
+    <button type="button" disabled={secretBusy||!settings.loaded||settings.status!=='saved'||!settings.config||!secretValue.trim()} onclick={()=>void submitSecret()}>保存密钥</button>
     <button type="button" disabled={secretBusy||!settings.loaded} onclick={()=>void onClearSecret()}>清除已保存密钥</button>
     <span class="secret-state" role="status">{secretBusy?'正在操作钥匙环…':keyStateText}</span>
    </div>
-   <small>密钥只写入本机系统钥匙环（gnome-keyring），不进数据库或日志；界面不会显示已保存的密钥。启动环境中提供了同名密钥时优先使用环境。</small>
+   <small>先保存上方模型服务设置，再保存该服务的密钥。密钥只写入本机系统钥匙环（gnome-keyring），不进数据库或日志；界面不会显示已保存的密钥。启动环境中提供了同名密钥时优先使用环境。</small>
    {#if settings.secretNotice}<div class="failure" role="alert">{settings.secretNotice}</div>{/if}
   {/if}
   <div class="state" role="status">{settings.status==='saving'?'正在保存…':settings.status==='loading'?'正在读取…':settings.status==='dirty'?'有未保存的修改':settings.config?settings.keyAvailable?'配置已保存 · 已检测到密钥，尚未验证联网':'配置已保存 · 未检测到有效密钥':'尚未配置模型'}</div>

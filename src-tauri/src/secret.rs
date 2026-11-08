@@ -58,10 +58,10 @@ fn default_collection(connection:&Connection)->Result<OwnedObjectPath,SecretErro
  Ok(collection)
 }
 
-fn search(connection:&Connection)->Result<Vec<OwnedObjectPath>,SecretError>{
+fn search_attributes(connection:&Connection,attrs:HashMap<String,String>)->Result<Vec<OwnedObjectPath>,SecretError>{
  let collection=default_collection(connection)?;
  let (items,):(Vec<OwnedObjectPath>,)=
-  zbus::blocking::Proxy::new(connection,SERVICE,collection,COLLECTION_IFACE)?.call("SearchItems",&(attributes(),))?;
+  zbus::blocking::Proxy::new(connection,SERVICE,collection,COLLECTION_IFACE)?.call("SearchItems",&(attrs,))?;
  Ok(items)
 }
 
@@ -76,23 +76,25 @@ fn item_secret(connection:&Connection,item:&OwnedObjectPath,session:&ObjectPath)
  Ok(value)
 }
 
-pub fn read_model_key()->Result<Option<String>,SecretError>{
+pub fn read_model_key()->Result<Option<String>,SecretError>{read_key_attributes(attributes())}
+fn read_key_attributes(attrs:HashMap<String,String>)->Result<Option<String>,SecretError>{
  let connection=Connection::session()?;
  let session=open_session(&connection)?;
- for item in search(&connection)?{
+ for item in search_attributes(&connection,attrs)?{
   let value=item_secret(&connection,&item,&session)?;
   if !value.is_empty(){return Ok(Some(value));}
  }
  Ok(None)
 }
 
-pub fn store_model_key(value:&str)->Result<(),SecretError>{
+pub fn store_model_key(value:&str)->Result<(),SecretError>{store_key_attributes(value,attributes())}
+fn store_key_attributes(value:&str,attrs:HashMap<String,String>)->Result<(),SecretError>{
  if !valid_secret(value){return Err(SecretError::Unavailable("invalid key value".into()));}
  let connection=Connection::session()?;
  let session=open_session(&connection)?;
  let properties:HashMap<String,Value>=HashMap::from([
   ("org.freedesktop.Secret.Item.Label".to_owned(),Value::from(LABEL)),
-  ("org.freedesktop.Secret.Item.Attributes".to_owned(),Value::new(attributes())),
+  ("org.freedesktop.Secret.Item.Attributes".to_owned(),Value::new(attrs)),
  ]);
  let secret=(session.clone(),Vec::<u8>::new(),value.as_bytes().to_vec(),String::from("text/plain"));
  let (_item,prompt):(OwnedObjectPath,OwnedObjectPath)=
@@ -105,11 +107,10 @@ pub fn store_model_key(value:&str)->Result<(),SecretError>{
 pub fn remove_model_key()->Result<(),SecretError>{
  let connection=Connection::session()?;
  let session=open_session(&connection)?;
- for item in search(&connection)?{
+ for item in search_attributes(&connection,HashMap::from([(SCHEMA.into(),SCHEMA_VALUE.into())]))?{
   if item_secret(&connection,&item,&session).is_err(){continue;}
   let prompt:OwnedObjectPath=item_proxy(&connection,&item)?.call("Delete",&())?;
   if prompt.as_str()!="/"{return Err(SecretError::ManualCleanup);}
-  return Ok(());
  }
  Ok(())
 }
@@ -122,11 +123,19 @@ fn client_error(error:SecretError)->ClientError{
 
 /// Stores the key once, from the settings page. The value is never echoed back.
 #[tauri::command]
-pub async fn save_model_secret(secret:String)->Result<(),ClientError>{
+pub async fn save_model_secret(storage:tauri::State<'_,crate::SharedStorage>,secret:String,expected_revision:u64)->Result<(),ClientError>{
  if !valid_secret(&secret){return Err(ClientError{code:"invalid_secret",message:"密钥为空、过长或包含无效字符；未保存".into()});}
- tauri::async_runtime::spawn_blocking(move||store_model_key(&secret))
-  .await.map_err(|_|ClientError::storage())?
-  .map_err(client_error)
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||{
+   // Serialize config edits and credential binding in the same provider lock.
+   let _=crate::provider::configured(&storage)?;
+   let guard=storage.provider.lock().map_err(|_|ClientError::storage())?;
+   let snapshot=guard.as_ref().ok_or_else(ClientError::storage)?.load()?;
+   if snapshot.revision!=expected_revision{return Err(ClientError{code:"provider_conflict",message:"模型服务设置已变化，请重新读取并核对后保存密钥".into()});}
+   let config=snapshot.config.ok_or_else(ClientError::storage)?;
+   store_key_attributes(&secret,profile_attributes(&config)).map_err(client_error)?;
+   store_model_key(&secret).map_err(client_error)
+  }).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]
 pub async fn clear_model_secret()->Result<(),ClientError>{
@@ -166,5 +175,30 @@ mod ring_tests{
   assert_eq!(read_model_key().unwrap().as_deref(),Some("zwen-ring-check-123"));
   remove_model_key().unwrap();
   assert_eq!(read_model_key().unwrap(),None);
+ }
+}
+
+fn profile_attributes(config:&zwen_core::provider::ProviderConfig)->HashMap<String,String>{
+ let mut a=attributes();a.insert(ROLE.into(),"paper-key-v2".into());a.insert("zwen-service".into(),config.base_url().into());a.insert("zwen-key-env".into(),config.key_env().into());a
+}
+fn legacy_paper_attributes(config:&zwen_core::provider::ProviderConfig)->HashMap<String,String>{
+ use sha2::{Digest,Sha256};let mut a=attributes();
+ let identity=serde_json::to_vec(&(config.base_url(),config.key_env())).expect("valid config identity");
+ a.insert(ROLE.into(),format!("paper-key-{:x}",Sha256::digest(identity)));a
+}
+pub fn read_paper_key(config:&zwen_core::provider::ProviderConfig)->Result<Option<String>,SecretError>{
+ if let Some(key)=read_key_attributes(profile_attributes(config))?{return Ok(Some(key));}
+ // Earlier paper releases already bound this credential to the same endpoint.
+ // Read that exact identity; never fall back to the generic unbound model key.
+ read_key_attributes(legacy_paper_attributes(config))
+}
+
+#[cfg(test)]mod paper_binding_tests{
+ use super::*;
+ #[test]fn paper_key_binding_changes_with_service_not_model(){
+  let a=zwen_core::provider::ProviderConfig::new("https://a.example/v1","a","ZWEN_TEST_KEY").unwrap();
+  let b=zwen_core::provider::ProviderConfig::new("https://b.example/v1","a","ZWEN_TEST_KEY").unwrap();
+  assert_ne!(legacy_paper_attributes(&a),legacy_paper_attributes(&b));assert_ne!(profile_attributes(&a),profile_attributes(&b));assert_ne!(profile_attributes(&a),attributes());
+  assert_eq!(profile_attributes(&a),profile_attributes(&a.with_model("other-model").unwrap()));
  }
 }

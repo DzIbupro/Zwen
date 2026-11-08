@@ -54,3 +54,6 @@ it('a failed secret clear reports and keeps the stored keySource',async()=>{
  expect(c.state.secretNotice).toContain('钥匙环不可用');
  expect(c.state.keySource).toBe('keyring');
 });
+it('refuses saving a secret while provider fields are dirty',async()=>{
+ let writes=0;const p=port(async()=>({config,revision:3,keyAvailable:false}),async()=>({config,revision:4,keyAvailable:false}));p.saveSecret=async()=>{writes++;};const c=new ProviderController(p,()=>{});await c.load();c.edit('baseUrl','https://other.example/v1');await c.saveSecret('other-key');expect(writes).toBe(0);expect(c.state.fields.baseUrl).toBe('https://other.example/v1');expect(c.state.secretNotice).toContain('先保存');
+});

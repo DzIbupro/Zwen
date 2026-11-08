@@ -154,3 +154,5 @@ pub mod attachment;
 pub mod notes;
 
 pub mod organize;
+
+pub mod paper;

@@ -630,3 +630,9 @@ Rust工作区200通过/1既有钥匙环忽略；181前端、Svelte0错误0警告
     - 新增 `src-tauri/src/main.rs::wiring_tests::commands_permissions_and_handler_agree`：解析 build.rs COMMANDS、capabilities allow-* 与 invoke_handler，三方集合必须相等；**已实测临时移除注册时该测试失败并点名缺失命令**，可作新增命令的强制门禁。
     - 新增面向审查 AI 的交接文档 `docs/AUDIT-HANDOFF-2026-11-02.md`（含逐单元代码地图、证据边界、自查失误、P0–P3 待审清单与复现命令）。
     - 勘误：原生回归脚本实为 9 个、前端当前 82 项、Rust 为 95（core+transport）+7（desktop）。
+
+## 2026-11-09：论文阅读v2，干净分支重做
+
+从main `9337398` 创建 `feat/paper-analysis-v2`，仅带入新方案文档，旧论文源码与严格JSON流水线未继承。文件读取复用现有Poppler，分析、流式保存、停止、历史与Markdown渲染复用现有聊天。支持模式、选页、关注点/背景、绑定原文的追问、导出/收藏及旧库只读访问。
+
+前端192项、Rust227项通过（2项原有忽略），Svelte无错误/警告，隔离原生PDF→Markdown→追问→停止保存闭环通过。获用户明确批准后完成qwen3.7-flash两次合成材料真实SSE请求，均正常结束；不宣称用户真实论文内容质量已验收。当前不含图表/OCR/原生PDF附件或自动长文工具，超限采用显式选页。详见 `docs/validation/2026-11-09-paper-v2.md`。

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paper-session-info"
+description = "Enables the paper_session_info command without any pre-configured scope."
+commands.allow = ["paper_session_info"]
+
+[[permission]]
+identifier = "deny-paper-session-info"
+description = "Denies the paper_session_info command without any pre-configured scope."
+commands.deny = ["paper_session_info"]

@@ -1,13 +1,13 @@
 import type {DraftController} from './draft';
 import type {ChatState} from './chat';
-interface Ticket {text:string;recoveryText:string;source:'draft'|'selection';ids:string[];version:number;requestId:string|null;clearedVersion:number|null;accepted:boolean}
+interface Ticket {text:string;recoveryText:string;source:'draft'|'selection'|'paper';ids:string[];version:number;requestId:string|null;clearedVersion:number|null;accepted:boolean}
 /** Ownership spans synchronous terminal events, delayed start acknowledgements and edits. */
 export class SendDraftCoordinator {
  private pending:Ticket|null=null;
  constructor(private draft:DraftController,private consume:(ids:string[])=>void){}
- begin(ids:string[],source:'draft'|'selection'='draft'):Ticket|null{
+ begin(ids:string[],source:'draft'|'selection'|'paper'='draft'):Ticket|null{
   if(this.pending)return null;
-  const ticket:Ticket={text:this.draft.snapshot.text,recoveryText:this.draft.snapshot.text,source,ids:[...ids],version:this.draft.editVersion,requestId:null,clearedVersion:null,accepted:false};
+  const ticket:Ticket={text:this.draft.snapshot.text,recoveryText:this.draft.snapshot.text,source,ids:source==='paper'?[]:[...ids],version:this.draft.editVersion,requestId:null,clearedVersion:null,accepted:false};
   this.pending=ticket;return ticket;
  }
  revoke(){this.pending=null;}
