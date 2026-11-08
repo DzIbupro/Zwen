@@ -22,6 +22,7 @@ class Service(BaseHTTPRequestHandler):
             body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(body)
             last=body['messages'][-1]['content']
             assert 'FIRST_PAGE_EVIDENCE' in last and 'LAST_PAGE_RESULT' in last
+            assert '核心主张—证据表' in last and '论文研究什么问题' in last
             assert '第3页无可提取文字' in last and 'PDF物理页 2' in last
             assert body.get('response_format') is None and all(isinstance(m['content'],str) for m in body['messages'])
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()

@@ -7,6 +7,8 @@ pub fn error(e:zwen_core::paper::PaperError)->ClientError{ClientError{code:"pape
 pub fn library(storage:&SharedStorage)->Result<Library,ClientError>{Library::open(storage.directory.as_ref().map_err(Clone::clone)?).map_err(error)}
 fn random_id()->Result<String,ClientError>{let mut bytes=[0u8;16];fs::File::open("/dev/urandom").and_then(|mut f|f.read_exact(&mut bytes)).map_err(|_|ClientError::storage())?;Ok(bytes.iter().map(|b|format!("{b:02x}")).collect())}
 #[tauri::command]
+pub fn paper_defaults()->ReadingOptions{ReadingOptions::default()}
+#[tauri::command]
 pub async fn paper_list(storage:tauri::State<'_,SharedStorage>)->Result<Vec<Metadata>,ClientError>{let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||library(&s)?.list().map_err(error)).await.map_err(|_|ClientError::storage())?}
 #[tauri::command]
 pub async fn paper_choose(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>)->Result<Option<Metadata>,ClientError>{

@@ -9,7 +9,8 @@
   stage='chooser cancel';if(await invoke('paper_choose')!==null)throw Error('cancel should not import');
   stage='local import';document.querySelector('.paper-actions button').click();await wait(()=>document.querySelector('[data-paper-start]'));
   const files=await invoke('paper_list');if(files.length!==1||files[0].pageCount!==3||files[0].readablePages!==2)throw Error('incorrect coverage');
-  stage='analysis';const background=document.querySelectorAll('.paper-input textarea')[1];background.value='saved fixture background';background.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(r=>setTimeout(r,30));document.querySelector('[data-paper-start]').click();
+  stage='builtin requirements';const defaults=await invoke('paper_defaults');if(!defaults.focus.includes('输入、输出')||!defaults.outputRequirements.includes('核心主张—证据表')||document.querySelector('.paper-customize').open||document.querySelectorAll('.paper-defaults li').length!==7)throw Error('built-in requirements unavailable');
+  stage='analysis';document.querySelector('.paper-customize>summary').click();const background=document.querySelector('[data-reading-background]');background.value='saved fixture background';background.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(r=>setTimeout(r,30));document.querySelector('[data-paper-start]').click();
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete';});
   let view=await invoke('get_chat');const first=view.reply;
   if(!document.querySelector('.paper-report .prose h1')||!first.answer.includes('fixture report'))throw Error('Markdown not rendered');

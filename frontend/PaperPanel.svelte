@@ -8,14 +8,17 @@
  let history=$state<ChatReply[]>([]),pages=$state<string[]>([]),conversation=$state<string|null>(null),starting=$state(false),busy=$state(false),notice=$state(''),question=$state('');
  let oldPapers=$state<PaperMetadata[]>([]);
  let legacy=$state<LegacyRun[]>([]),legacyText=$state(''),savedScope=$state<SessionInfo|null>(null);
+ let requirementsReady=$state(false);
+ let builtin=$state<ReadingOptions|null>(null);
  let lastTerminal='';let disposed=false;let selectionVersion=0;
  const showing=$derived(!!chat.reply&&chat.reply.conversationId===conversation);
  const answer=$derived(showing?renderMarkdown(chat.answer):'');
+ const requirementsChanged=$derived(!!builtin&&(options.mode!==builtin.mode||options.startPage!==1||options.endPage!==selected?.pageCount||options.focus!==builtin.focus||options.outputRequirements!==builtin.outputRequirements||!!options.background.trim()));
  const labels={streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'失败，已接收内容保留',interrupted:'上次中断',limited:'输出达到限制',filtered:'服务限制'};
  async function refresh(){try{items=await port.list();}catch(e){notice=String(e);}}
- async function select(p:PaperMetadata,restore=false){if(!restore&&(chat.running||chat.stopping||busy))return;const ticket=++selectionVersion;selected=p;options=defaultReadingOptions();options.endPage=p.pageCount;history=[];pages=[];conversation=null;savedScope=null;question='';notice='';try{const [runs,text]=await Promise.all([port.sessions(p.id),port.source(p.id)]);if(disposed||ticket!==selectionVersion)return;history=runs;pages=text;if(chat.reply&&runs.some(r=>r.conversationId===chat.reply?.conversationId))conversation=chat.reply.conversationId;}catch(e){if(ticket===selectionVersion)notice=String(e);}}
+ async function select(p:PaperMetadata,restore=false){if(!restore&&(chat.running||chat.stopping||busy))return;const ticket=++selectionVersion;selected=p;requirementsReady=false;options=defaultReadingOptions();options.endPage=p.pageCount;history=[];pages=[];conversation=null;savedScope=null;question='';notice='';try{const [runs,text,defaults]=await Promise.all([port.sessions(p.id),port.source(p.id),port.defaults()]);if(disposed||ticket!==selectionVersion)return;builtin=defaults;options={...defaults,endPage:p.pageCount};requirementsReady=true;history=runs;pages=text;if(chat.reply&&runs.some(r=>r.conversationId===chat.reply?.conversationId))conversation=chat.reply.conversationId;}catch(e){if(ticket===selectionVersion)notice=String(e);}}
  async function choose(){busy=true;notice='正在本机提取文字，不会发送模型…';try{const p=await port.choose();if(disposed)return;busy=false;if(p){await refresh();await select(p);}else notice='';}catch(e){notice=String(e);}finally{busy=false;}}
- async function start(){if(!selected)return;starting=true;notice='';try{const ok=await onStart(selected.id,{...options});if(ok){conversation=chat.reply?.conversationId??null;if(conversation&&port.sessionInfo)savedScope=await port.sessionInfo(conversation);}}catch(e){notice=String(e);}finally{starting=false;}}
+ async function start(){if(!selected||!requirementsReady)return;starting=true;notice='';try{const ok=await onStart(selected.id,{...options});if(ok){conversation=chat.reply?.conversationId??null;if(conversation&&port.sessionInfo)savedScope=await port.sessionInfo(conversation);}}catch(e){notice=String(e);}finally{starting=false;}}
  async function follow(){const q=question.trim();if(!q||!showing)return;const ok=await onFollowup(q);if(ok)question='';}
  async function exportReport(){try{notice=await onExport();}catch(e){notice=String(e);}}
  $effect(()=>{const reply=chat.reply;if(reply&&reply.state!=='streaming'&&selected&&reply.conversationId===conversation){const key=reply.requestId+':'+reply.revision;if(key!==lastTerminal){lastTerminal=key;const id=selected.id;untrack(()=>void port.sessions(id).then(rows=>{if(!disposed&&selected?.id===id)history=rows;}).catch(e=>notice=String(e)));}}});
@@ -31,23 +34,29 @@
  <div class="paper-list">{#each items as p}<button data-paper-id={p.id} class:active={selected?.id===p.id} disabled={busy||chat.running||chat.stopping} onclick={()=>void select(p)}><strong>{p.name}</strong><span>{p.pageCount} 页 · {p.readablePages} 页可提取文字</span></button>{/each}</div>
  {#if selected}
   <h2>{selected.name}</h2>
-  <h3>新分析设置</h3>
+  {#if builtin}
+   <div class="paper-defaults"><h3>已内置论文阅读要求</h3><p class="description">默认全文精读，按你提供的阅读要求分析问题、方法、证据与边界。无需填写，直接开始即可。</p><ol>{#each builtin.outputRequirements.split('\n').filter(line=>/^\d+\./.test(line)) as line}<li>{line.replace(/^\d+\.\s*/,'')}</li>{/each}</ol></div>
+  {:else}<p role="status">正在读取内置阅读要求…</p>{/if}
+  <details class="paper-customize"><summary>{requirementsChanged?'已调整阅读要求（可展开修改）':'调整阅读要求（可选）'}</summary>
   <div class="paper-fields">
-   <label>阅读模式<select bind:value={options.mode} disabled={chat.running}><option value="deep">标准精读</option><option value="quick">速读</option><option value="reproduce">复现准备</option><option value="interactive">交互学习</option></select></label>
-   <label>起始页<input type="number" min="1" max={selected.pageCount} bind:value={options.startPage} disabled={chat.running}></label>
-   <label>结束页<input type="number" min={options.startPage} max={selected.pageCount} bind:value={options.endPage} disabled={chat.running}></label>
+   <label>阅读模式<select bind:value={options.mode} disabled={chat.running||!requirementsReady}><option value="deep">标准精读</option><option value="quick">速读</option><option value="reproduce">复现准备</option><option value="interactive">交互学习</option></select></label>
+   <label>起始页<input type="number" min="1" max={selected.pageCount} bind:value={options.startPage} disabled={chat.running||!requirementsReady}></label>
+   <label>结束页<input type="number" min={options.startPage} max={selected.pageCount} bind:value={options.endPage} disabled={chat.running||!requirementsReady}></label>
   </div>
-  <label class="paper-input">重点关注的问题<textarea bind:value={options.focus} maxlength="8192" rows="2" disabled={chat.running}></textarea></label>
-  <label class="paper-input">研究背景（可选）<textarea bind:value={options.background} maxlength="8192" rows="2" disabled={chat.running}></textarea></label>
+  <label class="paper-input">关注问题（已内置，可修改）<textarea data-reading-focus bind:value={options.focus} maxlength="8192" rows="6" disabled={chat.running||!requirementsReady}></textarea></label>
+  <label class="paper-input">输出要求（已内置，可修改）<textarea data-reading-output bind:value={options.outputRequirements} maxlength="8192" rows="8" disabled={chat.running||!requirementsReady}></textarea></label>
+  <label class="paper-input">补充研究背景（可选）<textarea data-reading-background bind:value={options.background} maxlength="8192" rows="2" disabled={chat.running||!requirementsReady}></textarea></label>
+  <button type="button" disabled={!requirementsReady||chat.running||!builtin} onclick={()=>{if(builtin&&selected)options={...builtin,endPage:selected.pageCount};}}>恢复内置要求</button>
+  </details>
   <p class="description">PDF物理页 {options.startPage}–{options.endPage} / 共 {selected.pageCount} 页；通过全文文字发送给 {model}。每次追问重新附上本次选择的原文。超出请求上限会提示选页，不会静默截断。</p>
-  <button class="primary-button" data-paper-start disabled={!desktop||busy||starting||chat.running||chat.stopping||!chat.loaded||(!!chat.reply&&!chat.reply.saved)} onclick={()=>void start()}>开始新分析</button>
+  <button class="primary-button" data-paper-start disabled={!desktop||!requirementsReady||busy||starting||chat.running||chat.stopping||!chat.loaded||(!!chat.reply&&!chat.reply.saved)} onclick={()=>void start()}>开始新分析</button>
   <details class="paper-source"><summary>核对本机提取原文与缺页</summary>{#each pages as text,i}<details><summary>PDF物理页 {i+1}{!text.trim()?' · 无可提取文字':''}</summary><pre>{text||'此页可能为扫描件或图表，文字路径无法读取。'}</pre></details>{/each}</details>
   {#if history.length}<details open><summary>本论文的分析会话</summary>{#each history as r}<button disabled={chat.running||chat.stopping||(!!chat.reply&&!chat.reply.saved)} onclick={()=>{conversation=r.conversationId;question='';onAdopt(r);if(port.sessionInfo)void port.sessionInfo(r.conversationId).then(scope=>{if(conversation===r.conversationId)savedScope=scope;}).catch(e=>notice=String(e));}}>{new Date(r.createdAt*1000).toLocaleString()} · {r.model} · {labels[r.state]}</button>{/each}</details>{/if}
  {/if}
  {#if starting&&!showing}<p role="status">准备原文与请求…</p>{/if}
  {#if showing&&chat.reply}
   <article class="paper-report"><h2>分析报告</h2><p>{chat.reply.model} · {labels[chat.reply.state]}</p>
-   {#if savedScope}<details open class="paper-scope"><summary>此会话追问的实际发送范围（开始分析时保存）</summary><p>{savedScope.source.name} · PDF物理页 {savedScope.options.startPage}–{savedScope.options.endPage||savedScope.source.pageCount} / {savedScope.source.pageCount}</p><p>服务：{savedScope.endpoint} · 模型：{savedScope.model}</p><p>模式：{savedScope.options.mode}；关注点：{savedScope.options.focus||'未指定'}</p><p>研究背景：{savedScope.options.background||'未提供'}</p><p>每次追问重新附上上述原文及要求。上方设置仅用于开始新分析。最近一轮附带历史 {chat.reply.contextTurns} 轮；请求空间不足时优先原文，历史可降至零轮。</p></details>{/if}
+   {#if savedScope}<details class="paper-scope"><summary>此会话追问的实际发送范围（开始分析时保存）</summary><p>{savedScope.source.name} · PDF物理页 {savedScope.options.startPage}–{savedScope.options.endPage||savedScope.source.pageCount} / {savedScope.source.pageCount}</p><p>服务：{savedScope.endpoint} · 模型：{savedScope.model}</p><p>模式：{savedScope.options.mode}；关注点：{savedScope.options.focus||'按内置关注问题分析'}</p><p>输出要求：{savedScope.options.outputRequirements||'按内置报告结构输出'}</p><p>研究背景：{savedScope.options.background||'未提供'}</p><p>每次追问重新附上上述原文及要求。上方设置仅用于开始新分析。最近一轮附带历史 {chat.reply.contextTurns} 轮；请求空间不足时优先原文，历史可降至零轮。</p></details>{/if}
    <div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html answer}</div>
    {#if chat.running}<button onclick={onStop} disabled={chat.stopping}>停止生成</button>{:else if chat.reply.answer&&chat.reply.saved}<div class="paper-actions"><button onclick={()=>void onSave()}>收藏到知识库</button><button onclick={()=>void exportReport()}>导出 Markdown</button></div>{/if}
    <label class="paper-input">围绕原文追问<textarea bind:value={question} maxlength="8192" rows="2" disabled={chat.running||chat.stopping}></textarea></label>

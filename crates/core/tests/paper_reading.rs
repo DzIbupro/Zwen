@@ -38,3 +38,11 @@ const ID:&str="0123456789abcdef0123456789abcdef";
  assert_eq!(zwen_core::paper::legacy_papers(&d).unwrap()[0].name,"unread.pdf");assert_eq!(zwen_core::paper::legacy_pdf(&d,ID).unwrap(),folder.join("original.pdf"));
  let history=zwen_core::paper::legacy_report(&d,"r").unwrap();assert!(history.contains("old answer"));assert!(history.contains("partial"));std::fs::remove_dir_all(d).unwrap();
 }
+#[test] fn builtin_requirements_are_present_without_user_input_and_can_be_overridden(){
+ let defaults=ReadingOptions::default();assert!(defaults.focus.contains("输入、输出"));assert!(defaults.output_requirements.contains("核心主张—证据表"));
+ let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"paper.pdf".into(),page_count:1,readable_pages:1},pages:vec!["original evidence".into()]};
+ let original=source.request(&defaults,"分析论文").unwrap();assert!(original.contains(&defaults.focus));assert!(original.contains(&defaults.output_requirements));
+ let custom=ReadingOptions{focus:"重点核对消融实验".into(),output_requirements:"输出一段机制解释和一张消融表".into(),..defaults};
+ let text=source.request(&custom,"分析论文").unwrap();assert!(text.contains("本次关注问题：\n重点核对消融实验"));assert!(text.contains("本次输出要求：\n输出一段机制解释和一张消融表"));
+ let blank=ReadingOptions{focus:String::new(),output_requirements:String::new(),..custom};let text=source.request(&blank,"分析论文").unwrap();assert!(text.contains("本次关注问题：\n1."));assert!(text.contains("本次输出要求：\n1."));
+}

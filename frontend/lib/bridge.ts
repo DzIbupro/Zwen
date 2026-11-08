@@ -114,6 +114,7 @@ export const appearancePort:AppearancePort=isDesktop?{load:()=>command<Appearanc
 };
 
 export const paperPort={
+ defaults:()=>command<ReadingOptions>('paper_defaults'),
  legacyPapers:()=>isDesktop?command<PaperMetadata[]>('paper_legacy_papers'):Promise.resolve([]),
  legacyOpen:(paperId:string)=>command<void>('paper_legacy_open',{paperId}),
  sessionInfo:(conversationId:string)=>command<import('./papers').SessionInfo>('paper_session_info',{conversationId}),
