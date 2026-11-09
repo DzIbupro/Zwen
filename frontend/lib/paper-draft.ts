@@ -51,9 +51,9 @@ export class PaperDraftController {
   catch(e){if(ticket===this.generation)this.publish({notice:e instanceof Error?e.message:'PDF导入失败'});}
   finally{if(ticket===this.generation)this.publish({importing:false});}
  }
- attach(paper:PaperMetadata){this.generation++;this.pendingId=paper.id;this.publish({enabled:true,paper,recoveryAvailable:false,loaded:true,importing:false,restoring:false,options:{...(this.defaults??this.state.options),endPage:paper.pageCount},notice:''});this.persist();}
+ attach(paper:PaperMetadata){this.generation++;this.pendingId=paper.id;this.publish({enabled:true,paper,recoveryAvailable:false,loaded:true,importing:false,restoring:false,options:{...(this.defaults??this.state.options),background:this.state.options.background,endPage:paper.pageCount},notice:''});this.persist();}
  edit(change:Partial<ReadingOptions>){this.publish({options:{...this.state.options,...change}});this.persist();}
- reset(){if(this.defaults)this.edit({...this.defaults,endPage:this.state.paper?.pageCount??0});}
+ reset(){if(this.defaults)this.edit({...this.defaults,background:this.state.options.background,endPage:this.state.paper?.pageCount??0});}
  remove(){this.generation++;this.pendingId=null;this.publish({paper:null,recoveryAvailable:false,importing:false,restoring:false,notice:''});this.persist();}
  close(){this.generation++;this.pendingId=null;this.publish({enabled:false,restoring:false,paper:null,recoveryAvailable:false,importing:false,notice:''});this.persist();}
  accepted(){this.close();}
