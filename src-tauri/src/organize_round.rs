@@ -81,7 +81,7 @@ fn run(app:AppHandle,storage:SharedStorage,id:String,config:ProviderConfig,rx:wa
    if round.completed==round.note_ids.len(){return Ok(());}
    let end=(round.completed+8).min(round.note_ids.len());let ids=&round.note_ids[round.completed..end];
    let notes=organize_job::collect_notes(&storage,ids)?;
-   let answer=organize_job::run_prompt_text(&organize_job::build_prompt(&notes)?,&config,&key,rx.clone())?;
+   let answer=organize_job::run_prompt_text(&organize_job::build_prompt_for_storage(&storage,&notes)?,&config,&key,rx.clone())?;
    let state=app.state::<State>();let mut guard=state.0.lock().map_err(|_|ClientError::storage())?;
    let s=guard.as_mut().ok_or_else(stale)?;
    // Stop and commit share this mutex; after stop returns no late result commits.

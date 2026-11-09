@@ -320,3 +320,4 @@ impl ManualSeed for OrganizeStore{
  let a=store.create_round(&["a".repeat(32)],"p").unwrap();let b=store.create_round(&["b".repeat(32)],"p").unwrap();drop(store);
  let store=OrganizeStore::open(&s.0).unwrap();assert_eq!(store.latest_round().unwrap().unwrap().id,b.id);assert_ne!(a.id,b.id);
 }
+#[test]fn bounded_catalog_reuses_unlocked_metadata_without_touching_notes(){let scratch=Scratch::new();let mut store=OrganizeStore::open(&scratch.0).unwrap();let id="a".repeat(32);store.apply_batch("m",&[id.clone()],&[(id,content_hash(b"body"),vec!["机器学习".into(),"实验评估".into()])]).unwrap();let topics=store.list_topics().unwrap();let locked=topics.iter().find(|t|t.topic.name=="机器学习").unwrap();store.set_topic_locked(&locked.topic.id,true).unwrap();let catalog=store.topic_catalog(1).unwrap();assert_eq!(catalog.len(),1);assert_eq!(catalog[0].name,"实验评估");assert!(store.topic_catalog(129).is_err());assert_eq!(store.list_topics().unwrap().len(),2);}

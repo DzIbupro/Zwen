@@ -348,6 +348,12 @@ impl OrganizeStore{
  /// Remove historical empty topics on refresh, without touching batch audit rows.
  pub fn prune_empty_topics(&mut self)->Result<(),Error>{let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;prune_empty(&tx)?;cleanup_relations(&tx)?;tx.commit()?;Ok(())}
 
+ /// Bounded names-only context for consistent future organizing, without note bodies.
+ pub fn topic_catalog(&self,limit:usize)->Result<Vec<Topic>,Error>{
+  if limit==0||limit>128{return Err(Error::InvalidChat);}
+  let mut q=self.connection.prepare("SELECT id,name,column_name,created_by,batch_id,created_at,locked FROM topics WHERE locked=0 ORDER BY (SELECT count(*) FROM memberships WHERE topic_id=topics.id) DESC,column_name,name LIMIT ?1")?;
+  let rows=q.query_map([limit as i64],|r|Ok(Topic{id:r.get(0)?,name:r.get(1)?,column:r.get(2)?,created_by:r.get(3)?,batch_id:r.get(4)?,created_at:r.get(5)?,locked:r.get::<_,i64>(6)?!=0}))?;Ok(rows.collect::<Result<Vec<_>,_>>()?)
+ }
  pub fn list_topics(&self)->Result<Vec<TopicAssignments>,Error>{
   let mut statement=self.connection.prepare("SELECT id,name,column_name,created_by,batch_id,created_at,locked FROM topics ORDER BY column_name,name")?;
   let rows=statement.query_map([],|r|Ok(Topic{id:r.get(0)?,name:r.get(1)?,column:r.get(2)?,created_by:r.get(3)?,batch_id:r.get(4)?,created_at:r.get(5)?,locked:r.get::<_,i64>(6)?==1}))?;

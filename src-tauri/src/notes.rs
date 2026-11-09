@@ -249,5 +249,5 @@ pub async fn organize_get_auto(storage:tauri::State<'_,SharedStorage>)->Result<b
 }
 
 pub fn organize_profile(storage:&SharedStorage)->Result<String,ClientError>{
- serde_json::to_string(&crate::provider::configured(storage)?).map_err(|_|ClientError::storage())
+ crate::organize_job::auto_consent_profile(&crate::provider::configured(storage)?)
 }

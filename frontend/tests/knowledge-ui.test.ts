@@ -25,6 +25,7 @@ it('relation activation exposes reason and opens evidence note',async()=>{
  controller.state.relations=[{id:'r1',fromTopic:'t1',toTopic:'t2',reason:'共同论据',evidence:'n1',addedBy:'ai'}];
  const target=document.createElement('div');document.body.append(target);const onOpenNote=vi.fn();
  const app=mount(KnowledgeGraph,{target,props:{controller,info:controller.state,onOpenNote,onOpenTopic:()=>{}}});flushSync();
+ (Array.from(target.querySelectorAll('button')).find(b=>b.textContent==='主题') as HTMLButtonElement).click();flushSync();
  target.querySelector('[data-edge="r1"]')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));flushSync();
  expect(target.querySelector('[data-relation-detail]')?.textContent).toContain('共同论据');
  (target.querySelector('[data-relation-evidence]') as HTMLButtonElement).click();expect(onOpenNote).toHaveBeenCalledWith('n1');

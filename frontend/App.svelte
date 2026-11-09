@@ -7,6 +7,8 @@
   import {defaultReadingOptions} from './lib/papers';
   import {paperPort} from './lib/bridge';
   import Icon from './Icon.svelte';
+  import SettingsHub, {type SettingsCategory} from './SettingsHub.svelte';
+  import SelectionSettings from './SelectionSettings.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
   import {AppearanceController,initialAppearance,applyAppearance,watchSystemTheme,type AppearanceState} from './lib/appearance';
   import {appearancePort} from './lib/bridge';
@@ -20,7 +22,7 @@
   import {SendDraftCoordinator} from './lib/send-draft';
   import BrandLogo from './BrandLogo.svelte';
   import WelcomeMark from './WelcomeMark.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { DraftController, type Snapshot } from './lib/draft';
   import { draftPort, isDesktop, hideWindow, quitApp } from './lib/bridge';
@@ -66,6 +68,7 @@
   const actionOutput=new ActionOutputController(actionOutputPort,s=>actionOutputState=s);
   let notice=$state('');
   let bookmarkSaving=$state<string|null>(null);let bookmarkSaved=$state<string|null>(null);let bookmarkTimer:ReturnType<typeof setTimeout>|undefined;
+  let settingsCategory=$state<SettingsCategory>('provider');
   let view=$state<'ask'|'reply'|'settings'|'history'|'knowledge'|'graph'>('ask');
   let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:false,keySource:null,fields:{baseUrl:'',model:'',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'loading',loaded:false,error:null,secretSaving:false,secretNotice:null});
   const provider=new ProviderController(providerPort,s=>settings=s);
@@ -107,13 +110,13 @@
     if(!pendingPaper&&!paperContext&&attachmentState.items.length>0&&!imageModelOf(settings.config)){attachmentController.note('截图尚未接入模型；请先在模型设置中配置图片模型');return;}
     if(!isDesktop){notice='浏览器仅预览，请在桌面应用中发送';return;}
     if(settings.status==='loading'||!chatState.loaded){notice='正在读取本机配置，请稍后发送';return;}
-    if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥';await switchSurface('full');view='settings';return;}
+    if(!settings.config||!settings.keyAvailable){notice='请先配置模型服务与密钥';await switchSurface('full');settingsCategory='provider';view='settings';return;}
     view='reply';const sent=draft.text;const sentIds=paperContext||pendingPaper?[]:attachmentState.items.map(item=>item.id);
     const ticket=sendDraft.begin(sentIds,paperContext||pendingPaper?'paper':'draft');if(!ticket)return;
     const accepted=pendingPaper?await chat.sendPaper(pendingPaper.id,{...paperDraftState.options},sent,()=>controller.flush()):await chat.send(sent,()=>controller.flush());
     if(accepted){sendDraft.accept(ticket,chatState);if(pendingPaper)paperDraft.accepted();}else sendDraft.cancel(ticket);
   }
-  async function openQuickSettings(){await switchSurface('full');view='settings';setTimeout(()=>document.querySelector('[data-quick-action-settings]')?.scrollIntoView({block:'start'}),0);}
+  async function openQuickSettings(){await switchSurface('full');settingsCategory='quick';view='settings';await tick();document.getElementById('settings-tab-quick')?.focus();}
   async function selectAction(id:string,expected?:{item:SelectionItem;config:QuickActionConfig}){
     if(appDisposed||closing)return;
     if(expected&&(selectionState.pending?.id!==expected.item.id||selectionState.pending.text!==expected.item.text))return;
@@ -295,7 +298,7 @@
     <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button icon-button" data-quit-app aria-label="保存并退出" title={closing?'正在退出…':'保存并退出'} disabled={closing} onclick={()=>leave(true)}><Icon name="close"/></button></div>
   </header>
   {#if !isDesktop}<div class="preview-banner">浏览器界面预览 · 不会请求模型</div>{/if}
-  {#if appearanceState.error&&view!=='settings'}<div class="appearance-save-error" role="alert">{appearanceState.error}<button onclick={()=>view='settings'}>外观设置</button></div>{/if}
+  {#if appearanceState.error&&view!=='settings'}<div class="appearance-save-error" role="alert">{appearanceState.error}<button onclick={()=>{settingsCategory='appearance';view='settings';}}>外观设置</button></div>{/if}
   <div class="workspace">
     <main>
       {#if view==='history'}
@@ -305,9 +308,12 @@
       {:else if view==='knowledge'}
         <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
       {:else if view==='settings'}
-        <AppearanceSettings state={appearanceState} onTheme={theme=>void appearance.update({theme})} onReload={()=>void appearance.start()}/>
-        <ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()} candidateEnabled={candidateEnabled} onCandidateToggle={onCandidateToggle}/>
-        {#if isDesktop}<QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{/if}
+        <SettingsHub bind:category={settingsCategory}>
+          {#snippet appearancePanel()}<AppearanceSettings state={appearanceState} onTheme={theme=>void appearance.update({theme})} onReload={()=>void appearance.start()}/>{/snippet}
+          {#snippet providerPanel()}<ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>{/snippet}
+          {#snippet selectionPanel()}<SelectionSettings desktop={isDesktop} enabled={candidateEnabled} onToggle={onCandidateToggle}/>{/snippet}
+          {#snippet quickPanel()}{#if isDesktop}<QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{:else}<p class="preview-banner">请在桌面应用中配置快捷操作。</p>{/if}{/snippet}
+        </SettingsHub>
       {:else if view==='ask'}
         <div class="empty-conversation"><div class="welcome-scene"><WelcomeMark/><p>今天想问 Zwen 什么问题？</p></div></div>
       {:else}

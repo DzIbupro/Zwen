@@ -8,7 +8,7 @@
 </script>
 {#if state.confirming&&view}
  <div data-organize-confirm-view>
-  <p>确认将 <b>{remaining} 篇</b>笔记的标题和正文发送至 <b>{view.baseUrl}</b> 的模型 <b>{view.model}</b>，分 {Math.ceil(remaining/8)} 批处理，每批最多 8 篇。每篇正文最多发送前 4000 字符，不发送图片附件。</p>
+  <p>确认将 <b>{remaining} 篇</b>笔记的标题和正文发送至 <b>{view.baseUrl}</b> 的模型 <b>{view.model}</b>，分 {Math.ceil(remaining/8)} 批处理，每批最多 8 篇。每篇正文最多发送前 4000 字符，并附上最多80项已有主题/栏目名称供复用，不发送图片附件。</p>
   <p>已完成批次保留；剩余部分可停止后重试，可撤销本轮全部已完成批次。模型配置在本轮固定，笔记原文不会修改。</p>
   <button disabled={state.busy} onclick={()=>controller.cancelConfirm()}>返回</button>
   <button data-organize-go disabled={state.busy} onclick={()=>void controller.start()}>确认整理</button>

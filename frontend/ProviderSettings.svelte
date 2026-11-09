@@ -1,6 +1,6 @@
 <script lang="ts">
  import type {SettingsState,ProviderConfig} from './lib/provider';
- let {settings,desktop,onEdit,onSave,onReload,onSaveSecret,onClearSecret,candidateEnabled,onCandidateToggle}:{settings:SettingsState;desktop:boolean;onEdit:(name:keyof ProviderConfig,value:string)=>void;onSave:()=>void;onReload:()=>void;onSaveSecret:(value:string)=>Promise<void>;onClearSecret:()=>Promise<void>;candidateEnabled:boolean;onCandidateToggle:(on:boolean)=>void}=$props();
+ let {settings,desktop,onEdit,onSave,onReload,onSaveSecret,onClearSecret}:{settings:SettingsState;desktop:boolean;onEdit:(name:keyof ProviderConfig,value:string)=>void;onSave:()=>void;onReload:()=>void;onSaveSecret:(value:string)=>Promise<void>;onClearSecret:()=>Promise<void>}=$props();
  const busy=$derived(settings.status==='loading'||settings.status==='saving');
  let secretValue=$state('');
  const secretBusy=$derived(settings.secretSaving);
@@ -30,18 +30,13 @@
    {#if settings.secretNotice}<div class="failure" role="alert">{settings.secretNotice}</div>{/if}
   {/if}
   <div class="state" role="status">{settings.status==='saving'?'正在保存…':settings.status==='loading'?'正在读取…':settings.status==='dirty'?'有未保存的修改':settings.config?settings.keyAvailable?'配置已保存 · 已检测到密钥，尚未验证联网':'配置已保存 · 未检测到有效密钥':'尚未配置模型'}</div>
-  {#if desktop}
-   <label for="candidate-toggle">自动划词菜单</label>
-   <div class="candidate-row"><input id="candidate-toggle" type="checkbox" checked={candidateEnabled} onchange={e=>onCandidateToggle(e.currentTarget.checked)}/><span class="secret-state">在支持选区的应用中弹出操作菜单；点击翻译、解释或自定义动作后才发送</span></div>
-  {/if}
+
     {#if settings.error}<div class="failure" role="alert">{settings.error}</div>{/if}
   <div class="actions"><button type="button" disabled={busy} onclick={onReload}>重新读取</button><button class="primary" type="submit" disabled={!desktop||busy||!settings.loaded}>保存模型设置</button></div>
  </form>
 </section>
 <style>
  .settings{max-width:620px;margin:28px auto;padding:0 18px 28px;color:var(--text)}h1{font-size:29px;font-weight:550;letter-spacing:-1px;margin:12px 0}p,small{color:var(--muted);font-size:13px;line-height:1.8}form{display:flex;flex-direction:column;margin-top:28px}label{font-size:13px;margin:18px 0 8px}input{width:100%;box-sizing:border-box;border:1px solid var(--edge);border-radius:12px;padding:11px 12px;background:var(--surface);color:var(--text);font:inherit;font-size:13px}input:focus{outline:2px solid var(--focus-ring);outline-offset:2px}small{font-size:13px;margin-top:7px}.state{margin-top:23px;color:var(--accent);font-size:13px}.failure{color:var(--danger);font-size:13px;margin-top:10px}.hint{border-left:2px solid var(--edge);padding-left:12px}.actions{display:flex;gap:12px;margin-top:20px}button{border:1px solid var(--edge);background:transparent;color:var(--muted);border-radius:12px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}button:disabled,input:disabled{opacity:.5;cursor:default}
- .candidate-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
- .candidate-row input{width:auto}
  .secret-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.secret-row button{padding:8px 12px}.secret-state{font-size:13px;color:var(--muted)}
 
  button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
@@ -50,5 +45,5 @@
  button:focus-visible,input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
  button:disabled{opacity:.5;cursor:default}
  @media(prefers-reduced-motion:reduce){button{transition:none}}
- .settings{font-size:16px;line-height:1.65}h1{font-size:26px;margin:0}p{font-size:16px;line-height:1.65}label{font-size:14px}input{font-size:16px;box-shadow:var(--inset-shadow)}input[type="checkbox"]{box-shadow:none;accent-color:var(--accent)}button{font-size:14px;background:var(--surface);color:var(--text)}.actions{flex-wrap:wrap}.candidate-row{align-items:flex-start}.candidate-row input{flex-shrink:0}.failure{color:var(--danger)}@media(max-width:520px){.settings{padding-inline:0}.secret-row{gap:12px}.secret-state{overflow-wrap:anywhere}}
+ .settings{font-size:16px;line-height:1.65}h1{font-size:26px;margin:0}p{font-size:16px;line-height:1.65}label{font-size:14px}input{font-size:16px;box-shadow:var(--inset-shadow)}button{font-size:14px;background:var(--surface);color:var(--text)}.actions{flex-wrap:wrap}.failure{color:var(--danger)}@media(max-width:520px){.settings{padding-inline:0}.secret-row{gap:12px}.secret-state{overflow-wrap:anywhere}}
 </style>
