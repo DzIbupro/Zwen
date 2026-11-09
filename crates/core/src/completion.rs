@@ -37,9 +37,9 @@ impl CompletionDecoder {
 #[derive(Clone,Debug,PartialEq,serde::Serialize)]
 #[serde(rename_all="lowercase")]
 pub enum Role {User,Assistant}
-/// `images` carries bare base64 payloads (official GLM-4.6V examples use raw
-/// base64 in `image_url.url`). Empty renders the plain string form that
-/// text-only services expect; images render the official content-parts array.
+/// `images` carries legacy bare base64 payloads or PNG data URLs for PDF pages.
+/// Empty renders the string form text-only services expect; images render
+/// the compatible content-parts array.
 #[derive(Clone,Debug,PartialEq)]
 pub struct Message {pub role:Role,pub content:String,pub images:Vec<String>}
 impl serde::Serialize for Message {

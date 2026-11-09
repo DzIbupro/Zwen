@@ -28,9 +28,16 @@ fn publish(app:&tauri::AppHandle,state:&Shared,reply:Reply)->Result<(),()>{
  if s.active.as_ref().is_none_or(|a|a.id!=reply.turn.request_id){return Err(());}
  s.last=Some(reply.clone());app.emit("chat-update",reply).map_err(|_|())
 }
-fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,attach_dir:std::path::PathBuf,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
+fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,mut messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,attach_dir:std::path::PathBuf,media:Option<crate::paper_media::Request>,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
  let mut emit_at=Instant::now();let mut save_at=Instant::now();let mut first=true;
+ let mut media_error=None;
  let result=(||{
+  if let Some(request)=media{
+   match crate::paper_media::render(&request,&cancel){
+    Ok(images)=>{if let Some(last)=messages.last_mut(){last.images=images;}},
+    Err(e)=>{if *cancel.borrow()||cancel.has_changed().is_err(){return Err(zwen_transport::Error::Cancelled);}media_error=Some(e.to_string());return Err(zwen_transport::Error::InvalidInput);}
+   }
+  }
   let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_|zwen_transport::Error::Network)?;
   runtime.block_on(async{
    let client=zwen_transport::client()?;
@@ -61,7 +68,7 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
  })();
  turn.revision+=1;
  turn.state=match result{Ok(FinishReason::Stop)=>TurnState::Complete,Ok(FinishReason::Length)=>TurnState::Limited,Ok(FinishReason::Filtered)=>TurnState::Filtered,Err(zwen_transport::Error::Cancelled)=>TurnState::Stopped,Err(_)=>TurnState::Failed};
- turn.error=match &result{Err(zwen_transport::Error::Cancelled)=>None,Err(e)=>Some(e.to_string()),Ok(FinishReason::Length)=>Some("达到服务输出限制，回答可能不完整".into()),Ok(FinishReason::Filtered)=>Some("服务限制了本轮输出".into()),_=>None};
+ turn.error=match &result{Err(zwen_transport::Error::Cancelled)=>None,Err(e)=>Some(media_error.unwrap_or_else(||e.to_string())),Ok(FinishReason::Length)=>Some("达到服务输出限制，回答可能不完整".into()),Ok(FinishReason::Filtered)=>Some("服务限制了本轮输出".into()),_=>None};
  let saved=journal.checkpoint(&turn).is_ok();if saved&&turn.state==TurnState::Complete&&!consume_ids.is_empty(){
   // Failed/partial requests must retain their exact screenshots for manual recovery.
   if let Ok(mut store)=AttachmentStore::open(&attach_dir){for id in &consume_ids{let _=store.remove(id);}}
@@ -76,7 +83,7 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
 }
 struct Prepared {
  turn:Turn,config:zwen_core::provider::ProviderConfig,
- messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,
+ messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,media:Option<crate::paper_media::Request>,
 }
 fn prepare_turn(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::provider::ProviderConfig,request_id:&str,prompt:String,conversation_id:Option<&str>,isolated:bool)->Result<Prepared,ClientError>{
  let profile=serde_json::to_string(&config).map_err(|_|ClientError::storage())?;
@@ -102,7 +109,7 @@ fn prepare_turn(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::pro
   let turn=journal.begin_in(&request_id,&prompt,&request_model,conversation_id,&profile,count)?;
   let (images,consume_ids)=vision.map(|(_,images,ids)|(images,ids)).unwrap_or_default();
  messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt,images});
- Ok(Prepared{turn,config:request_config,messages,consume_ids})
+ Ok(Prepared{turn,config:request_config,messages,consume_ids,media:None})
 }
 enum StartScope {Paper{source:String,options:zwen_core::paper::ReadingOptions},Conversation(Option<String>),Selection{selection:String,action_id:String,expected_revision:u64}}
 pub async fn start_paper(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_id:String,source:String,options:zwen_core::paper::ReadingOptions,question:Option<String>)->Result<Reply,ClientError>{
@@ -113,15 +120,16 @@ fn bound_document(dir:&std::path::Path,id:&str)->Result<Option<(zwen_core::paper
  if id.starts_with("paper-")&&document.is_none(){return Err(error("paper_source_missing","论文来源或会话绑定丢失，已停止发送；请重新导入并新建分析"));}Ok(document)
 }
 fn prepare_document(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::provider::ProviderConfig,request_id:&str,prompt:String,conversation:Option<&str>,source:&zwen_core::paper::Source,options:&zwen_core::paper::ReadingOptions)->Result<Prepared,ClientError>{
- let _=dir; // File access stays in the paper adapter; screenshots are never inspected here.
+ let request_config=if options.read_images{let model=config.image_model().ok_or_else(||error("paper_image_model_missing","请先在模型设置中配置图片模型，或关闭页图补读"))?;config.with_model(model)?}else{config.clone()};
  let full=source.request(options,&prompt).map_err(crate::paper::error)?;
+ let media=if options.read_images{let end=if options.end_page==0{source.pages.len()}else{options.end_page};let pdf=zwen_core::paper::Library::open(dir).map_err(crate::paper::error)?.pdf_path(&source.meta.id).map_err(crate::paper::error)?;Some(crate::paper_media::Request{pdf,pages:(options.start_page..=end).collect()})}else{None};
  let profile=serde_json::to_string(config).map_err(|_|ClientError::storage())?;
  let mut messages=match journal.context(conversation,&profile,full.len()){
   Ok(messages)=>messages,Err(zwen_core::Error::ContextTooLarge)=>Vec::new(),Err(e)=>return Err(e.into())
  };let count=messages.len()/2;
- let turn=journal.begin_in(request_id,&prompt,config.model(),conversation,&profile,count)?;
+ let turn=journal.begin_in(request_id,&prompt,request_config.model(),conversation,&profile,count)?;
  messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:full,images:Vec::new()});
- Ok(Prepared{turn,config:config.clone(),messages,consume_ids:Vec::new()})
+ Ok(Prepared{turn,config:request_config,messages,consume_ids:Vec::new(),media})
 }
 #[tauri::command]
 pub async fn start_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,request_id:String,prompt:String,conversation_id:Option<String>)->Result<Reply,ClientError>{
@@ -177,7 +185,7 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
   }
   let reply=Reply{turn:prepared.turn.clone(),saved:true,retry:None};s.last=Some(reply.clone());
   let (cancel,rx)=watch::channel(false);let id=request_id;let worker=state.clone();
-  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,rx));
+  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,prepared.media,rx));
   s.active=Some(Active{id,cancel,handle:Some(handle)});Ok(reply)
  }).await.map_err(|_|ClientError::storage())?
 }

@@ -6,7 +6,7 @@
  try{
   await wait(()=>document.querySelector('[data-paper-toggle]'));
   if(document.querySelector('[data-nav=papers]'))throw Error('separate paper navigation remains');
-  await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'paper-fixture',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
+  await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'paper-fixture',imageModel:'paper-vision-fixture',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
   document.querySelector('[data-nav=settings]').click();
   await wait(()=>{const b=document.querySelector('[aria-label="模型设置"] .actions button');return b&&!b.disabled;});
   document.querySelector('[aria-label="模型设置"] .actions button').click();
@@ -37,6 +37,11 @@
   stage='stop';const slow=await invoke('start_chat',{requestId:'stop-fixture',prompt:'slow request',conversationId:first.conversationId});
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.requestId===slow.requestId&&s.reply.answer.length>0;});
   const stopped=await invoke('stop_chat',{requestId:slow.requestId});if(stopped?.state!=='stopped'||!stopped.saved||!stopped.answer)throw Error('partial stop not durable');
-  await emit('foundation-smoke',{ok:true,mode:'paper-v2',inChat:true,noSeparateNavigation:true,sourceOnFollowup:true,markdown:true,selectionDismiss:true,stopSaved:true,pages:3,readable:2});
+  stage='visual analysis';if(!document.querySelector('[data-paper-more]').open)document.querySelector('[data-paper-more]>summary').click();document.querySelector('[data-paper-upload]').click();await wait(()=>document.querySelector('[aria-label="移除论文附件"]'));
+  if(!document.querySelector('[data-paper-more]').open)document.querySelector('[data-paper-more]>summary').click();if(!document.querySelector('[data-paper-options]').open)document.querySelector('[data-paper-options]>summary').click();const imageOption=document.querySelector('[data-paper-read-images]');if(imageOption.disabled)throw Error('image model option unavailable');imageOption.checked=true;imageOption.dispatchEvent(new Event('change',{bubbles:true}));fill('Read the page figures');await new Promise(r=>setTimeout(r,30));document.querySelector('[data-send]').click();
+  await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete'&&s.reply.model==='paper-vision-fixture';});
+  const visual=(await invoke('get_chat')).reply;await wait(()=>document.querySelector('[data-paper-image-notice]')?.textContent.includes('paper-vision-fixture'));
+  stage='visual followup';fill('Explain the figure evidence');await new Promise(r=>setTimeout(r,30));document.querySelector('[data-send]').click();await wait(async()=>{const s=await invoke('get_chat');return s.reply?.requestId!==visual.requestId&&s.reply?.state==='complete'&&s.reply?.model==='paper-vision-fixture';});
+  await emit('foundation-smoke',{ok:true,mode:'paper-v2',pageImages:true,inChat:true,noSeparateNavigation:true,sourceOnFollowup:true,markdown:true,selectionDismiss:true,stopSaved:true,pages:3,readable:2});
  }catch(error){await emit('foundation-smoke',{ok:false,mode:'paper-v2',stage,error:String(error)});}
 })();

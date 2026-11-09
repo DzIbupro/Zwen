@@ -82,6 +82,8 @@
     "allow-paper-session-info",
     "allow-paper-legacy-papers",
     "allow-paper-legacy-open",
-    "allow-paper-defaults"
+    "allow-paper-defaults",
+    "allow-paper-list-page",
+    "allow-paper-metadata"
   ]
 }

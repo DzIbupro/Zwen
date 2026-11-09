@@ -11,6 +11,10 @@ pub fn paper_defaults()->ReadingOptions{ReadingOptions::default()}
 #[tauri::command]
 pub async fn paper_list(storage:tauri::State<'_,SharedStorage>)->Result<Vec<Metadata>,ClientError>{let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||library(&s)?.list().map_err(error)).await.map_err(|_|ClientError::storage())?}
 #[tauri::command]
+pub async fn paper_list_page(storage:tauri::State<'_,SharedStorage>,cursor:Option<i64>)->Result<zwen_core::paper::MetadataPage,ClientError>{let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||library(&s)?.list_page(cursor,50).map_err(error)).await.map_err(|_|ClientError::storage())?}
+#[tauri::command]
+pub async fn paper_metadata(storage:tauri::State<'_,SharedStorage>,paper_id:String)->Result<Metadata,ClientError>{let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||library(&s)?.metadata(&paper_id).map_err(error)).await.map_err(|_|ClientError::storage())?}
+#[tauri::command]
 pub async fn paper_choose(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>)->Result<Option<Metadata>,ClientError>{
  let (tx,rx)=tokio::sync::oneshot::channel();
  app.run_on_main_thread(move||{
@@ -93,7 +97,8 @@ pub async fn paper_export(storage:tauri::State<'_,SharedStorage>,request_id:Stri
   let mut opt=fs::OpenOptions::new();opt.write(true).create_new(true);
   #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;opt.mode(0o600);}
   let mut f=opt.open(&target).map_err(|_|ClientError::storage())?;
-  let markdown=format!("# {}\n\n模型：{}；状态：{:?}；PDF物理页：{}–{} / {}\n\n图表图像未读取，公式与引用需核对。\n\n## 本轮问题\n\n{}\n\n{}",source.meta.name,turn.model,turn.state,options.start_page,if options.end_page==0{source.meta.page_count}else{options.end_page},source.meta.page_count,turn.prompt,turn.answer);
+  let media=if options.read_images{"已提交所选页图补读，图表、公式与视觉结论仍需原文核对。"}else{"仅提交提取文字，图表图像未读取，公式与引用需核对。"};
+  let markdown=format!("# {}\n\n模型：{}；状态：{:?}；PDF物理页：{}–{} / {}\n\n{media}\n\n## 本轮问题\n\n{}\n\n{}",source.meta.name,turn.model,turn.state,options.start_page,if options.end_page==0{source.meta.page_count}else{options.end_page},source.meta.page_count,turn.prompt,turn.answer);
   f.write_all(markdown.as_bytes()).and_then(|_|f.sync_all()).map_err(|_|ClientError::storage())?;Ok(target.to_string_lossy().into_owned())
  }).await.map_err(|_|ClientError::storage())?
 }
@@ -107,7 +112,7 @@ pub async fn paper_session_info(storage:tauri::State<'_,SharedStorage>,conversat
   let journal=zwen_core::journal::Journal::open(&s.directory.as_ref().map_err(Clone::clone)?.join("chat.sqlite3"))?;
   let turn=journal.latest_in(&conversation_id)?.ok_or_else(ClientError::storage)?;
   let profile:zwen_core::provider::ProviderConfig=serde_json::from_str(&turn.provider_profile).map_err(|_|ClientError::storage())?;
-  Ok(SessionInfo{source:source.meta,options,endpoint:profile.base_url().into(),model:profile.model().into()})
+  Ok(SessionInfo{source:source.meta,options,endpoint:profile.base_url().into(),model:turn.model.clone()})
  }).await.map_err(|_|ClientError::storage())?
 }
 

@@ -1,4 +1,4 @@
-//! Text-only provider HTTP transport. No body/key/URL is included in errors.
+//! Compatible text and image provider HTTP transport. No body/key/URL is included in errors.
 use std::{fmt,time::Duration};
 use tokio::sync::watch;
 use zwen_core::{provider::{ProviderConfig,ApiKey},completion::{CompletionDecoder,FinishReason},stream::{Decoder,MAX_CHUNK_BYTES}};
@@ -43,7 +43,7 @@ pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:
  if messages.is_empty()||messages.len()>17||messages.len()%2==0||messages.last().is_none_or(|m|m.content.trim().is_empty())||messages.iter().enumerate().any(|(i,m)|m.role!=if i%2==0{Role::User}else{Role::Assistant}){return Err(Error::InvalidInput);}
  let total_images:usize=messages.iter().map(|m|m.images.len()).sum();
  if messages.iter().any(|m|m.images.len()>MAX_MESSAGE_IMAGES)||total_images>MAX_MESSAGE_IMAGES{return Err(Error::InvalidInput);}
- if messages.iter().any(|m|m.images.iter().any(|image|image.is_empty()||image.len()>MAX_IMAGE_PAYLOAD_BYTES||!image.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'+'||b==b'/'||b==b'='))){return Err(Error::InvalidInput);}
+ if messages.iter().any(|m|m.images.iter().any(|image|{let payload=image.strip_prefix("data:image/png;base64,").unwrap_or(image);payload.is_empty()||image.len()>MAX_IMAGE_PAYLOAD_BYTES||!payload.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'+'||b==b'/'||b==b'=')})){return Err(Error::InvalidInput);}
  let bytes=messages.iter().try_fold(0usize,|n,m|n.checked_add(m.content.len())).ok_or(Error::InvalidInput)?;
  if bytes>zwen_core::MAX_DRAFT_BYTES{return Err(Error::InvalidInput);}
  if *cancel.borrow(){return Err(Error::Cancelled);}

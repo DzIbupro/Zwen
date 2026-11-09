@@ -46,3 +46,34 @@ const ID:&str="0123456789abcdef0123456789abcdef";
  let text=source.request(&custom,"分析论文").unwrap();assert!(text.contains("本次关注问题：\n重点核对消融实验"));assert!(text.contains("本次输出要求：\n输出一段机制解释和一张消融表"));
  let blank=ReadingOptions{focus:String::new(),output_requirements:String::new(),..custom};let text=source.request(&blank,"分析论文").unwrap();assert!(text.contains("本次关注问题：\n1."));assert!(text.contains("本次输出要求：\n1."));
 }
+#[test] fn image_reading_allows_scanned_pages_only_with_explicit_bounded_mode(){
+ let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"scan.pdf".into(),page_count:2,readable_pages:0},pages:vec![String::new(),String::new()]};
+ assert!(source.request(&Default::default(),"分析").is_err());let options=ReadingOptions{read_images:true,..Default::default()};let text=source.request(&options,"分析").unwrap();assert!(text.contains("页图"));assert!(!text.contains("图表图像未读取，"));
+ let large=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"large.pdf".into(),page_count:9,readable_pages:0},pages:vec![String::new();9]};assert!(large.request(&options,"分析").is_err());
+ let text=large.request(&ReadingOptions{end_page:2,..options},"分析").unwrap();assert!(text.contains("第1–2页 / 共9页"));
+}
+#[test] fn metadata_pagination_does_not_parse_paper_text(){
+ let d=dir();let mut lib=Library::open(&d).unwrap();
+ for n in 1..=4{lib.add(&format!("{n:032x}"),&format!("{n}.pdf"),b"%PDF-1.7\nfixture",vec!["evidence".into()]).unwrap();}
+ let first=lib.list_page(None,2).unwrap();assert_eq!(first.items.len(),2);let cursor=first.next_cursor.unwrap();let second=lib.list_page(Some(cursor),2).unwrap();assert_eq!(second.items.len(),2);assert!(second.next_cursor.is_none());assert_ne!(first.items[0].id,second.items[0].id);
+ drop(lib);let db=rusqlite::Connection::open(d.join("papers-v2/library.sqlite3")).unwrap();db.execute("UPDATE sources SET pages='not valid json' WHERE id=?1",[ID]).unwrap();db.execute("UPDATE sources SET pages='not valid json'",[]).unwrap();drop(db);
+ let lib=Library::open(&d).unwrap();assert_eq!(lib.list_page(None,2).unwrap().items.len(),2);assert_eq!(lib.metadata("00000000000000000000000000000001").unwrap().name,"1.pdf");std::fs::remove_dir_all(d).unwrap();
+}
+#[test] fn v1_migration_snapshots_and_preserves_large_source_and_sessions(){
+ let d=dir();let folder=d.join("papers-v2");std::fs::create_dir(&folder).unwrap();let path=folder.join("library.sqlite3");
+ let c=rusqlite::Connection::open(&path).unwrap();c.execute_batch("CREATE TABLE sources(id TEXT PRIMARY KEY,name TEXT NOT NULL,pages TEXT NOT NULL);CREATE TABLE sessions(conversation TEXT PRIMARY KEY,source TEXT NOT NULL,options TEXT NOT NULL);PRAGMA user_version=1;").unwrap();
+ let pages=serde_json::to_string(&vec!["x".repeat(1100000),String::new()]).unwrap();c.execute("INSERT INTO sources VALUES(?1,'old.pdf',?2)",rusqlite::params![ID,pages]).unwrap();c.execute("INSERT INTO sessions VALUES('paper-old',?1,'{\"mode\":\"deep\",\"startPage\":1,\"endPage\":0,\"focus\":\"\",\"background\":\"\"}')",[ID]).unwrap();drop(c);
+ let lib=Library::open(&d).unwrap();assert_eq!(lib.metadata(ID).unwrap().readable_pages,1);assert_eq!(lib.get(ID).unwrap().pages[0].len(),1100000);assert!(!lib.session("paper-old").unwrap().unwrap().1.read_images);drop(lib);
+ let backup=std::fs::read_dir(&folder).unwrap().filter_map(|p|p.ok()).find(|p|p.file_name().to_string_lossy().starts_with("library-before-v2-")).unwrap().path();let backup=rusqlite::Connection::open(backup).unwrap();assert_eq!(backup.pragma_query_value(None,"user_version",|r|r.get::<_,i64>(0)).unwrap(),1);assert_eq!(backup.query_row("SELECT count(*) FROM sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);drop(backup);std::fs::remove_dir_all(d).unwrap();
+}
+#[test] fn page_images_are_validated_before_model_delivery(){
+ let mut bytes=Vec::new();{let mut e=png::Encoder::new(&mut bytes,2,2);e.set_color(png::ColorType::Rgb);e.set_depth(png::BitDepth::Eight);let mut w=e.write_header().unwrap();w.write_image_data(&[255;12]).unwrap();}
+ assert!(zwen_core::paper::validate_page_png(&bytes).is_ok());assert!(zwen_core::paper::validate_page_png(b"not an image").is_err());assert!(zwen_core::paper::validate_page_png(&bytes[..bytes.len()/2]).is_err());
+}
+#[test] fn failed_migration_reuses_verified_backup_and_cleans_staging(){
+ let d=dir();let folder=d.join("papers-v2");std::fs::create_dir(&folder).unwrap();let path=folder.join("library.sqlite3");
+ let c=rusqlite::Connection::open(&path).unwrap();c.execute_batch("CREATE TABLE sources(id TEXT PRIMARY KEY,name TEXT NOT NULL,pages TEXT NOT NULL);CREATE TABLE sessions(conversation TEXT PRIMARY KEY,source TEXT NOT NULL,options TEXT NOT NULL);PRAGMA user_version=1;").unwrap();c.execute("INSERT INTO sources VALUES(?1,'broken.pdf','invalid-json')",[ID]).unwrap();drop(c);
+ assert!(Library::open(&d).is_err());assert!(Library::open(&d).is_err());
+ let backups=std::fs::read_dir(&folder).unwrap().filter_map(|p|p.ok()).filter(|p|p.file_name().to_string_lossy().starts_with("library-before-v2-")).collect::<Vec<_>>();assert_eq!(backups.len(),1);assert!(backups[0].file_name().to_string_lossy().ends_with(".sqlite3"));
+ let c=rusqlite::Connection::open(&path).unwrap();assert_eq!(c.pragma_query_value(None,"user_version",|r|r.get::<_,i64>(0)).unwrap(),1);drop(c);std::fs::remove_dir_all(d).unwrap();
+}

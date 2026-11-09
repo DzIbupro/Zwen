@@ -23,8 +23,17 @@ fn response(text:&str,finished:bool)->Vec<u8>{let mut s=format!("data: {}\r\n\r\
 #[test] fn invalid_image_payloads_are_rejected_before_any_request(){runtime().block_on(async{use zwen_core::completion::{Message,Role};let(cfg,request,task)=server("200 OK","text/event-stream",response("never",true),false);let cases=vec![
  Message{role:Role::User,content:"q".into(),images:vec![String::new()]},
  Message{role:Role::User,content:"q".into(),images:vec!["not base64!".into()]},
+ Message{role:Role::User,content:"q".into(),images:vec!["data:image/png;base64,".into()]},
+ Message{role:Role::User,content:"q".into(),images:vec!["https://example.invalid/page.png".into()]},
+ Message{role:Role::User,content:"q".into(),images:vec!["data:text/html;base64,QUJD".into()]},
  Message{role:Role::User,content:"q".into(),images:vec!["QQ==".into();9]},
 ];for messages in cases{let(_tx,rx)=watch::channel(false);let result=zwen_transport::stream_messages(&client().unwrap(),&cfg,&ApiKey::new("fixture-token").unwrap(),std::slice::from_ref(&messages),rx,|_|panic!("Invalid payload sent")).await;assert_eq!(result,Err(Error::InvalidInput));}
  assert!(request.recv_timeout(Duration::from_millis(300)).is_err());task.join().unwrap();});}
 #[test] fn provider_error_code_is_preserved_without_the_message(){runtime().block_on(async{let(cfg,_,task)=server("429 Too Many Requests","application/json",br#"{"error":{"code":"1302","message":"private-secret-value"}}"#.to_vec(),false);let(_tx,rx)=watch::channel(false);let result=stream_text(&client().unwrap(),&cfg,&ApiKey::new("fixture-token").unwrap(),"q",rx,|_|panic!("Error body emitted")).await;let message=result.unwrap_err().to_string();assert!(message.contains("429"));assert!(message.contains("1302"));assert!(!message.contains("private-secret-value"));task.join().unwrap();});}
 #[test]fn permanent_string_quota_errors_never_become_temporary_429(){runtime().block_on(async{for body in [br#"{"error":{"code":"insufficient_quota","message":"private-quota-body"}}"#.to_vec(),br#"{"error":{"type":"billing_hard_limit_reached"}}"#.to_vec()]{let(cfg,_,task)=server("429 Too Many Requests","application/json\r\nRetry-After: 1",body,false);let(_tx,rx)=watch::channel(false);let error=stream_text(&client().unwrap(),&cfg,&ApiKey::new("fixture-token").unwrap(),"q",rx,|_|panic!("error text emitted")).await.unwrap_err();assert_eq!(zwen_transport::retry::RetryPolicy::default().delay(&error,1),None);assert!(!error.to_string().contains("private-quota-body"));task.join().unwrap();}});}
+#[test] fn png_data_url_pages_reach_compatible_vision_services(){runtime().block_on(async{
+ use zwen_core::completion::{Message,Role};let(cfg,request,task)=server("200 OK","text/event-stream",response("seen",true),false);
+ let url="data:image/png;base64,QUJD";let messages=vec![Message{role:Role::User,content:"Read the attached PDF page".into(),images:vec![url.into()]}];let(_tx,rx)=watch::channel(false);
+ assert_eq!(zwen_transport::stream_messages(&client().unwrap(),&cfg,&ApiKey::new("fixture-token").unwrap(),&messages,rx,|_|Ok(())).await,Ok(FinishReason::Stop));
+ let req=request.recv().unwrap();let i=req.windows(4).position(|v|v==b"\r\n\r\n").unwrap();let body:serde_json::Value=serde_json::from_slice(&req[i+4..]).unwrap();assert_eq!(body["messages"][0]["content"][0]["image_url"]["url"],url);task.join().unwrap();
+});}

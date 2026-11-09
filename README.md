@@ -15,11 +15,11 @@
 本版本复用Poppler全文提取及现有聊天的流式响应、保存、停止、历史、净化Markdown与知识库，不再运行旧分批JSON/长片段ID分析流水线。需要PATH可用的 `pdfinfo`、`pdftotext`（本机已有）；PDF≤50 MiB、≤300页、提取文字≤8 MiB。所选材料超过现有256 KiB请求上限时明确提示缩小范围，不静默截断。
 
 - 导入不联网；开始分析和追问时才发送原文、关注点与背景。追问按会话保存的范围重新附上原文，显示实际服务与范围。
-- 当前路径读取文字，图表图像和扫描件OCR尚未接入；原生PDF附件能力尚未确认，不能把文字提取当作已读图表。
-- 新资料保存于数据目录 `papers-v2/`，回答复用 `chat.sqlite3`。旧 `papers.sqlite3`、原件及笔记保留；输入区“已导入论文”的折叠菜单提供旧记录只读查看和原件打开。
+- 默认读取文字。配置已有的图片模型后，可在“阅读选项与资料 → 阅读要求”中启用页图补读（每次最多8页），结合页图分析扫描件、图表和公式；模糊内容仍需核对。扫描件无文字时也提供快捷启用入口。原生PDF附件协议和独立本地OCR尚未接入。
+- 新资料保存于数据目录 `papers-v2/`，回答复用 `chat.sqlite3`。资料列表按元数据分页，旧v2资料库首次升级前生成经校验的私有备份，保留原件与会话。旧 `papers.sqlite3`、原件及笔记保留；输入区“已导入论文”的折叠菜单提供旧记录只读查看和原件打开。
 - 可停止并保留部分内容、继续历史、收藏知识库、导出Markdown。论文会话与草稿截图隔离，缺少论文来源时停止发送。
 
-运行论文试用入口：`./artifacts/zwen-paper-analysis show`。主程序 `artifacts/zwen` 不自动替换。开发及验收边界见[记录](docs/validation/2026-11-09-paper-v2.md)，继续开发见[交接](docs/PAPER-READING-HANDOFF.md)。
+运行论文试用入口：`./artifacts/zwen-paper-analysis show`。主程序 `artifacts/zwen` 不自动替换。页图与资料库更新见[最新记录](docs/validation/2026-11-09-paper-media-and-library.md)，最初文字路径见[记录](docs/validation/2026-11-09-paper-v2.md)，继续开发见[交接](docs/PAPER-READING-HANDOFF.md)。
 
 ## 两种窗口
 

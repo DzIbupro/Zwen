@@ -8,6 +8,7 @@ serde = { version = "1", features = ["derive"] }
 rusqlite = { version = "=0.41.1", features = ["limits"] }
 
 serde_json = "1"
+sha2 = "=0.10.9"
 url = "=2.5.8"
 png = "=0.18.1"
 

@@ -1,5 +1,5 @@
 """Real Poppler/native UI with owned synthetic PDF, isolated data and loopback model."""
-import json,os,subprocess,sys,tempfile,threading,time
+import json,os,subprocess,sys,tempfile,threading,time,base64
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 
@@ -21,6 +21,12 @@ class Service(BaseHTTPRequestHandler):
         try:
             body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(body)
             last=body['messages'][-1]['content']
+            if isinstance(last,list):
+                images=[p['image_url']['url'] for p in last if p.get('type')=='image_url']
+                assert body['model']=='paper-vision-fixture' and len(images)==3
+                assert all(image.startswith('data:image/png;base64,') and base64.b64decode(image.split(',',1)[1]).startswith(b'\x89PNG\r\n\x1a\n') for image in images)
+                last=next(p['text'] for p in last if p.get('type')=='text')
+            else:assert body['model']=='paper-fixture'
             if len(requests)==1 and os.environ.get('ZWEN_PAPER_CAPTURE')=='1':
                 time.sleep(.3)
                 if os.environ.get('ZWEN_PAPER_CAPTURE_WESTON')=='1':
@@ -31,7 +37,7 @@ class Service(BaseHTTPRequestHandler):
             assert 'FIRST_PAGE_EVIDENCE' in last and 'LAST_PAGE_RESULT' in last
             assert '核心主张—证据表' in last and '论文研究什么问题' in last
             assert '第3页无可提取文字' in last and 'PDF物理页 2' in last
-            assert body.get('response_format') is None and all(isinstance(m['content'],str) for m in body['messages'])
+            assert body.get('response_format') is None
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
             text='# fixture report\n\n| Claim | Evidence |\n|---|---|\n| improvement | page 2 |\n\nUnverified figure. trailing } is ordinary text.'
             for i in range(0,len(text),18):
@@ -50,7 +56,7 @@ try:
         (out/'stdout.txt').write_text(p.stdout);(out/'stderr.txt').write_text(p.stderr)
         rows=[json.loads(s.split(':',1)[1]) for s in p.stdout.splitlines() if s.startswith('FOUNDATION_SMOKE:')]
         assert p.returncode==0 and any(r.get('ok') for r in rows),(p.returncode,rows,p.stderr[-1800:])
-        assert len(requests)==3 and not errors,(len(requests),errors)
+        assert len(requests)==5 and not errors,(len(requests),errors)
         assert len(requests[0]['messages'])==1 and len(requests[1]['messages'])==3
         (out/'result.json').write_text(json.dumps({'native':rows,'requests':len(requests),'realModel':False},indent=2))
         print('Native paper v2 PASS:',rows)

@@ -5,8 +5,9 @@ pub struct ProcessSpec {pub program:String,pub args:Vec<String>,pub deadline:Ins
 pub struct ProcessOutput {pub stdout:Vec<u8>,pub _stderr:Vec<u8>,pub success:bool}
 pub struct ProcessRunner;
 impl ProcessRunner {
- pub fn run(spec:ProcessSpec,cancel:&AtomicBool)->Result<ProcessOutput> {
-  if cancel.load(Ordering::Acquire){return Err(invalid("PDF操作已取消"));}
+ pub fn run(spec:ProcessSpec,cancel:&AtomicBool)->Result<ProcessOutput>{Self::run_cancellable(spec,||cancel.load(Ordering::Acquire))}
+ pub fn run_cancellable(spec:ProcessSpec,cancelled:impl Fn()->bool)->Result<ProcessOutput> {
+  if cancelled(){return Err(invalid("PDF操作已取消"));}
   let mut command=Command::new(&spec.program);
   command.args(&spec.args).env("LC_ALL","C").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
   #[cfg(unix)] {use std::os::unix::process::CommandExt;command.process_group(0);}
@@ -19,7 +20,7 @@ impl ProcessRunner {
   let result=(|| {
    let mut status=None;let mut out=None;let mut err=None;
    loop {
-    if cancel.load(Ordering::Acquire){return Err(invalid("PDF操作已取消"));}
+    if cancelled(){return Err(invalid("PDF操作已取消"));}
     if Instant::now()>=spec.deadline{return Err(invalid("PDF工具超时，已停止本次操作"));}
     while let Ok((pipe,value))=rx.try_recv(){let value=value?;if pipe==0{out=Some(value)}else{err=Some(value)}}
     if status.is_none(){status=child.try_wait()?;}
