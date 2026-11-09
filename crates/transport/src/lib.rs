@@ -7,6 +7,7 @@ pub mod paper_agent;
 pub const MAX_RESPONSE_BYTES:usize=256*1024;
 pub const MAX_WIRE_BYTES:usize=8*1024*1024;
 pub const MAX_MESSAGE_IMAGES:usize=8;
+pub const MAX_PAGE_IMAGES:usize=20;
 pub const MAX_IMAGE_PAYLOAD_BYTES:usize=8*1024*1024;
 #[derive(Debug,PartialEq)] pub enum Error {Quota,RateLimited{code:Option<u32>,retry_after:Duration},Cancelled,Http(u16),Api{status:u16,code:u32},Protocol,Network,Timeout,TooLarge,Delivery,Empty,InvalidInput,DocumentTools,DocumentBudget}
 impl fmt::Display for Error {
@@ -43,12 +44,15 @@ pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:
  use zwen_core::completion::Role;
  if messages.is_empty()||messages.len()>17||messages.len()%2==0||messages.last().is_none_or(|m|m.content.trim().is_empty())||messages.iter().enumerate().any(|(i,m)|m.role!=if i%2==0{Role::User}else{Role::Assistant}){return Err(Error::InvalidInput);}
  let total_images:usize=messages.iter().map(|m|m.images.len()).sum();
- if messages.iter().any(|m|m.images.len()>MAX_MESSAGE_IMAGES)||total_images>MAX_MESSAGE_IMAGES{return Err(Error::InvalidInput);}
+ let page_images=messages.iter().flat_map(|m|&m.images).filter(|s|s.starts_with("data:image/png;base64,")).count();
+ if total_images>MAX_PAGE_IMAGES||total_images-page_images>MAX_MESSAGE_IMAGES{return Err(Error::InvalidInput);}
+ if messages.iter().flat_map(|m|&m.images).filter(|s|s.starts_with("data:image/png;base64,")).map(String::len).sum::<usize>()>zwen_core::paper::MAX_PAGE_IMAGE_TOTAL_BYTES{return Err(Error::InvalidInput);}
  if messages.iter().any(|m|m.images.iter().any(|image|{let payload=image.strip_prefix("data:image/png;base64,").unwrap_or(image);payload.is_empty()||image.len()>MAX_IMAGE_PAYLOAD_BYTES||!payload.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'+'||b==b'/'||b==b'=')})){return Err(Error::InvalidInput);}
  let bytes=messages.iter().try_fold(0usize,|n,m|n.checked_add(m.content.len())).ok_or(Error::InvalidInput)?;
  if bytes>zwen_core::MAX_DRAFT_BYTES{return Err(Error::InvalidInput);}
  if *cancel.borrow(){return Err(Error::Cancelled);}
- let body=serde_json::json!({"model":config.model(),"messages":messages,"stream":true});
+ let body=message_body(config,messages);
+ if page_images>0&&serde_json::to_vec(&body).map_err(|_|Error::InvalidInput)?.len()>16*1024*1024{return Err(Error::InvalidInput);}
  let mut completion=Some(CompletionDecoder::default());let mut text_bytes=0usize;let mut finish=None;
  stream_events(client,config,key,&body,cancel,|data|{
   let delta=completion.as_mut().ok_or(Error::Protocol)?.accept(data).map_err(|_|Error::Protocol)?;
@@ -56,6 +60,21 @@ pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:
   if delta.done{let reason=completion.take().ok_or(Error::Protocol)?.finish().map_err(|_|Error::Protocol)?;if text_bytes==0&&reason!=FinishReason::Filtered{return Err(Error::Empty);}finish=Some(reason);}
   Ok(delta.done)
  }).await?;finish.ok_or(Error::Protocol)
+}
+fn message_body(config:&ProviderConfig,messages:&[zwen_core::completion::Message])->serde_json::Value{
+ let mut body=serde_json::json!({"model":config.model(),"messages":messages,"stream":true});
+ let host=reqwest::Url::parse(config.base_url()).ok().and_then(|u|u.host_str().map(str::to_owned)).unwrap_or_default();
+ let bailian=["maas.aliyuncs.com","dashscope.aliyuncs.com"].iter().any(|suffix|host==*suffix||host.ends_with(&format!(".{suffix}")));
+ if bailian&&config.model().to_ascii_lowercase().starts_with("qwen3.7")&&messages.iter().flat_map(|m|&m.images).any(|s|s.starts_with("data:image/png;base64,")){body["vl_high_resolution_images"]=true.into();}body
+}
+#[cfg(test)]mod visual_request_tests{
+ use super::*;
+ #[test]fn official_qwen_page_images_enable_high_resolution_without_changing_other_services(){
+  let messages=[zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:"paper".into(),images:vec!["data:image/png;base64,QUJD".into()]}];
+  let official=ProviderConfig::new("https://trial.cn-beijing.maas.aliyuncs.com/compatible-mode/v1","qwen3.7-flash","KEY").unwrap();assert_eq!(message_body(&official,&messages)["vl_high_resolution_images"],true);
+  let other=ProviderConfig::new("https://example.com/v1","qwen3.7-flash","KEY").unwrap();assert!(message_body(&other,&messages).get("vl_high_resolution_images").is_none());
+  assert!(message_body(&official,&[]).get("vl_high_resolution_images").is_none());
+ }
 }
 pub(crate) async fn stream_events(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,body:&serde_json::Value,mut cancel:watch::Receiver<bool>,mut on_data:impl FnMut(&str)->Result<bool,Error>)->Result<(),Error>{
  if *cancel.borrow(){return Err(Error::Cancelled);}

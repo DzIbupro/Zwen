@@ -48,9 +48,9 @@ const ID:&str="0123456789abcdef0123456789abcdef";
 }
 #[test] fn image_reading_allows_scanned_pages_only_with_explicit_bounded_mode(){
  let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"scan.pdf".into(),page_count:2,readable_pages:0},pages:vec![String::new(),String::new()]};
- assert!(source.request(&Default::default(),"分析").is_err());let options=ReadingOptions{read_images:true,..Default::default()};let text=source.request(&options,"分析").unwrap();assert!(text.contains("页图"));assert!(!text.contains("图表图像未读取，"));
- let large=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"large.pdf".into(),page_count:9,readable_pages:0},pages:vec![String::new();9]};assert!(large.request(&options,"分析").is_err());
- let text=large.request(&ReadingOptions{end_page:2,..options},"分析").unwrap();assert!(text.contains("第1–2页 / 共9页"));
+ assert!(source.request(&ReadingOptions{read_images:false,..Default::default()},"分析").is_err());let options=ReadingOptions{read_images:true,..Default::default()};let text=source.request(&options,"分析").unwrap();assert!(text.contains("页图"));assert!(!text.contains("图表图像未读取，"));
+ let large=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"large.pdf".into(),page_count:21,readable_pages:0},pages:vec![String::new();21]};assert!(large.request(&options,"分析").is_err());
+ let text=large.request(&ReadingOptions{end_page:2,..options},"分析").unwrap();assert!(text.contains("第1–2页 / 共21页"));
 }
 #[test] fn metadata_pagination_does_not_parse_paper_text(){
  let d=dir();let mut lib=Library::open(&d).unwrap();
@@ -77,3 +77,9 @@ const ID:&str="0123456789abcdef0123456789abcdef";
  let backups=std::fs::read_dir(&folder).unwrap().filter_map(|p|p.ok()).filter(|p|p.file_name().to_string_lossy().starts_with("library-before-v2-")).collect::<Vec<_>>();assert_eq!(backups.len(),1);assert!(backups[0].file_name().to_string_lossy().ends_with(".sqlite3"));
  let c=rusqlite::Connection::open(&path).unwrap();assert_eq!(c.pragma_query_value(None,"user_version",|r|r.get::<_,i64>(0)).unwrap(),1);drop(c);std::fs::remove_dir_all(d).unwrap();
 }
+#[test]fn new_readings_default_to_twenty_page_visual_input_but_legacy_bindings_stay_text(){
+ assert!(ReadingOptions::default().read_images);
+ let old:ReadingOptions=serde_json::from_str(r#"{"mode":"deep"}"#).unwrap();assert!(!old.read_images);
+ let s=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"twenty.pdf".into(),page_count:20,readable_pages:0},pages:vec![String::new();20]};let request=s.prepare(&ReadingOptions::default(),"分析图表和公式").unwrap();assert!(request.document.is_none());assert!(request.prompt.contains("20张"));assert!(request.prompt.contains("PDF物理页20"));
+}
+#[test]fn visual_reading_keeps_all_page_images_even_when_auxiliary_text_exceeds_budget(){let s=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:ID.into(),name:"dense.pdf".into(),page_count:20,readable_pages:20},pages:vec!["正文".repeat(20000);20]};let request=s.prepare(&ReadingOptions::default(),"分析").unwrap();assert!(request.document.is_none());assert!(request.prompt.len()<zwen_core::MAX_DRAFT_BYTES);assert!(request.prompt.contains("辅助文字"));assert!(request.prompt.contains("20张"));}

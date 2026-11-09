@@ -83,3 +83,7 @@
 - OpenClaw PDF适配：https://docs.openclaw.ai/tools/pdf
 
 这些参考证明文件适配路线可借鉴，不保证所有模型、服务和版本都有同样能力。
+
+## 2026-11-09 用户明确收敛的方案
+
+用户固定Qwen3.7 Flash，采用百炼官方推荐的PDF逐页图像输入。新分析默认整页图，每次最多20页，公式/图示以原版面为主；不开发直接PDF模型模块，不部署本地OCR，不再优先扩展长论文功能。新权威实现/限制见docs/validation/2026-11-09-paper-visual-default.md；此前原生PDF和OCR的“后续项”不再作为待办要求。

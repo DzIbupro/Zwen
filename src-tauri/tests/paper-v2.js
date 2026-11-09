@@ -16,6 +16,7 @@
   stage='enable reader';await wait(()=>document.querySelector('[data-paper-toggle]'));document.querySelector('[data-paper-toggle]').click();await wait(()=>{const b=document.querySelector('[data-paper-upload]');return b&&!b.disabled;});
   if(await invoke('paper_choose')!==null)throw Error('cancel should not import');
   stage='attach PDF';document.querySelector('[data-paper-upload]').click();await wait(()=>document.querySelector('[data-paper-mini] strong')?.textContent.includes('fixture.pdf'));
+  const textOption=document.querySelector('[data-paper-read-images]');textOption.checked=false;textOption.dispatchEvent(new Event('change',{bubbles:true}));
   const files=await invoke('paper_list');if(files.length!==1||files[0].pageCount!==3||files[0].readablePages!==2)throw Error('incorrect coverage');
   stage='open original';await wait(()=>document.querySelector('[data-paper-open]'));document.querySelector('[data-paper-open]').click();await wait(()=>document.body.textContent.includes('系统未能打开论文原件')&&!document.querySelector('[data-paper-open]').disabled);document.querySelector('[data-paper-open]').click();await new Promise(r=>setTimeout(r,100));
   const defaults=await invoke('paper_defaults');if(!defaults.focus.includes('输入、输出')||!defaults.outputRequirements.includes('核心主张—证据表')||document.querySelector('[data-paper-options]').open)throw Error('built-in defaults not ready');
@@ -42,9 +43,9 @@
   stage='drop PDF';await drop([window.__ZWEN_PAPER_FIXTURE_PDF__,window.__ZWEN_PAPER_FIXTURE_PDF__]);await new Promise(r=>setTimeout(r,100));if((await invoke('paper_list')).length!==1)throw Error('multiple files imported');await drop([window.__ZWEN_PAPER_FIXTURE_PDF__]);await wait(()=>document.querySelector('[aria-label="移除论文附件"]'));if((await invoke('paper_list')).length!==2)throw Error('drop did not import');
   stage='visual analysis';
   if(!document.querySelector('[data-paper-more]').open)document.querySelector('[data-paper-more]>summary').click();if(!document.querySelector('[data-paper-options]').open)document.querySelector('[data-paper-options]>summary').click();const imageOption=document.querySelector('[data-paper-read-images]');if(imageOption.disabled)throw Error('image model option unavailable');imageOption.checked=true;imageOption.dispatchEvent(new Event('change',{bubbles:true}));fill('Read the page figures');await new Promise(r=>setTimeout(r,30));document.querySelector('[data-send]').click();
-  await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete'&&s.reply.model==='paper-vision-fixture';});
-  const visual=(await invoke('get_chat')).reply;await wait(()=>document.querySelector('[data-paper-image-notice]')?.textContent.includes('paper-vision-fixture'));
-  stage='visual followup';fill('Explain the figure evidence');await new Promise(r=>setTimeout(r,30));document.querySelector('[data-send]').click();await wait(async()=>{const s=await invoke('get_chat');return s.reply?.requestId!==visual.requestId&&s.reply?.state==='complete'&&s.reply?.model==='paper-vision-fixture';});
+  await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete'&&s.reply.model==='paper-fixture';});
+  const visual=(await invoke('get_chat')).reply;await wait(()=>document.querySelector('[data-paper-image-notice]')?.textContent.includes('paper-fixture'));
+  stage='visual followup';fill('Explain the figure evidence');await new Promise(r=>setTimeout(r,30));document.querySelector('[data-send]').click();await wait(async()=>{const s=await invoke('get_chat');return s.reply?.requestId!==visual.requestId&&s.reply?.state==='complete'&&s.reply?.model==='paper-fixture';});
   await emit('foundation-smoke',{ok:true,mode:'paper-v2',pageImages:true,dropImported:true,originalDelegated:true,inChat:true,noSeparateNavigation:true,sourceOnFollowup:true,markdown:true,selectionDismiss:true,stopSaved:true,pages:3,readable:2});
  }catch(error){await emit('foundation-smoke',{ok:false,mode:'paper-v2',stage,error:String(error)});}
 })();

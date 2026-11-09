@@ -23,7 +23,7 @@ class Service(BaseHTTPRequestHandler):
             last=body['messages'][-1]['content']
             if isinstance(last,list):
                 images=[p['image_url']['url'] for p in last if p.get('type')=='image_url']
-                assert body['model']=='paper-vision-fixture' and len(images)==3
+                assert body['model']=='paper-fixture' and len(images)==3
                 assert all(image.startswith('data:image/png;base64,') and base64.b64decode(image.split(',',1)[1]).startswith(b'\x89PNG\r\n\x1a\n') for image in images)
                 last=next(p['text'] for p in last if p.get('type')=='text')
             else:assert body['model']=='paper-fixture'
@@ -36,7 +36,7 @@ class Service(BaseHTTPRequestHandler):
                 else:subprocess.run(['grim',str(out/'chat-composer.png')],check=True,timeout=5)
             assert 'FIRST_PAGE_EVIDENCE' in last and 'LAST_PAGE_RESULT' in last
             assert '核心主张—证据表' in last and '论文研究什么问题' in last
-            assert '第3页无可提取文字' in last and 'PDF物理页 2' in last
+            assert ('第3页无可提取文字' in last or '本页无可提取文字' in last) and 'PDF物理页 2' in last
             assert body.get('response_format') is None
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
             text='# fixture report\n\n| Claim | Evidence |\n|---|---|\n| improvement | page 2 |\n\nUnverified figure. trailing } is ordinary text.'

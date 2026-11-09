@@ -122,7 +122,7 @@ pub async fn paper_export(storage:tauri::State<'_,SharedStorage>,request_id:Stri
   let mut opt=fs::OpenOptions::new();opt.write(true).create_new(true);
   #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;opt.mode(0o600);}
   let mut f=opt.open(&target).map_err(|_|ClientError::storage())?;
-  let media=if options.read_images{"已提交所选页图补读，图表、公式与视觉结论仍需原文核对。"}else{"仅提交提取文字，图表图像未读取，公式与引用需核对。"};
+  let media=if options.read_images{"已提交所选范围的每一页完整图像，含原版面、图表与公式；识别及解释仍需原文核对。"}else{"仅提交提取文字，图表图像未读取，公式与引用需核对。"};
   let markdown=format!("# {}\n\n模型：{}；状态：{:?}；PDF物理页：{}–{} / {}\n\n{media}\n\n## 本轮问题\n\n{}\n\n{}",source.meta.name,turn.model,turn.state,options.start_page,if options.end_page==0{source.meta.page_count}else{options.end_page},source.meta.page_count,turn.prompt,turn.answer);
   f.write_all(markdown.as_bytes()).and_then(|_|f.sync_all()).map_err(|_|ClientError::storage())?;Ok(target.to_string_lossy().into_owned())
  }).await.map_err(|_|ClientError::storage())?

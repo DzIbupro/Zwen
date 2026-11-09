@@ -9,6 +9,12 @@ pub struct Document{pages:BTreeMap<usize,String>,read:BTreeMap<usize,Vec<(usize,
 pub struct ToolResult{pub content:String,pub label:String}
 impl Source{
  pub fn prepare(&self,options:&ReadingOptions,question:&str)->Result<PreparedReading>{
+  if options.read_images{
+   let end=self.range(options,question)?;let mut prompt=self.header(options,end);let limit=64*1024/(end-options.start_page+1);
+   prompt.push_str("\n完整整页图为主要材料。下列文字仅为辅助文字，每页最多附有限字节，截断处会标记，不能据此判断图表不可读。\n");
+   for page in options.start_page..=end{let value=&self.pages[page-1];let mut n=value.len().min(limit);while !value.is_char_boundary(n){n-=1;}prompt.push_str(&format!("\n--- PDF物理页 {page} · 辅助文字 ---\n{}\n{}\n",&value[..n],if n<value.len(){"辅助文字未全附，请读取本页完整附图。"}else if n==0{"本页无可提取文字，请直接读取完整附图。"}else{"辅助文字结束，公式图示仍以附图为准。"}));}
+   prompt.push_str(&format!("\n用户本轮问题：{question}\n"));if prompt.len()>crate::MAX_DRAFT_BYTES{return Err(super::invalid("阅读要求过长，请缩短后发送"));}return Ok(PreparedReading{prompt,document:None});
+  }
   let full=self.render(options,question,usize::MAX)?;
   if full.len()<=crate::MAX_DRAFT_BYTES{return Ok(PreparedReading{prompt:full,document:None});}
   if options.read_images{return Err(super::invalid("所选文字超过请求上限，请缩小页图补读范围"));}

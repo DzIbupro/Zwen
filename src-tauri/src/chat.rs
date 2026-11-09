@@ -122,7 +122,7 @@ fn bound_document(dir:&std::path::Path,id:&str)->Result<Option<(zwen_core::paper
  if id.starts_with("paper-")&&document.is_none(){return Err(error("paper_source_missing","论文来源或会话绑定丢失，已停止发送；请重新导入并新建分析"));}Ok(document)
 }
 fn prepare_document(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::provider::ProviderConfig,request_id:&str,prompt:String,conversation:Option<&str>,source:&zwen_core::paper::Source,options:&zwen_core::paper::ReadingOptions)->Result<Prepared,ClientError>{
- let request_config=if options.read_images{let model=config.image_model().ok_or_else(||error("paper_image_model_missing","请先在模型设置中配置图片模型，或关闭页图补读"))?;config.with_model(model)?}else{config.clone()};
+ let request_config=if let Some(previous)=conversation.map(|id|journal.latest_in(id)).transpose()?.flatten(){config.with_model(&previous.model)?}else{config.clone()};
  let reading=source.prepare(options,&prompt).map_err(crate::paper::error)?;let full=reading.prompt;let document=reading.document;
  let media=if options.read_images{let end=if options.end_page==0{source.pages.len()}else{options.end_page};let pdf=zwen_core::paper::Library::open(dir).map_err(crate::paper::error)?.pdf_path(&source.meta.id).map_err(crate::paper::error)?;Some(crate::paper_media::Request{pdf,pages:(options.start_page..=end).collect()})}else{None};
  let profile=serde_json::to_string(config).map_err(|_|ClientError::storage())?;
@@ -333,7 +333,7 @@ pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::St
   let p=prepare_document(&mut journal,&dir.0,&config,"paper-followup","解释证据".into(),Some("old-conversation"),&source,&Default::default()).unwrap();
   assert_eq!(p.messages.len(),3);assert!(p.messages[2].content.contains("original paper evidence"));
   assert!(p.messages.iter().all(|m|m.images.is_empty()));assert!(p.consume_ids.is_empty());
-  assert_eq!(p.config.model(),config.model());assert_eq!(p.turn.prompt,"解释证据");
+  assert_eq!(p.config.model(),config.model());assert_eq!(p.media.as_ref().unwrap().pages,vec![1]);assert_eq!(p.turn.prompt,"解释证据");
   assert_eq!(std::fs::read(dir.0.join("attachment.sqlite3")).unwrap(),b"invalid screenshot database");
  }
 
@@ -341,12 +341,16 @@ pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::St
   let dir=Scratch::new();assert!(bound_document(&dir.0,"paper-missing").is_err());assert!(bound_document(&dir.0,"ordinary").unwrap().is_none());
   let _=zwen_core::paper::Library::open(&dir.0).unwrap();assert!(bound_document(&dir.0,"paper-missing").is_err());
  }
+ #[test]fn existing_visual_session_keeps_its_saved_actual_model(){
+  let dir=Scratch::new();let config=config();let mut journal=Journal::open(&dir.0.join("chat.sqlite3")).unwrap();let profile=serde_json::to_string(&config).unwrap();let mut turn=journal.begin_in("paper-old-vision","q","vision-fixture",None,&profile,0).unwrap();turn.revision=1;turn.state=TurnState::Complete;turn.answer="saved".into();journal.checkpoint(&turn).unwrap();
+  let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:"0123456789abcdef0123456789abcdef".into(),name:"paper.pdf".into(),page_count:1,readable_pages:1},pages:vec!["evidence".into()]};let prepared=prepare_document(&mut journal,&dir.0,&config,"next","followup".into(),Some("paper-old-vision"),&source,&Default::default()).unwrap();assert_eq!(prepared.config.model(),"vision-fixture");assert_eq!(prepared.turn.model,"vision-fixture");
+ }
  #[test]fn large_source_followup_can_drop_history_but_keeps_original(){
   let dir=Scratch::new();let config=config();let mut journal=history(&dir.0,&config);
   let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:"0123456789abcdef0123456789abcdef".into(),name:"paper.pdf".into(),page_count:1,readable_pages:1},pages:vec!["x".repeat(245000)]};
-  let first=prepare_document(&mut journal,&dir.0,&config,"paper-large","分析".into(),None,&source,&Default::default()).unwrap();
+  let first=prepare_document(&mut journal,&dir.0,&config,"paper-large","分析".into(),None,&source,&zwen_core::paper::ReadingOptions{read_images:false,..Default::default()}).unwrap();
   let mut turn=first.turn;turn.revision+=1;turn.answer="y".repeat(32768);turn.state=TurnState::Complete;journal.checkpoint(&turn).unwrap();
-  let follow=prepare_document(&mut journal,&dir.0,&config,"followup","解释原文".into(),Some("paper-large"),&source,&Default::default()).unwrap();assert_eq!(follow.turn.context_turns,0);assert!(follow.messages[0].content.contains(&"x".repeat(245000)));
+  let follow=prepare_document(&mut journal,&dir.0,&config,"followup","解释原文".into(),Some("paper-large"),&source,&zwen_core::paper::ReadingOptions{read_images:false,..Default::default()}).unwrap();assert_eq!(follow.turn.context_turns,0);assert!(follow.messages[0].content.contains(&"x".repeat(245000)));
  }
 
 }

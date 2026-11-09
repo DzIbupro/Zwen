@@ -3,16 +3,16 @@ use std::{path::PathBuf,time::{Duration,Instant}};
 use base64::{Engine as _,engine::general_purpose::STANDARD};
 use tokio::sync::watch;
 use crate::paper_process::{ProcessSpec,ProcessRunner};
-use zwen_core::paper::{Result,invalid,MAX_PAGE_IMAGE_BYTES,validate_page_png};
+use zwen_core::paper::{Result,invalid,MAX_PAGE_IMAGE_BYTES,MAX_VISUAL_PAGES,MAX_PAGE_IMAGE_EDGE,MAX_PAGE_IMAGE_TOTAL_BYTES,validate_page_png};
 pub struct Request{pub pdf:PathBuf,pub pages:Vec<usize>}
 pub fn render(request:&Request,cancel:&watch::Receiver<bool>)->Result<Vec<String>>{
- if request.pages.is_empty()||request.pages.len()>8||request.pages.iter().any(|p|*p==0||*p>300){return Err(invalid("页图补读范围无效或超过8页"));}
- let mut images=Vec::new();let deadline=Instant::now()+Duration::from_secs(120);
+ if request.pages.is_empty()||request.pages.len()>MAX_VISUAL_PAGES||request.pages.iter().any(|p|*p==0||*p>300){return Err(invalid("整页图范围无效或超过20页"));}
+ let mut images=Vec::new();let mut total=0usize;let deadline=Instant::now()+Duration::from_secs(180);
  for page in &request.pages{
   let cancelled=||*cancel.borrow()||cancel.has_changed().is_err();if cancelled(){return Err(invalid("页图补读已取消"));}
-  let output=ProcessRunner::run_cancellable(ProcessSpec{program:"pdftoppm".into(),args:vec!["-f".into(),page.to_string(),"-l".into(),page.to_string(),"-singlefile".into(),"-scale-to".into(),"1600".into(),"-png".into(),request.pdf.to_string_lossy().into_owned()],deadline:(Instant::now()+Duration::from_secs(20)).min(deadline),output_limit:MAX_PAGE_IMAGE_BYTES},cancelled)?;
+  let output=ProcessRunner::run_cancellable(ProcessSpec{program:"pdftoppm".into(),args:vec!["-f".into(),page.to_string(),"-l".into(),page.to_string(),"-singlefile".into(),"-scale-to".into(),MAX_PAGE_IMAGE_EDGE.to_string(),"-png".into(),request.pdf.to_string_lossy().into_owned()],deadline:(Instant::now()+Duration::from_secs(20)).min(deadline),output_limit:MAX_PAGE_IMAGE_BYTES},cancelled)?;
   if !output.success{return Err(invalid("PDF页图无法读取，请检查原件或关闭页图补读后重试"));}
-  validate_page_png(&output.stdout)?;images.push(format!("data:image/png;base64,{}",STANDARD.encode(output.stdout)));
+  validate_page_png(&output.stdout)?;let payload=format!("data:image/png;base64,{}",STANDARD.encode(output.stdout));total+=payload.len();if total>MAX_PAGE_IMAGE_TOTAL_BYTES{return Err(invalid("所选整页图总量超过12 MiB，未发送任何页；请缩小页范围后重试"));}images.push(payload);
  }
  Ok(images)
 }
