@@ -46,7 +46,7 @@ import {listen} from '@tauri-apps/api/event';
 import type {ChatPort,ChatReply,Overview} from './chat';
 import type {ReadingOptions,PaperMetadata} from './papers';
 export const chatPort:ChatPort=isDesktop?{
- startPaper:(requestId,paperId,options)=>command<ChatReply>('paper_start',{requestId,paperId,options}),
+ startPaper:(requestId,paperId,options,question)=>command<ChatReply>('paper_start',{requestId,paperId,options,question:question??null}),
  listen:cb=>listen<ChatReply>('chat-update',e=>cb(e.payload)),
  load:()=>command<Overview>('get_chat'),startSelection:(requestId,selection,actionId,expectedRevision)=>command<ChatReply>('start_selection_chat',{requestId,selection,actionId,expectedRevision}),start:(requestId,prompt,conversationId)=>command<ChatReply>('start_chat',{requestId,prompt,conversationId:conversationId??null}),
  stop:requestId=>command<ChatReply|null>('stop_chat',{requestId}),settle:()=>command<ChatReply|null>('settle_chat'),

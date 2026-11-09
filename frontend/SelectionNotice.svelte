@@ -1,10 +1,11 @@
 <script lang="ts">
  import type {SelectionState} from './lib/selection';
  import type {QuickAction} from './lib/quick-actions';
- let {state,onRetry,onAction,onSettings,actions=[],actionBusy=false}:{state:SelectionState;onRetry:()=>void;onDiscard:()=>void;onReload:()=>void;onAction?:(id:string)=>void;onSettings?:()=>void;actions?:QuickAction[];actionBusy?:boolean}=$props();
+ let {state,onRetry,onDiscard,onAction,onSettings,actions=[],actionBusy=false}:{state:SelectionState;onRetry:()=>void;onDiscard:()=>void;onReload:()=>void;onAction?:(id:string)=>void;onSettings?:()=>void;actions?:QuickAction[];actionBusy?:boolean}=$props();
 </script>
 {#if state.busy||state.notice||state.pending}
  <div class="selection-notice" role="status" data-selection-state>
+  <button class="selection-close" aria-label="关闭选区提示" title="取消待处理选区" disabled={state.busy||actionBusy} onclick={onDiscard}>×</button>
   <span>{state.busy?'正在处理选区…':state.notice}</span>
   {#if state.pending}
    <details><summary>查看待处理选区</summary><pre>{state.pending.text||state.pending.error}</pre></details>
@@ -23,6 +24,7 @@
  </div>
 {/if}
 <style>
+ .selection-close{float:right;margin:0 0 4px 10px;width:28px;height:28px;padding:0;font-size:20px;line-height:1;border-radius:50%}
  button:disabled{opacity:.5;cursor:default;}
  summary{display:block;width:auto;height:auto;letter-spacing:normal;font-size:13px;line-height:1.6;white-space:nowrap;cursor:pointer;}
  .selection-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;min-width:0}.other-actions{display:inline-block}.other-actions summary{cursor:pointer;padding:5px}.other-actions div{display:flex;flex-wrap:wrap;gap:4px}.selection-notice{font-size:13px;padding:6px 12px;color:var(--text);overflow-wrap:anywhere;max-height:240px;overflow:auto;flex-shrink:0;}

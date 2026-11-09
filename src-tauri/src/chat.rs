@@ -105,8 +105,8 @@ fn prepare_turn(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::pro
  Ok(Prepared{turn,config:request_config,messages,consume_ids})
 }
 enum StartScope {Paper{source:String,options:zwen_core::paper::ReadingOptions},Conversation(Option<String>),Selection{selection:String,action_id:String,expected_revision:u64}}
-pub async fn start_paper(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_id:String,source:String,options:zwen_core::paper::ReadingOptions)->Result<Reply,ClientError>{
- start(app,storage,state,request_id,String::new(),StartScope::Paper{source,options}).await
+pub async fn start_paper(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_id:String,source:String,options:zwen_core::paper::ReadingOptions,question:Option<String>)->Result<Reply,ClientError>{
+ start(app,storage,state,request_id,question.unwrap_or_default(),StartScope::Paper{source,options}).await
 }
 fn bound_document(dir:&std::path::Path,id:&str)->Result<Option<(zwen_core::paper::Source,zwen_core::paper::ReadingOptions)>,ClientError>{
  let document=if dir.join("papers-v2/library.sqlite3").exists(){zwen_core::paper::Library::open(dir).map_err(crate::paper::error)?.session(id).map_err(crate::paper::error)?}else{None};
@@ -149,7 +149,8 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
    StartScope::Paper{source,options}=>{
     if !request_id.starts_with("paper-"){return Err(error("invalid_paper_session","论文会话标识无效"));}
     let lib=crate::paper::library(&storage)?;let paper=lib.get(&source).map_err(crate::paper::error)?;
-    let label=format!("论文阅读 · {}\n阅读模式：{}；关注点：{}",paper.meta.name,options.mode,options.focus);
+    let question=if prompt.trim().is_empty(){"请按阅读要求分析这篇论文。"}else{prompt.trim()};
+    let label=format!("论文阅读 · {}\n\n{}",paper.meta.name,question);
     paper.request(&options,&label).map_err(crate::paper::error)?;
     new_binding=Some((source,options.clone()));document=Some((paper,options));(label,None,true)
    },

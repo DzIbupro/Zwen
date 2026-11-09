@@ -74,8 +74,8 @@ pub async fn paper_sessions(storage:tauri::State<'_,SharedStorage>,paper_id:Stri
 #[tauri::command]
 pub async fn paper_source(storage:tauri::State<'_,SharedStorage>,paper_id:String)->Result<Vec<String>,ClientError>{let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||Ok(library(&s)?.get(&paper_id).map_err(error)?.pages)).await.map_err(|_|ClientError::storage())?}
 #[tauri::command]
-pub async fn paper_start(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,crate::chat::Shared>,request_id:String,paper_id:String,options:ReadingOptions)->Result<crate::chat::Reply,ClientError>{
- crate::chat::start_paper(app,storage.inner().clone(),chat.inner().clone(),request_id,paper_id,options).await
+pub async fn paper_start(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,crate::chat::Shared>,request_id:String,paper_id:String,options:ReadingOptions,question:Option<String>)->Result<crate::chat::Reply,ClientError>{
+ crate::chat::start_paper(app,storage.inner().clone(),chat.inner().clone(),request_id,paper_id,options,question).await
 }
 #[tauri::command]
 pub async fn paper_legacy(storage:tauri::State<'_,SharedStorage>)->Result<Vec<zwen_core::paper::LegacyRun>,ClientError>{let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||zwen_core::paper::legacy_list(s.directory.as_ref().map_err(Clone::clone)?).map_err(error)).await.map_err(|_|ClientError::storage())?}

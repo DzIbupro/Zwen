@@ -1,8 +1,8 @@
 <script lang="ts">
  import BrandLogo from './BrandLogo.svelte';import Icon from './Icon.svelte';
- export type Destination='chat'|'papers'|'history'|'knowledge'|'graph'|'settings';
+ export type Destination='chat'|'history'|'knowledge'|'graph'|'settings';
  let {collapsed,active,disabled=false,canNew=true,onToggle,onNavigate,onNew}:{collapsed:boolean;active:Destination;disabled?:boolean;canNew?:boolean;onToggle:()=>void;onNavigate:(d:Destination)=>void;onNew:()=>void}=$props();
- const items=[{id:'chat',label:'对话',icon:'message'},{id:'papers',label:'论文阅读',icon:'book'},{id:'history',label:'历史',icon:'history'},{id:'knowledge',label:'知识库',icon:'book'},{id:'graph',label:'知识网络',icon:'network'}] as const;
+ const items=[{id:'chat',label:'对话',icon:'message'},{id:'history',label:'历史',icon:'history'},{id:'knowledge',label:'知识库',icon:'book'},{id:'graph',label:'知识网络',icon:'network'}] as const;
 </script>
 <aside class="sidebar" class:collapsed data-sidebar data-collapsed={collapsed}>
  <div class="sidebar-brand"><BrandLogo/>{#if !collapsed}<strong>Zwen</strong>{/if}</div>

@@ -1,31 +1,42 @@
 (async()=>{
  const invoke=window.__TAURI__.core.invoke,emit=window.__TAURI__.event.emit;
- const wait=async(fn)=>{for(let i=0;i<300;i++){if(await fn())return;await new Promise(r=>setTimeout(r,50));}throw Error('paper fixture timeout');};
+ const wait=async(fn)=>{for(let i=0;i<300;i++){if(await fn())return;await new Promise(r=>setTimeout(r,50));}throw Error('paper chat fixture timeout');};
+ const fill=text=>{const field=document.querySelector('#question');field.value=text;field.dispatchEvent(new Event('input',{bubbles:true}));};
  let stage='boot';
  try{
-  await wait(()=>document.querySelector('[data-nav=papers]'));
+  await wait(()=>document.querySelector('[data-paper-toggle]'));
+  if(document.querySelector('[data-nav=papers]'))throw Error('separate paper navigation remains');
   await invoke('save_provider',{expectedRevision:0,config:{baseUrl:window.__ZWEN_FIXTURE_BASE__,model:'paper-fixture',keyEnv:'ZWEN_PROVIDER_TEST_KEY'}});
-  document.querySelector('[data-nav=papers]').click();await wait(()=>document.querySelector('[data-paper-start]')||document.querySelector('.paper-actions button'));
-  stage='chooser cancel';if(await invoke('paper_choose')!==null)throw Error('cancel should not import');
-  stage='local import';document.querySelector('.paper-actions button').click();await wait(()=>document.querySelector('[data-paper-start]'));
+  document.querySelector('[data-nav=settings]').click();
+  await wait(()=>{const b=document.querySelector('[aria-label="模型设置"] .actions button');return b&&!b.disabled;});
+  document.querySelector('[aria-label="模型设置"] .actions button').click();
+  await wait(()=>document.querySelector('[aria-label="模型设置"]')?.textContent.includes('当前使用启动环境提供的密钥'));
+  document.querySelector('[data-nav=chat]').click();
+  stage='enable reader';await wait(()=>document.querySelector('[data-paper-toggle]'));document.querySelector('[data-paper-toggle]').click();await wait(()=>{const b=document.querySelector('[data-paper-upload]');return b&&!b.disabled;});
+  if(await invoke('paper_choose')!==null)throw Error('cancel should not import');
+  stage='attach PDF';document.querySelector('[data-paper-upload]').click();await wait(()=>document.querySelector('[data-paper-mini] strong')?.textContent.includes('fixture.pdf'));
   const files=await invoke('paper_list');if(files.length!==1||files[0].pageCount!==3||files[0].readablePages!==2)throw Error('incorrect coverage');
-  stage='builtin requirements';const defaults=await invoke('paper_defaults');if(!defaults.focus.includes('输入、输出')||!defaults.outputRequirements.includes('核心主张—证据表')||document.querySelector('.paper-customize').open||document.querySelectorAll('.paper-defaults li').length!==7)throw Error('built-in requirements unavailable');
-  stage='analysis';document.querySelector('.paper-customize>summary').click();const background=document.querySelector('[data-reading-background]');background.value='saved fixture background';background.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(r=>setTimeout(r,30));document.querySelector('[data-paper-start]').click();
+  const defaults=await invoke('paper_defaults');if(!defaults.focus.includes('输入、输出')||!defaults.outputRequirements.includes('核心主张—证据表')||document.querySelector('[data-paper-options]').open)throw Error('built-in defaults not ready');
+  await wait(()=>!document.querySelector('[data-send]').disabled); // empty composer + PDF can send
+  stage='analysis in chat';document.querySelector('[data-paper-more]>summary').click();document.querySelector('[data-paper-options]>summary').click();const background=document.querySelector('[data-reading-background]');background.value='saved fixture background';background.dispatchEvent(new Event('input',{bubbles:true}));fill('COMPOSER_QUESTION Explain the experiment evidence.');
+  await new Promise(r=>setTimeout(r,30));document.querySelector('[data-send]').click();
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.state==='complete';});
-  let view=await invoke('get_chat');const first=view.reply;
-  if(!document.querySelector('.paper-report .prose h1')||!first.answer.includes('fixture report'))throw Error('Markdown not rendered');
-  if(first.prompt.includes('FIRST_PAGE_EVIDENCE'))throw Error('material leaked into stored question');
-  stage='tab restore';document.querySelector('[data-nav=settings]').click();await new Promise(r=>setTimeout(r,100));document.querySelector('[data-nav=papers]').click();await wait(()=>document.querySelector('.paper-scope')?.textContent.includes('saved fixture background'));
-  stage='followup';const field=document.querySelector('.paper-report textarea');field.value='What supports the result?';field.dispatchEvent(new Event('input',{bubbles:true}));
-  await new Promise(r=>setTimeout(r,30));document.querySelector('.paper-report>button:last-child').click();
+  const first=(await invoke('get_chat')).reply;
+  await wait(()=>document.querySelector('.answer .prose h1'));
+  if(!first.prompt.includes('COMPOSER_QUESTION')||first.prompt.includes('FIRST_PAGE_EVIDENCE')||!first.answer.includes('fixture report'))throw Error('chat prompt/rendering incorrect');
+  stage='tab restore';document.querySelector('[data-nav=settings]').click();await new Promise(r=>setTimeout(r,100));document.querySelector('[data-nav=chat]').click();await wait(()=>document.querySelector('[data-paper-saved-options]')?.textContent.includes('saved fixture background'));
+  stage='followup';fill('What supports the result?');await new Promise(r=>setTimeout(r,30));document.querySelector('[data-send]').click();
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.requestId!==first.requestId&&s.reply?.state==='complete';});
   const follow=(await invoke('get_chat')).reply;if(follow.conversationId!==first.conversationId||follow.contextTurns!==1)throw Error('source conversation lost');
   const rows=await invoke('paper_sessions',{paperId:files[0].id});if(rows.length!==1||rows[0].requestId!==follow.requestId)throw Error('history not persisted');
-  stage='duplicate start';let duplicateRejected=false;try{await invoke('paper_start',{requestId:first.requestId,paperId:files[0].id,options:{mode:'deep',startPage:1,endPage:3,focus:'',background:''}});}catch{duplicateRejected=true;}if(!duplicateRejected||(await invoke('paper_sessions',{paperId:files[0].id})).length!==1)throw Error('duplicate corrupted binding');
+  stage='selection close';fill('keep this unsent draft');await emit('paper-fixture-selection',{});await wait(()=>document.querySelector('[aria-label="关闭选区提示"]'));
+  document.querySelector('[aria-label="关闭选区提示"]').click();await wait(()=>!document.querySelector('[data-selection-state]'));
+  if((await invoke('claim_selection')).item!==null||document.querySelector('#question').value!=='keep this unsent draft')throw Error('selection close lost draft or failed to acknowledge');
+  stage='duplicate start';let duplicateRejected=false;try{await invoke('paper_start',{requestId:first.requestId,paperId:files[0].id,options:defaults});}catch{duplicateRejected=true;}if(!duplicateRejected||(await invoke('paper_sessions',{paperId:files[0].id})).length!==1)throw Error('duplicate corrupted binding');
   stage='stale key revision';let stale=false;try{await invoke('save_model_secret',{secret:'not-a-real-key',expectedRevision:0});}catch(e){stale=e.code==='provider_conflict';}if(!stale)throw Error('stale key save accepted');
   stage='stop';const slow=await invoke('start_chat',{requestId:'stop-fixture',prompt:'slow request',conversationId:first.conversationId});
   await wait(async()=>{const s=await invoke('get_chat');return s.reply?.requestId===slow.requestId&&s.reply.answer.length>0;});
   const stopped=await invoke('stop_chat',{requestId:slow.requestId});if(stopped?.state!=='stopped'||!stopped.saved||!stopped.answer)throw Error('partial stop not durable');
-  await emit('foundation-smoke',{ok:true,mode:'paper-v2',wholeDocument:true,sourceOnFollowup:true,markdown:true,stopSaved:true,pages:3,readable:2});
+  await emit('foundation-smoke',{ok:true,mode:'paper-v2',inChat:true,noSeparateNavigation:true,sourceOnFollowup:true,markdown:true,selectionDismiss:true,stopSaved:true,pages:3,readable:2});
  }catch(error){await emit('foundation-smoke',{ok:false,mode:'paper-v2',stage,error:String(error)});}
 })();

@@ -42,10 +42,11 @@ export class SelectionCommandCoordinator{
  dispose(){this.disposed=true;}
 }
 
-export function selectionActionBlock(state:{text:string;attachmentCount:number;attachmentPending:boolean;loaded:boolean;unsaved:boolean;running:boolean}):string|null{
+export function selectionActionBlock(state:{paperPending?:boolean;text:string;attachmentCount:number;attachmentPending:boolean;loaded:boolean;unsaved:boolean;running:boolean}):string|null{
  if(state.running)return '请先完成或停止当前回答，再执行划词操作';
  if(!state.loaded)return '正在读取本机草稿、截图和回答，请稍后重试';
  if(state.unsaved)return '请先保存上一次回答，再处理新的选区；材料已保留';
+ if(state.paperPending)return '请先处理论文附件或退出论文阅读，再执行划词操作；原材料和选区已保留';
  if(state.text.trim()||state.attachmentPending||state.attachmentCount)return '请先处理现有草稿和截图，再执行划词操作；原材料和选区已保留';
  return null;
 }

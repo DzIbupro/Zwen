@@ -50,7 +50,7 @@
 - `crates/core/src/paper/SKILL.md`：单一运行阅读规则。
 - `src-tauri/src/paper.rs` / `paper_process.rs`：原生文件选择、Poppler适配、保存范围、导出与旧原件。
 - `src-tauri/src/chat.rs`：复用原生聊天生命周期，论文会话失败关闭与每轮原文注入。
-- `frontend/PaperPanel.svelte`：论文工作区；`frontend/App.svelte`、`lib/send-draft.ts`：跨界面截图隔离。
+- `frontend/PaperComposer.svelte`、`frontend/lib/paper-draft.ts`：对话输入区的论文功能与PDF附件草稿；`frontend/App.svelte`、`lib/send-draft.ts`：跨界面截图隔离。
 - `scripts/validate_paper_v2.py`：仅合成数据的原生闭环验收。
 
 ## 旧实现地图（仅Git历史，不再是当前代码）
@@ -66,7 +66,7 @@
 
 ## 下一会话第一步
 
-留在当前 `feat/paper-analysis-v2`，先读最新验收记录，不要重复创建分支或带回旧引擎。当前文字闭环已实现，普通构建与试用入口以验收记录为准。后续优先用户真实论文试读反馈，再按需核实原生PDF、OCR/图表及自动长文工具。此前授权的两次真实服务合成调用已经用完，不能自行追加付费/消耗额度的调试请求。
+留在当前 `feat/paper-analysis-v2`，先读最新验收记录，不要重复创建分支或带回旧引擎。当前文字闭环已实现。用户后续要求移除独立论文侧栏/页面，改为对话输入区“论文阅读”工具，最新界面验收以 `docs/validation/2026-11-09-paper-chat-composer.md` 为准；普通构建与试用入口以最新验收记录为准。后续优先用户真实论文试读反馈，再按需核实原生PDF、OCR/图表及自动长文工具。此前授权的两次真实服务合成调用已经用完，不能自行追加付费/消耗额度的调试请求。
 
 官方线索（本会话已查阅，实施时复核版本）：
 - https://opencode.ai/docs/tools/

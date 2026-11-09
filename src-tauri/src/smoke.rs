@@ -50,6 +50,12 @@ pub fn setup(app:&tauri::App) {
         if action=="inspect"{crate::selection_bar::smoke_inspect(&tray_app);}else if let Some(id)=action.strip_prefix("click:"){crate::selection_bar::smoke_click(&tray_app,id.to_owned());}
     }});
     if let Some(path)=std::env::var_os("ZWEN_ACTIONS_FIXTURE_SOURCE_FILE") {app.listen("actions-fixture-source-window",move|e|{if let Ok(id)=serde_json::from_str::<u64>(e.payload()){let _=std::fs::write(&path,id.to_string());}});}
+    if std::env::var("ZWEN_SMOKE").as_deref()==Ok("paper-v2"){
+        let h=app.handle().clone();app.listen("paper-fixture-selection",move|_|{
+            if let Ok(mut inbox)=h.state::<crate::selection::Shared>().lock(){if let Some(id)=inbox.begin(zwen_core::selection::Mode::Candidate){let _=inbox.finish(id,Ok("synthetic selected sentence".into()));}}
+            let _=h.emit("selection-ready",());
+        });
+    }
     let handle=app.handle().clone();
     app.listen("foundation-smoke", move |event| {
         let payload:serde_json::Value=serde_json::from_str(event.payload()).unwrap_or_default();

@@ -1,3 +1,4 @@
+import {selectionActionBlock} from '../lib/selection-command';
 import {expect,it} from 'vitest';
 import {SelectionCommandCoordinator} from '../lib/selection-command';
 import type {SelectionItem} from '../lib/selection';
@@ -23,3 +24,4 @@ it('rejects invalid IDs, revisions and excessive command fields before reading t
 it('bounds remembered commands while continuing to deduplicate recent IDs',async()=>{const f=fixture();for(let i=0;i<257;i++)await f.c.handle({...f.command,commandId:`command-${i}`});await f.c.handle({...f.command,commandId:'command-256'});expect(f.executions).toHaveLength(257);await f.c.handle({...f.command,commandId:'command-0'});expect(f.executions).toHaveLength(258);});
 
 it('retains concurrent deduplication even when completed commands evict its recent ID',async()=>{let release!:()=>void;const hold=new Promise<void>(resolve=>release=resolve);let refreshing=0;let executed=0;const item:SelectionItem={id:4,mode:'candidate',text:'选区',claimed:true,error:null};const c=new SelectionCommandCoordinator({refresh:async()=>{if(refreshing++===0)await hold;},pending:()=>item,freeze:async()=>item,loadConfig:async()=>({revision:7,actions:[],outputDirectory:''}),execute:async()=>{executed++;}});const command={selectionId:4,configRevision:7,commandId:'busy',actionId:'ask'};const first=c.handle(command);for(let i=0;i<256;i++)await c.handle({...command,commandId:`next-${i}`});await c.handle(command);expect(executed).toBe(256);release();await first;expect(executed).toBe(257);});
+it('blocks quick selection actions while a PDF draft is present or restoring',()=>{expect(selectionActionBlock({text:'',attachmentCount:0,attachmentPending:false,loaded:true,unsaved:false,running:false,paperPending:true})).toContain('论文');});

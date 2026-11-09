@@ -70,7 +70,7 @@ export class SelectionController{
   finally{this.mutating=false;this.publish({busy:false});if(this.again&&!this.loading&&!this.disposed)void this.refresh();}
  }
  async discard(announce=true){
-  const item=this.state.pending;if(!item||this.state.busy||this.disposed)return;
+  const item=this.state.pending;if(this.state.busy||this.disposed)return;if(!item){if(announce)this.publish({notice:''});return;}
   this.mutating=true;this.publish({busy:true});
   try{await this.port.acknowledge(item.id);if(!this.disposed)this.publish({pending:null,inserted:false,...(announce?{notice:''}:{})});}
   catch(e){this.publish({notice:e instanceof Error?e.message:'选区确认未完成'});}

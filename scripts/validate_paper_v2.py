@@ -21,6 +21,13 @@ class Service(BaseHTTPRequestHandler):
         try:
             body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(body)
             last=body['messages'][-1]['content']
+            if len(requests)==1 and os.environ.get('ZWEN_PAPER_CAPTURE')=='1':
+                time.sleep(.3)
+                if os.environ.get('ZWEN_PAPER_CAPTURE_WESTON')=='1':
+                    subprocess.run(['weston-screenshooter'],cwd=out,check=True,timeout=8,capture_output=True)
+                    captures=sorted(out.glob('wayland-screenshot*.png'),key=lambda p:p.stat().st_mtime)
+                    if captures:captures[-1].replace(out/'chat-composer.png')
+                else:subprocess.run(['grim',str(out/'chat-composer.png')],check=True,timeout=5)
             assert 'FIRST_PAGE_EVIDENCE' in last and 'LAST_PAGE_RESULT' in last
             assert '核心主张—证据表' in last and '论文研究什么问题' in last
             assert '第3页无可提取文字' in last and 'PDF物理页 2' in last
