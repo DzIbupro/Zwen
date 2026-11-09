@@ -83,3 +83,7 @@
 ## 可直接发给新会话
 
 > 请在 `/home/dzibupro/Zwen/Zwen` 的当前 `feat/paper-analysis-v2` 分支继续。先读 `docs/PAPER-READING-HANDOFF.md` 和 `docs/validation/2026-11-09-paper-v2.md`。文字全文→阅读skill→Markdown与原文追问已实现，旧严格JSON流水线未带入。先核对当前提交和用户试读反馈，保留数据及安全边界，按验收记录中的未完成能力推进，不要重建分支或重做旧方案。
+
+## 最新安装状态（2026-11-09，入口缺失修复）
+
+前述只更新试用入口的安装状态已被后续交付覆盖。用户找不到入口，核实桌面快捷方式指向旧 `artifacts/zwen`，现已将同一经过验收的普通构建同步到该路径，哈希及备份见页图验收记录末尾。源码仍在feat/paper-analysis-v2，main未合并。用户需完整退出旧实例再从原快捷方式启动，未强制结束日常程序。

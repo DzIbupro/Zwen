@@ -29,3 +29,7 @@
 日常 `artifacts/zwen` 未改，SHA256仍为 `91a02db43068ef9bd3c918386a3a6f16e85d8c6f8f84584c81f1cb45dd15878a`。未强退用户实例，完整退出旧试用程序后原命令 `./artifacts/zwen-paper-analysis show` 生效。
 
 原生PDF附件协议、自动agent式长文读取和独立本地OCR尚未实现；超出文字预算或页图8页范围仍需选页。真实图片服务的权限、上下文/图像配额及内容准确性未实测，用户先前授权的2次真实调用已用完，本轮没有追加请求。
+
+## 原入口补交付（2026-11-09）
+
+用户报告找不到入口。核对本机 `~/.local/share/applications/zwen.desktop` 的Exec仍为 `artifacts/zwen show`，而前述交付只更新论文试用产物；桌面入口因此继续加载旧程序。现将已验收、无测试钩子的同一普通构建原子安装到 `artifacts/zwen`，安装后校验SHA256与试用版一致：`50115b8bde213dc788a3850373034f8dd6fef13c341eecf019b9735b1fb093e4`。旧日常程序备份为 `artifacts/zwen-before-paper-integration-20261109`。未修改桌面配置、源码分支或用户数据，未强退用户实例；运行中旧实例需完整退出重开，尚未宣称用户日常窗口已显示新版。入口在主窗口“对话”的输入框上方。

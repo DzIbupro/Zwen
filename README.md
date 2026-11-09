@@ -19,7 +19,7 @@
 - 新资料保存于数据目录 `papers-v2/`，回答复用 `chat.sqlite3`。资料列表按元数据分页，旧v2资料库首次升级前生成经校验的私有备份，保留原件与会话。旧 `papers.sqlite3`、原件及笔记保留；输入区“已导入论文”的折叠菜单提供旧记录只读查看和原件打开。
 - 可停止并保留部分内容、继续历史、收藏知识库、导出Markdown。论文会话与草稿截图隔离，缺少论文来源时停止发送。
 
-运行论文试用入口：`./artifacts/zwen-paper-analysis show`。主程序 `artifacts/zwen` 不自动替换。页图与资料库更新见[最新记录](docs/validation/2026-11-09-paper-media-and-library.md)，最初文字路径见[记录](docs/validation/2026-11-09-paper-v2.md)，继续开发见[交接](docs/PAPER-READING-HANDOFF.md)。
+运行论文试用入口：`./artifacts/zwen-paper-analysis show`。2026-11-09已将同一普通构建同步到桌面快捷方式使用的 `artifacts/zwen`，完整退出旧实例后重新打开生效。页图与资料库更新见[最新记录](docs/validation/2026-11-09-paper-media-and-library.md)，最初文字路径见[记录](docs/validation/2026-11-09-paper-v2.md)，继续开发见[交接](docs/PAPER-READING-HANDOFF.md)。
 
 ## 两种窗口
 
