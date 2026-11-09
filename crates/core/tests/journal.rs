@@ -1,0 +1,32 @@
+use zwen_core::journal::{Journal,TurnState};
+fn path()->std::path::PathBuf{let p=std::env::temp_dir().join(format!("zwen-chat-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));std::fs::create_dir(&p).unwrap();p.join("chat.sqlite3")}
+#[test] fn partial_turn_survives_restart_and_explicit_recovery(){let p=path();let mut s=Journal::open(&p).unwrap();let mut t=s.begin("request-1","问题🙂","model").unwrap();t.answer="部分回答".into();t.revision=1;s.checkpoint(&t).unwrap();drop(s);let mut s=Journal::open(&p).unwrap();assert_eq!(s.latest().unwrap().unwrap().state,TurnState::Streaming);s.recover().unwrap();let restored=s.latest().unwrap().unwrap();assert_eq!(restored.answer,"部分回答");assert_eq!(restored.state,TurnState::Interrupted);drop(s);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
+#[test] fn late_checkpoint_cannot_overwrite_a_final_turn(){let p=path();let mut s=Journal::open(&p).unwrap();let mut t=s.begin("request-1","q","model").unwrap();t.answer="final".into();t.state=TurnState::Complete;t.revision=3;s.checkpoint(&t).unwrap();s.checkpoint(&t).unwrap();t.answer="stale".into();t.revision=2;t.state=TurnState::Streaming;assert!(s.checkpoint(&t).is_err());assert_eq!(s.latest().unwrap().unwrap().answer,"final");drop(s);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
+#[test] fn stale_reader_and_large_answer_never_erase_saved_content(){let p=path();let mut s=Journal::open(&p).unwrap();let mut t=s.begin("request-1","q","model").unwrap();t.answer="keep".into();t.revision=1;s.checkpoint(&t).unwrap();let mut stale=t.clone();t.answer="new".into();t.revision=2;s.checkpoint(&t).unwrap();assert!(s.checkpoint(&stale).is_err());stale.answer="a".repeat(256*1024+1);stale.revision=3;assert!(s.checkpoint(&stale).is_err());assert_eq!(s.latest().unwrap().unwrap().answer,"new");drop(s);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
+#[test] fn history_keeps_a_long_unicode_preview_without_changing_the_prompt(){let p=path();let mut s=Journal::open(&p).unwrap();let prompt=format!("{}区别在后半段{}","问🙂".repeat(65),"详".repeat(200));s.begin("long-preview",&prompt,"model").unwrap();let rows=s.history(0,20).unwrap();assert_eq!(rows[0].title,prompt.chars().take(240).collect::<String>());assert!(rows[0].title.contains("区别在后半段"));assert_eq!(s.find("long-preview").unwrap().unwrap().prompt,prompt);drop(s);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();}
+#[test]fn deleting_one_completed_turn_keeps_other_turns_context_and_saved_note(){
+ let p=path();let dir=p.parent().unwrap();let mut journal=Journal::open(&p).unwrap();
+ let mut a=journal.begin_in("a","旧问题","m",None,"profile",0).unwrap();a.answer="收藏正文".into();a.state=TurnState::Complete;a.revision=1;journal.checkpoint(&a).unwrap();
+ let mut b=journal.begin_in("b","后续问题","m",Some("a"),"profile",1).unwrap();b.answer="保留回答".into();b.state=TurnState::Complete;b.revision=1;journal.checkpoint(&b).unwrap();
+ let mut notes=zwen_core::notes::NoteStore::open(dir).unwrap();let note=notes.create("收藏","收藏正文","chat","m",&[],Some("a")).unwrap();
+ assert!(journal.delete_completed("a").unwrap());assert!(journal.find("a").unwrap().is_none());assert_eq!(journal.find("b").unwrap().unwrap(),b);
+ let context=journal.context(Some("a"),"profile",1).unwrap();assert_eq!(context.len(),2);assert_eq!(context[0].content,"后续问题");assert_eq!(notes.read(&note.id).unwrap().body,"收藏正文");
+ assert!(journal.checkpoint(&a).is_err(),"late checkpoint must not recreate deleted history");drop(journal);let mut journal=Journal::open(&p).unwrap();journal.recover().unwrap();assert!(journal.find("a").unwrap().is_none());assert_eq!(journal.history(0,20).unwrap().len(),1);
+ drop(notes);drop(journal);std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]fn history_delete_rejects_streaming_and_invalid_ids_and_is_idempotent(){
+ let p=path();let mut j=Journal::open(&p).unwrap();j.begin("active","q","m").unwrap();assert!(j.delete_completed("active").is_err());assert!(j.find("active").unwrap().is_some());assert!(!j.delete_completed("missing").unwrap());for id in ["","bad/id"]{assert!(j.delete_completed(id).is_err());}drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}
+#[test]fn failed_history_delete_preserves_record(){
+ let p=path();let mut j=Journal::open(&p).unwrap();let mut a=j.begin("keep","q","m").unwrap();a.state=TurnState::Complete;a.revision=1;j.checkpoint(&a).unwrap();let c=rusqlite::Connection::open(&p).unwrap();c.execute_batch("CREATE TRIGGER reject_delete BEFORE DELETE ON turns BEGIN SELECT RAISE(ABORT,'fixture'); END").unwrap();assert!(j.delete_completed("keep").is_err());assert_eq!(j.find("keep").unwrap().unwrap(),a);drop(c);drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}
+#[test]fn batch_delete_is_atomic_for_streaming_and_storage_failure(){
+ let p=path();let mut j=Journal::open(&p).unwrap();for id in ["a","b"]{let mut t=j.begin(id,"q","m").unwrap();t.state=TurnState::Complete;t.revision=1;j.checkpoint(&t).unwrap();}j.begin("live","q","m").unwrap();
+ assert!(j.delete_history(Some(&["a".into(),"live".into()])).is_err());assert!(j.find("a").unwrap().is_some());assert!(j.delete_history(None).is_err());assert_eq!(j.history(0,20).unwrap().len(),3);
+ let c=rusqlite::Connection::open(&p).unwrap();c.execute_batch("CREATE TRIGGER fail_second BEFORE DELETE ON turns WHEN OLD.request_id='b' BEGIN SELECT RAISE(ABORT,'fixture'); END").unwrap();assert!(j.delete_history(Some(&["a".into(),"b".into()])).is_err());assert!(j.find("a").unwrap().is_some());assert!(j.find("b").unwrap().is_some());drop(c);drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}
+#[test]fn batch_delete_counts_unique_existing_targets_and_all_reaches_other_pages(){
+ let p=path();let mut j=Journal::open(&p).unwrap();for i in 0..25{let mut t=j.begin(&format!("r-{i}"),"q","m").unwrap();t.state=TurnState::Complete;t.revision=1;j.checkpoint(&t).unwrap();}
+ assert!(j.delete_history(Some(&[])).is_err());assert!(j.delete_history(Some(&["r-0".into(),"bad/id".into()])).is_err());assert!(j.find("r-0").unwrap().is_some());
+ assert_eq!(j.delete_history(Some(&["r-0".into(),"r-0".into(),"missing".into(),"r-24".into()])).unwrap(),2);assert_eq!(j.delete_history(None).unwrap(),23);assert_eq!(j.delete_history(None).unwrap(),0);assert!(j.latest().unwrap().is_none());drop(j);let j=Journal::open(&p).unwrap();assert!(j.history(0,20).unwrap().is_empty());drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paper-defaults"
+description = "Enables the paper_defaults command without any pre-configured scope."
+commands.allow = ["paper_defaults"]
+
+[[permission]]
+identifier = "deny-paper-defaults"
+description = "Denies the paper_defaults command without any pre-configured scope."
+commands.deny = ["paper_defaults"]

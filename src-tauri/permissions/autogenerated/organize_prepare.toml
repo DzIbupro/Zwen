@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-organize-prepare"
+description = "Enables the organize_prepare command without any pre-configured scope."
+commands.allow = ["organize_prepare"]
+
+[[permission]]
+identifier = "deny-organize-prepare"
+description = "Denies the organize_prepare command without any pre-configured scope."
+commands.deny = ["organize_prepare"]

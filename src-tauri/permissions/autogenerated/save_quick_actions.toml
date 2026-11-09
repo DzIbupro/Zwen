@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-quick-actions"
+description = "Enables the save_quick_actions command without any pre-configured scope."
+commands.allow = ["save_quick_actions"]
+
+[[permission]]
+identifier = "deny-save-quick-actions"
+description = "Denies the save_quick_actions command without any pre-configured scope."
+commands.deny = ["save_quick_actions"]

@@ -1,0 +1,30 @@
+name: 问题反馈
+description: 报告可复现的问题，请勿上传密钥或私人资料。
+body:
+  - type: markdown
+    attributes:
+      value: 请删除密钥、私人地址、用户名、绝对路径和真实对话；优先使用合成样例。
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统、桌面或合成器、程序版本或提交号。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 补充说明
+      description: 可提供已去除私人信息的日志或可公开样例；不要上传个人数据库。

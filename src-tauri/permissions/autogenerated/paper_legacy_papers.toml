@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paper-legacy-papers"
+description = "Enables the paper_legacy_papers command without any pre-configured scope."
+commands.allow = ["paper_legacy_papers"]
+
+[[permission]]
+identifier = "deny-paper-legacy-papers"
+description = "Denies the paper_legacy_papers command without any pre-configured scope."
+commands.deny = ["paper_legacy_papers"]

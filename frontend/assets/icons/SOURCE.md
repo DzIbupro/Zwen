@@ -1,0 +1,1 @@
+Lucide icons, pinned tag 0.468.0. Official source: https://raw.githubusercontent.com/lucide-icons/lucide/0.468.0/icons/ . Original license in LICENSE. Used as CSS masks inheriting monochrome currentColor; no external runtime requests.

@@ -1,0 +1,7 @@
+<script lang="ts">
+ import plus from './assets/icons/plus.svg';import message from './assets/icons/message-square.svg';import history from './assets/icons/history.svg';import book from './assets/icons/book-open.svg';import network from './assets/icons/network.svg';import settings from './assets/icons/settings-2.svg';import collapse from './assets/icons/panel-left-close.svg';import expand from './assets/icons/panel-left-open.svg';import external from './assets/icons/arrow-up-right.svg';import close from './assets/icons/x.svg';import minus from './assets/icons/minus.svg';import paperclip from './assets/icons/paperclip.svg';import send from './assets/icons/send.svg';import image from './assets/icons/image.svg';import save from './assets/icons/save.svg';import more from './assets/icons/ellipsis.svg';import stop from './assets/icons/square.svg';import sun from './assets/icons/sun.svg';import moon from './assets/icons/moon.svg';import bookmark from './assets/icons/bookmark.svg';
+ const icons={plus,message,history,book,network,settings,collapse,expand,external,close,minus,paperclip,send,image,save,more,stop,sun,moon,bookmark};
+ let {name,size=20}:{name:keyof typeof icons;size?:number}=$props();
+</script>
+<span class="ui-icon" aria-hidden="true" style={`--icon:url("${icons[name]}");--icon-size:${size}px`}></span>
+<style>.ui-icon{display:inline-block;flex:none;width:var(--icon-size);height:var(--icon-size);background:currentColor;mask:var(--icon) center/contain no-repeat;-webkit-mask:var(--icon) center/contain no-repeat;vertical-align:middle;}</style>

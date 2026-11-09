@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-action-document"
+description = "Enables the save_action_document command without any pre-configured scope."
+commands.allow = ["save_action_document"]
+
+[[permission]]
+identifier = "deny-save-action-document"
+description = "Denies the save_action_document command without any pre-configured scope."
+commands.deny = ["save_action_document"]

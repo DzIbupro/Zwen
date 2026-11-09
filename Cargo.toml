@@ -1,0 +1,11 @@
+[workspace]
+members = ["crates/core", "crates/transport", "src-tauri"]
+default-members = ["crates/core", "crates/transport"]
+resolver = "2"
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.release]
+strip = true

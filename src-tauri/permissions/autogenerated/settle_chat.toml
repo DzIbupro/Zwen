@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-settle-chat"
+description = "Enables the settle_chat command without any pre-configured scope."
+commands.allow = ["settle_chat"]
+
+[[permission]]
+identifier = "deny-settle-chat"
+description = "Denies the settle_chat command without any pre-configured scope."
+commands.deny = ["settle_chat"]

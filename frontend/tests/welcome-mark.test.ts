@@ -1,0 +1,4 @@
+import {it,expect,vi} from 'vitest';import {mount,unmount,flushSync} from 'svelte';
+vi.mock('svelte',()=>vi.importActual<typeof import('svelte')>('../../node_modules/svelte/src/index-client.js'));
+import WelcomeMark from '../WelcomeMark.svelte';
+it('renders the logo alone as a clipped background without external grid or raster backdrop',async()=>{const target=document.createElement('div');document.body.append(target);const app=mount(WelcomeMark,{target});try{flushSync();expect(target.querySelector('[data-welcome-background]')).not.toBeNull();expect(target.querySelector('.field-grid')).toBeNull();expect(target.querySelector('svg')?.getAttribute('viewBox')).toBe('54 64 148 124');expect(target.querySelector('feFuncR')?.getAttribute('tableValues')).toBe('0 0 0 1');expect(target.querySelector('image')?.closest('mask')).not.toBeNull();}finally{await unmount(app);target.remove();}});

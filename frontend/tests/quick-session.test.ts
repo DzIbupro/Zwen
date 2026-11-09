@@ -1,0 +1,13 @@
+import {it,expect} from 'vitest';
+import {QuickSession} from '../lib/quick-session';
+function fixture(){const calls:string[]=[];let fail=false;const session=new QuickSession();const port={settle:async()=>{calls.push('settle');if(fail)throw Error('保存失败');},revokeSend:()=>{calls.push('revoke');},discardSelection:async(id:number)=>{calls.push('discard:'+id);},clearMaterials:async()=>{calls.push('materials');},clearDraft:async()=>{calls.push('draft');},restoreDraft:async()=>{calls.push('restore');},resetView:()=>{calls.push('reset');}};return{session,port,calls,fail:()=>fail=true};}
+it('does nothing to an ordinary draft without a quick session',async()=>{const f=fixture();expect(await f.session.close(f.port)).toBe(false);expect(f.calls).toEqual([]);});
+it('ends the owned quick task after settlement and revokes draft restoration',async()=>{const f=fixture();f.session.begin(7);expect(await f.session.close(f.port)).toBe(true);expect(f.calls).toEqual(['settle','revoke','discard:7','draft','materials','reset']);expect(f.session.active).toBe(false);expect(f.session.begin(8)).toBe(true);});
+it('retains ownership and recoverable input on failed settlement',async()=>{const f=fixture();f.session.begin(7);f.fail();await expect(f.session.close(f.port)).rejects.toThrow('保存失败');expect(f.calls).toEqual(['settle']);expect(f.session.active).toBe(true);expect(f.session.closing).toBe(false);});
+it('blocks a new command during asynchronous cleanup and permits it afterwards',async()=>{const f=fixture();f.session.begin(7);let release!:()=>void;f.port.settle=()=>new Promise(r=>release=r);const closing=f.session.close(f.port);expect(f.session.begin(8)).toBe(false);expect(await f.session.close(f.port)).toBe(false);release();await closing;expect(f.session.begin(8)).toBe(true);});
+
+it('releases ownership when starting an unrelated full-window conversation',async()=>{const f=fixture();f.session.begin(7);f.session.release();expect(await f.session.close(f.port)).toBe(false);expect(f.calls).toEqual([]);});
+
+it('does not remove attachments if clearing the draft fails to persist',async()=>{const f=fixture();f.session.begin(7);f.port.clearDraft=async()=>{throw Error('disk full');};await expect(f.session.close(f.port)).rejects.toThrow('disk full');expect(f.calls).not.toContain('materials');expect(f.session.active).toBe(true);});
+
+it('restores the draft and retains ownership if attachment cleanup fails',async()=>{const f=fixture();f.session.begin(7);f.port.clearMaterials=async()=>{throw Error('attachment IO');};await expect(f.session.close(f.port)).rejects.toThrow('attachment IO');expect(f.calls).toContain('restore');expect(f.session.active).toBe(true);});

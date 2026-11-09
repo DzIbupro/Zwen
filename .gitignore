@@ -1,0 +1,62 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+.local/
+artifacts/
+attachments/
+screenshots/
+.worktrees/
+
+# Reproducible technology probes: retain sources and locks, not regenerated assets
+**/target/
+**/cargo-cache/
+**/web/vendor/
+tools/technology-probes/**/web/fixture.png
+tools/technology-probes/**/tauri-probe/icons/icon.png
+
+# Formal desktop build and execution workspace
+node_modules/
+.cache/
+.superpowers/
+src-tauri/gen/
+
+# SQLite sidecars may contain user materials
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite-wal
+*.sqlite-shm
+
+# Local development tools and credentials
+.codex/
+.agents/
+.aws/
+.zcode/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# User documents; the only checked-in PDF is a generated test fixture
+*.pdf
+!src-tauri/tests/fixtures/paper-pages.pdf
+*.docx
+*.pptx
