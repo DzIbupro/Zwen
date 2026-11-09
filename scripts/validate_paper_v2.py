@@ -51,11 +51,13 @@ out=Path('artifacts/validation/paper-v2');out.mkdir(parents=True,exist_ok=True)
 try:
     with tempfile.TemporaryDirectory(prefix='zwen-paper-v2-native-') as folder:
         path=Path(folder)/'fixture.pdf';pdf(path)
-        env=os.environ.copy();env.update(ZWEN_DATA_DIR=folder,ZWEN_SMOKE='paper-v2',ZWEN_PROVIDER_TEST_KEY='synthetic-paper-key',ZWEN_PROVIDER_TEST_BASE=f'http://127.0.0.1:{server.server_port}/v1',ZWEN_PAPER_FIXTURE_PDF=str(path),ZWEN_SMOKE_TIMEOUT_SECS='45')
+        helpers=Path(folder)/'helpers';helpers.mkdir();opener=helpers/'xdg-open';open_log=Path(folder)/'opened.json';opener.write_text('#!/usr/bin/python3\nimport json,os,sys\nfrom pathlib import Path\nlog=Path(os.environ["ZWEN_OPEN_LOG"]);items=json.loads(log.read_text()) if log.exists() else [];items.append(sys.argv[1:]);log.write_text(json.dumps(items));sys.exit(3 if len(items)==1 else 0)\n');opener.chmod(0o700)
+        env=os.environ.copy();env['PATH']=str(helpers)+os.pathsep+env.get('PATH','');env['ZWEN_OPEN_LOG']=str(open_log);env.update(ZWEN_DATA_DIR=folder,ZWEN_SMOKE='paper-v2',ZWEN_PROVIDER_TEST_KEY='synthetic-paper-key',ZWEN_PROVIDER_TEST_BASE=f'http://127.0.0.1:{server.server_port}/v1',ZWEN_PAPER_FIXTURE_PDF=str(path),ZWEN_SMOKE_TIMEOUT_SECS='45')
         p=subprocess.run([str(binary),'show'],env=env,capture_output=True,text=True,timeout=55)
         (out/'stdout.txt').write_text(p.stdout);(out/'stderr.txt').write_text(p.stderr)
         rows=[json.loads(s.split(':',1)[1]) for s in p.stdout.splitlines() if s.startswith('FOUNDATION_SMOKE:')]
         assert p.returncode==0 and any(r.get('ok') for r in rows),(p.returncode,rows,p.stderr[-1800:])
+        opened=json.loads(open_log.read_text());assert len(opened)==2 and opened[0]==opened[1] and len(opened[0])==1 and Path(opened[0][0]).parent==Path(folder)/'papers-v2' and Path(opened[0][0]).read_bytes()==path.read_bytes(),opened
         assert len(requests)==5 and not errors,(len(requests),errors)
         assert len(requests[0]['messages'])==1 and len(requests[1]['messages'])==3
         (out/'result.json').write_text(json.dumps({'native':rows,'requests':len(requests),'realModel':False},indent=2))

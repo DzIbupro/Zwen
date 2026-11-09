@@ -3,9 +3,11 @@
  import type {PaperDraftController,PaperDraftState} from './lib/paper-draft';
  import type {PaperPort,PaperMetadata,SessionInfo,LegacyRun} from './lib/papers';
  import {renderMarkdown} from './lib/render';
- let {controller,state:info,port,context=null,destination='',visionModel='',reading=false,disabled=false,desktop=true,onExit}:{controller:PaperDraftController;state:PaperDraftState;port:Pick<PaperPort,'list'>&Partial<PaperPort>;context?:SessionInfo|null;destination?:string;visionModel?:string;reading?:boolean;disabled?:boolean;desktop?:boolean;onExit:()=>void}=$props();
+ let {controller,state:info,port,context=null,destination='',visionModel='',reading=false,disabled=false,desktop=true,onOpenStart=()=>{},onExit}:{controller:PaperDraftController;state:PaperDraftState;port:Pick<PaperPort,'list'>&Partial<PaperPort>;context?:SessionInfo|null;destination?:string;visionModel?:string;reading?:boolean;disabled?:boolean;desktop?:boolean;onOpenStart?:()=>void;onExit:()=>void}=$props();
  let moreOpen=$state(false);let attachedId='';
  $effect(()=>{const id=info.paper?.id??'';if(attachedId&&!id&&reading)moreOpen=false;attachedId=id;});
+ let opening=$state(false),openNotice=$state('');
+ async function openOriginal(){const id=info.paper?.id??context?.source.id;if(!id||!port.open||opening)return;opening=true;openNotice='';onOpenStart();try{await port.open(id);}catch(e){openNotice=e instanceof Error?e.message:'原件无法打开，请重试';}finally{opening=false;}}
  let sourcePages=$state<string[]>([]),sourceNotice=$state(''),inspectedId='';
  let libraryBusy=$state(false),nextCursor=$state<number|null>(null);
  let recent=$state<PaperMetadata[]>([]),oldPapers=$state<PaperMetadata[]>([]),legacy=$state<LegacyRun[]>([]),legacyText=$state(''),libraryNotice=$state('');
@@ -25,8 +27,9 @@
  <div class="feature-row"><button class:enabled={active} class="paper-toggle" data-paper-toggle aria-pressed={active} disabled={disabled||!desktop} onclick={()=>{if(active)onExit();else void controller.enable();}}><Icon name="book" size={16}/>论文阅读</button>{#if active}<span>内置阅读重点与报告结构</span>{/if}</div>
  {#if active}
   <div class="paper-mini" data-paper-mini>
-   <div class="paper-mini-head"><Icon name="book" size={18}/><div><strong>{info.paper?.name??context?.source.name??(reading?'论文阅读会话':'添加一篇 PDF')}</strong><small>{info.paper?`${info.paper.pageCount} 页 · 可提取 ${info.paper.readablePages}/${info.paper.pageCount} 页 · 点击发送开始分析`:context?`可提取 ${context.source.readablePages}/${context.source.pageCount} 页 · 围绕原文继续提问`:reading?'围绕原文继续提问':'默认全文精读，无需填写阅读要求'}</small></div><button class="paper-close" aria-label={info.paper?'移除论文附件':'关闭论文阅读'} title={info.paper?'移除附件':reading?'结束论文会话，准备普通新对话':'关闭论文阅读'} disabled={disabled} onclick={()=>{if(info.paper)controller.remove();else onExit();}}>×</button></div>
+   <div class="paper-mini-head"><Icon name="book" size={18}/><div><strong>{info.paper?.name??context?.source.name??(reading?'论文阅读会话':'添加一篇 PDF')}</strong><small>{info.paper?`${info.paper.pageCount} 页 · 可提取 ${info.paper.readablePages}/${info.paper.pageCount} 页 · 点击发送开始分析`:context?`可提取 ${context.source.readablePages}/${context.source.pageCount} 页 · 围绕原文继续提问`:reading?'围绕原文继续提问':'拖入单篇 PDF，或点击上传；无需填写阅读要求'}</small></div><button class="paper-close" aria-label={info.paper?'移除论文附件':'关闭论文阅读'} title={info.paper?'移除附件':reading?'结束论文会话，准备普通新对话':'关闭论文阅读'} disabled={disabled} onclick={()=>{if(info.paper)controller.remove();else onExit();}}>×</button></div>
    {#if !info.paper&&!context&&!reading}<div class="paper-mini-actions"><button data-paper-upload disabled={disabled||info.importing||info.restoring} onclick={()=>void controller.choose()}>{info.importing?'正在导入…':'上传 PDF'}</button></div>{/if}
+   {#if (info.paper||context)&&port.open}<button data-paper-open disabled={opening} onclick={()=>void openOriginal()}>{opening?'正在打开…':'打开论文原件'}</button>{/if}{#if openNotice}<p role="alert">{openNotice}</p>{/if}
    <details data-paper-more bind:open={moreOpen}><summary>阅读选项与资料</summary>
    <div class="paper-mini-actions">{#if info.paper||context||reading}<button data-paper-upload disabled={disabled||info.importing||info.restoring} onclick={()=>void controller.choose()}>{info.importing?'正在导入…':info.paper||context?'更换 PDF':'上传 PDF'}</button>{/if}<details class="paper-library" ontoggle={e=>{if(e.currentTarget.open)void library();}}><summary>已导入论文</summary><div class="paper-library-items">{#each recent as p}<button disabled={disabled||!info.loaded} onclick={()=>controller.attach(p)}>{p.name} · {p.pageCount} 页</button>{/each}{#if libraryBusy}<small>正在加载…</small>{:else if !recent.length}<small>还没有已导入论文</small>{/if}{#if nextCursor}<button data-paper-load-more disabled={libraryBusy} onclick={()=>void library(true)}>加载更多</button>{/if}{#if oldPapers.length||legacy.length}<details><summary>旧版资料（只读）</summary>{#each oldPapers as p}<button onclick={()=>void port.legacyOpen?.(p.id).catch(e=>libraryNotice=String(e))}>打开原件：{p.name}</button>{/each}{#each legacy as r}<button onclick={()=>void port.legacyReport?.(r.runId).then(text=>legacyText=text).catch(e=>libraryNotice=String(e))}>{r.name} · {r.state}</button>{/each}{#if legacyText}<div class="prose">{@html renderMarkdown(legacyText)}</div>{/if}</details>{/if}{#if libraryNotice}<p role="alert">{libraryNotice}</p>{/if}</div></details></div>
    {#if info.paper&&info.loaded}
@@ -46,7 +49,7 @@
    {#if effectiveImages&&effectiveOptions}<small data-paper-image-notice>将发送第{effectiveOptions.startPage}–{effectiveOptions.endPage||info.paper?.pageCount||context?.source.pageCount}页的图像给 {effectiveModel||'尚未配置的图片模型'}（最多8页）。</small>{/if}
    <small data-paper-destination>{info.paper||!context?destination:context.endpoint+' · '+context.model}</small>
    {#if info.restoring}<p role="status">正在恢复论文附件…</p>{/if}
-   {#if info.notice}<p role="status">{info.notice}</p>{/if}{#if info.recoveryAvailable}<button disabled={disabled||info.restoring} onclick={()=>void controller.restore()}>重试恢复附件</button>{/if}
+   {#if info.notice}<p role="status">{info.notice}</p>{/if}{#if info.recoveryAvailable}<button disabled={disabled||info.restoring||info.importing} onclick={()=>void controller.restore()}>重试恢复附件</button>{/if}
   </div>
  {/if}
 </div>

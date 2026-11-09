@@ -1,6 +1,8 @@
 <script lang="ts">
   import Sidebar from './Sidebar.svelte';
   import PaperComposer from './PaperComposer.svelte';
+  import {getCurrentWebview} from '@tauri-apps/api/webview';
+  import {createPaperDropHandler} from './lib/paper-drop';
   import {PaperDraftController,type PaperDraftState} from './lib/paper-draft';
   import {defaultReadingOptions} from './lib/papers';
   import {paperPort} from './lib/bridge';
@@ -153,6 +155,13 @@
   function newConversation(){if(closing)return;if(chat.newConversation()){quickSession.release();view='ask';notice='已准备新对话，当前草稿保留';}}
   function historyDeleted(ids:string[]){if(ids.includes(chatState.reply?.requestId??'')&&chat.newConversation())quickSession.release();}
   function continueHistory(reply:ChatReply){if(closing)return;if(chat.adopt(reply)){quickSession.release();view='reply';notice='继续此会话将附带近期问答';}}
+  let draggingPdf=$state(false);
+  const paperDrop=createPaperDropHandler({
+    blocked:()=>surface.mode!=='full'||!['ask','reply'].includes(view)?'请在主窗口的对话页面拖入PDF':closing||chatState.running||chatState.stopping||actionBusy||selectionState.busy||attachmentState.pending||paperDraftState.importing||paperDraftState.restoring?'请等待当前操作完成，再拖入PDF':chatState.reply&&!chatState.reply.saved?'请先保存当前回答，再导入PDF':null,
+    hover:value=>draggingPdf=value,
+    note:value=>notice=value,
+    import:paths=>paperDraft.drop(paths),
+  });
   function exitPaperMode(){if(chatState.running||chatState.stopping)return;if(paperContext)newConversation();paperDraft.close();}
   async function exportPaper(){if(!chatState.reply)return;try{notice=await invoke<string>('paper_export',{requestId:chatState.reply.requestId});}catch(e){notice=e instanceof Error?e.message:typeof e==='object'&&e&&'message' in e?String(e.message):'导出未完成，请重试';}}
   function stopReply(){void chat.stop().catch(()=>{});}
@@ -255,6 +264,8 @@
     let disposed=false;const unlisteners:(()=>void)[]=[];
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
     const unwatchTheme=watchSystemTheme(()=>appearanceState);void appearance.start();void provider.load();void chat.load();
+    if(isDesktop)void listen<{paperId:string}>('paper-open-failed',e=>{if(!disposed&&(pendingPaper?.id??paperScope?.source.id)===e.payload.paperId)notice='系统未能打开论文原件，请检查默认PDF阅读器后重试。';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop)void getCurrentWebview().onDragDropEvent(event=>{if(!disposed)void paperDrop(event.payload);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='拖放暂不可用，请点击论文阅读中的上传PDF';});
     if(isDesktop)void quickActionPort.load().then(c=>{if(disposed)return;quickConfig=c;quickConfigLoaded=true;}).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'快捷提示词读取失败';});
     draftReady=controller.start();
     void draftReady.then(()=>{if(disposed)return;input?.focus();void selection.refresh();}).catch(()=>{});
@@ -310,7 +321,8 @@
     {#if chatState.error}<div class="error" role="alert"><strong>{chatState.error}</strong>{#if !chatState.loaded}<button onclick={()=>void chat.load()}>重新读取对话</button>{/if}{#if chatState.reply&&!chatState.reply.saved&&!chatState.running}<button onclick={()=>void retryReplySave()}>重试保存回答</button>{/if}</div>{/if}
     {#if draft.error}<div class="error" role="alert"><strong>{draft.error}</strong><span>原有文件不会被自动替换。</span><button onclick={()=>draft.loaded ? save() : controller.start().then(()=>selection.refresh()).catch(()=>{})}>{draft.loaded ? '重试保存' : '重新读取'}</button></div>{/if}
     {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">
-      <PaperComposer controller={paperDraft} state={paperDraftState} port={paperPort} context={paperScope} visionModel={imageModelOf(settings.config)} destination={settings.config?`${settings.config.baseUrl} · ${pendingPaper&&paperDraftState.options.readImages?imageModelOf(settings.config)||'未配置图片模型':settings.config.model}`:'未配置模型服务'} reading={paperContext} desktop={isDesktop} disabled={closing||chatState.running||chatState.stopping||actionBusy} onExit={exitPaperMode}/>
+      {#if draggingPdf}<p class="paper-drop-notice" role="status">松开导入这篇 PDF，仅保存在本机；点击发送才开始分析。</p>{/if}
+      <PaperComposer controller={paperDraft} state={paperDraftState} port={paperPort} context={paperScope} visionModel={imageModelOf(settings.config)} destination={settings.config?`${settings.config.baseUrl} · ${pendingPaper&&paperDraftState.options.readImages?imageModelOf(settings.config)||'未配置图片模型':settings.config.model}`:'未配置模型服务'} onOpenStart={()=>{if(notice==='系统未能打开论文原件，请检查默认PDF阅读器后重试。')notice='';}} reading={paperContext} desktop={isDesktop} disabled={closing||chatState.running||chatState.stopping||actionBusy} onExit={exitPaperMode}/>
       <Attachments state={attachmentState} onCancel={()=>void attachmentController.cancel()} onRemove={id=>void attachmentController.remove(id)} onRetake={id=>captureScreenshot(id)}/>
       <label class="sr-only" for="question">问题草稿</label><textarea bind:this={input} id="question" disabled={!draft.loaded||closing} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder={pendingPaper?'可直接发送开始精读，或补充你想了解的问题…':paperContext?'围绕这篇论文继续提问…':'输入问题，或粘贴内容…'} spellcheck="false" rows="2"></textarea>
       <div class="composer-tools"><div><button class="tool-button" data-capture aria-label="附加截图" title="附加截图" disabled={paperContext||paperDraftState.enabled||!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿" title="保存草稿 · Ctrl S" disabled={!draft.loaded} onclick={save}><Icon name="save" size={18}/></button>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title="Enter 发送 · Shift+Enter 换行" disabled={selectionState.busy||attachmentState.pending||(!paperContext&&!pendingPaper&&attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||paperDraftState.importing||paperDraftState.restoring||(paperContext&&!pendingPaper&&!paperScope)||(paperDraftState.enabled&&!paperDraftState.loaded)||(paperDraftState.enabled&&!pendingPaper&&!paperContext)||(!draft.text.trim()&&!pendingPaper)} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>Enter ↵</kbd></button></div>

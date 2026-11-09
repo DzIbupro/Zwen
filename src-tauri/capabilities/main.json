@@ -83,6 +83,8 @@
     "allow-paper-legacy-papers",
     "allow-paper-legacy-open",
     "allow-paper-defaults",
+    "allow-paper-import-pdf",
+    "allow-paper-open",
     "allow-paper-list-page",
     "allow-paper-metadata"
   ]

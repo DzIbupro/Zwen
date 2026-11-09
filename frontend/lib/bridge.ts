@@ -114,6 +114,8 @@ export const appearancePort:AppearancePort=isDesktop?{load:()=>command<Appearanc
 };
 
 export const paperPort={
+ importPdf:(path:string)=>command<PaperMetadata>('paper_import_pdf',{path}),
+ open:(paperId:string)=>command<void>('paper_open',{paperId}),
  get:(paperId:string)=>command<PaperMetadata>('paper_metadata',{paperId}),
  listPage:(cursor:number|null=null)=>command<import('./papers').MetadataPage>('paper_list_page',{cursor}),
  defaults:()=>command<ReadingOptions>('paper_defaults'),

@@ -36,6 +36,31 @@ pub async fn paper_choose(app:tauri::AppHandle,storage:tauri::State<'_,SharedSto
  let Some(path)=rx.await.map_err(|_|ClientError::window())? else{return Ok(None);};let s=storage.inner().clone();
  tauri::async_runtime::spawn_blocking(move||import(&s,path).map(Some)).await.map_err(|_|ClientError::storage())?
 }
+#[tauri::command]
+pub async fn paper_import_pdf(storage:tauri::State<'_,SharedStorage>,path:String)->Result<Metadata,ClientError>{
+ let path=PathBuf::from(path);validate_drop_path(&path)?;let s=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||import(&s,path)).await.map_err(|_|ClientError::storage())?
+}
+fn validate_drop_path(path:&std::path::Path)->Result<(),ClientError>{
+ if !path.is_absolute()||!path.extension().and_then(|v|v.to_str()).is_some_and(|v|v.eq_ignore_ascii_case("pdf")){return Err(ClientError{code:"paper_import",message:"请拖入本机单篇PDF文件".into()});}Ok(())
+}
+#[tauri::command]
+pub async fn paper_open(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,paper_id:String)->Result<(),ClientError>{
+ let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||{
+  let lib=library(&s)?;lib.metadata(&paper_id).map_err(error)?;let path=lib.pdf_path(&paper_id).map_err(error)?;
+  read_pdf(&path)?;spawn_document(document_opener(&path),move||{use tauri::Emitter;let _=app.emit("paper-open-failed",serde_json::json!({"paperId":paper_id}));})
+ }).await.map_err(|_|ClientError::storage())?
+}
+fn open_document(path:&std::path::Path)->Result<(),ClientError>{
+ spawn_document(document_opener(path),||{})
+}
+fn spawn_document(mut command:std::process::Command,failed:impl FnOnce()+Send+'static)->Result<(),ClientError>{
+ let mut child=command.spawn().map_err(|_|ClientError{code:"paper_open",message:"无法打开原件，请检查系统PDF阅读器".into()})?;
+ std::thread::spawn(move||{if !child.wait().is_ok_and(|status|status.success()){failed();}});Ok(())
+}
+fn document_opener(path:&std::path::Path)->std::process::Command{
+ let mut command=std::process::Command::new("xdg-open");command.arg(path).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());command
+}
 fn read_pdf(path:&std::path::Path)->Result<Vec<u8>,ClientError>{
  let fail=|s:&str|ClientError{code:"paper_import",message:s.into()};
  let mut input=fs::OpenOptions::new();input.read(true);
@@ -121,11 +146,15 @@ pub async fn paper_legacy_papers(storage:tauri::State<'_,SharedStorage>)->Result
 #[tauri::command]
 pub async fn paper_legacy_open(storage:tauri::State<'_,SharedStorage>,paper_id:String)->Result<(),ClientError>{let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||{
  let path=zwen_core::paper::legacy_pdf(s.directory.as_ref().map_err(Clone::clone)?,&paper_id).map_err(error)?;
- let mut child=std::process::Command::new("xdg-open").arg(path).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map_err(|_|ClientError{code:"paper_open",message:"无法打开原件，请检查系统PDF阅读器".into()})?;
- std::thread::spawn(move||{let _=child.wait();});Ok(())
+ open_document(&path)
  }).await.map_err(|_|ClientError::storage())?}
 #[cfg(test)]mod tests{
  use super::*;
+ #[test]fn opener_failure_is_reported_without_waiting_on_the_ui(){
+  for exit in [0,3]{let (tx,rx)=std::sync::mpsc::channel();let mut c=std::process::Command::new("/bin/sh");c.args(["-c",&format!("exit {exit}")]);spawn_document(c,move||{let _=tx.send(());}).unwrap();let result=rx.recv_timeout(Duration::from_secs(2));if exit==0{assert!(matches!(result,Err(std::sync::mpsc::RecvTimeoutError::Disconnected)));}else{assert!(result.is_ok());}}
+ }
+ #[test]fn dropped_paths_require_absolute_pdf_names(){assert!(validate_drop_path(std::path::Path::new("/tmp/paper.PDF")).is_ok());for p in ["relative.pdf","/tmp/private.txt","https://example.test/paper.pdf"]{assert!(validate_drop_path(std::path::Path::new(p)).is_err());}}
+ #[test]fn original_opener_keeps_the_path_as_one_argument(){let path=std::path::Path::new("/tmp/name with spaces ; $(x).pdf");let c=document_opener(path);assert_eq!(c.get_program(),"xdg-open");assert_eq!(c.get_args().collect::<Vec<_>>(),vec![path.as_os_str()]);}
  #[test]fn named_pipe_is_rejected_without_waiting_for_writer(){
   use std::ffi::CString;
   let path=std::env::temp_dir().join(format!("zwen-fifo-{}.pdf",std::process::id()));let c=CString::new(path.to_string_lossy().as_bytes()).unwrap();
