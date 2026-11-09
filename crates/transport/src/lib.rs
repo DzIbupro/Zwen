@@ -3,14 +3,15 @@ use std::{fmt,time::Duration};
 use tokio::sync::watch;
 use zwen_core::{provider::{ProviderConfig,ApiKey},completion::{CompletionDecoder,FinishReason},stream::{Decoder,MAX_CHUNK_BYTES}};
 pub mod retry;
+pub mod paper_agent;
 pub const MAX_RESPONSE_BYTES:usize=256*1024;
 pub const MAX_WIRE_BYTES:usize=8*1024*1024;
 pub const MAX_MESSAGE_IMAGES:usize=8;
 pub const MAX_IMAGE_PAYLOAD_BYTES:usize=8*1024*1024;
-#[derive(Debug,PartialEq)] pub enum Error {Quota,RateLimited{code:Option<u32>,retry_after:Duration},Cancelled,Http(u16),Api{status:u16,code:u32},Protocol,Network,Timeout,TooLarge,Delivery,Empty,InvalidInput}
+#[derive(Debug,PartialEq)] pub enum Error {Quota,RateLimited{code:Option<u32>,retry_after:Duration},Cancelled,Http(u16),Api{status:u16,code:u32},Protocol,Network,Timeout,TooLarge,Delivery,Empty,InvalidInput,DocumentTools,DocumentBudget}
 impl fmt::Display for Error {
  fn fmt(&self,f:&mut fmt::Formatter<'_>)->fmt::Result{if let Self::RateLimited{code,..}=self{return write!(f,"服务返回HTTP429{}",code.map(|v|format!("（代码 {v}）")).unwrap_or_default());}if let Self::Api{status,code}=self{return write!(f,"{}（HTTP {}，代码 {}），请核对服务状态后手动重试",if *status==429{"服务拒绝本次请求"}else{"服务返回异常状态"},status,code);}f.write_str(match self{
-  Self::Quota=>"服务账户或额度限制（HTTP429），问题已保留，请核对账户后再试",Self::RateLimited{..}=>"服务返回HTTP429",Self::Api{..}=>"服务返回异常状态",Self::Cancelled=>"已停止生成，已接收内容保留",Self::Http(401|403)=>"服务拒绝了凭据或模型权限，请检查设置",Self::Http(429)=>"服务返回HTTP429，可能是速率、配额或账户限制，请核对后手动重试",Self::Http(_)=>"模型服务返回异常状态，未自动重试",Self::Protocol=>"响应格式不支持或流式连接未完整结束，已接收内容保留",Self::Network=>"无法连接模型服务，未自动重试",Self::Timeout=>"模型请求超时，已接收内容保留",Self::TooLarge=>"回答达到本轮大小限制，已接收内容保留",Self::Delivery=>"回答暂无法保存或展示，请保留当前内容",Self::Empty=>"模型未返回文本，请检查模型与服务协议",Self::InvalidInput=>"问题为空或超过256 KiB，请调整后发送"})}
+  Self::Quota=>"服务账户或额度限制（HTTP429），问题已保留，请核对账户后再试",Self::RateLimited{..}=>"服务返回HTTP429",Self::Api{..}=>"服务返回异常状态",Self::Cancelled=>"已停止生成，已接收内容保留",Self::Http(401|403)=>"服务拒绝了凭据或模型权限，请检查设置",Self::Http(429)=>"服务返回HTTP429，可能是速率、配额或账户限制，请核对后手动重试",Self::Http(_)=>"模型服务返回异常状态，未自动重试",Self::Protocol=>"响应格式不支持或流式连接未完整结束，已接收内容保留",Self::Network=>"无法连接模型服务，未自动重试",Self::Timeout=>"模型请求超时，已接收内容保留",Self::TooLarge=>"回答达到本轮大小限制，已接收内容保留",Self::Delivery=>"回答暂无法保存或展示，请保留当前内容",Self::Empty=>"模型未返回文本，请检查模型与服务协议",Self::DocumentBudget=>"长文读取达到上下文预算，读取记录已保留，请缩小范围或要求后重试",Self::DocumentTools=>"模型未能按需读取论文正文，请使用支持工具调用的模型或缩小页范围",Self::InvalidInput=>"问题为空或超过256 KiB，请调整后发送"})}
 }
 impl std::error::Error for Error {}
 pub fn client()->Result<reqwest::Client,Error>{
@@ -38,7 +39,7 @@ async fn http_error(response:&mut reqwest::Response,cancel:&mut watch::Receiver<
 }
 /// Any true cancellation value or loss of the sender ends the request. The
 /// consumer owns generation filtering and persistence; callback errors stop I/O.
-pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,messages:&[zwen_core::completion::Message],mut cancel:watch::Receiver<bool>,mut on_text:impl FnMut(&str)->Result<(),()>)->Result<FinishReason,Error>{
+pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,messages:&[zwen_core::completion::Message],cancel:watch::Receiver<bool>,mut on_text:impl FnMut(&str)->Result<(),()>)->Result<FinishReason,Error>{
  use zwen_core::completion::Role;
  if messages.is_empty()||messages.len()>17||messages.len()%2==0||messages.last().is_none_or(|m|m.content.trim().is_empty())||messages.iter().enumerate().any(|(i,m)|m.role!=if i%2==0{Role::User}else{Role::Assistant}){return Err(Error::InvalidInput);}
  let total_images:usize=messages.iter().map(|m|m.images.len()).sum();
@@ -47,13 +48,24 @@ pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:
  let bytes=messages.iter().try_fold(0usize,|n,m|n.checked_add(m.content.len())).ok_or(Error::InvalidInput)?;
  if bytes>zwen_core::MAX_DRAFT_BYTES{return Err(Error::InvalidInput);}
  if *cancel.borrow(){return Err(Error::Cancelled);}
+ let body=serde_json::json!({"model":config.model(),"messages":messages,"stream":true});
+ let mut completion=Some(CompletionDecoder::default());let mut text_bytes=0usize;let mut finish=None;
+ stream_events(client,config,key,&body,cancel,|data|{
+  let delta=completion.as_mut().ok_or(Error::Protocol)?.accept(data).map_err(|_|Error::Protocol)?;
+  if !delta.text.is_empty(){text_bytes=text_bytes.checked_add(delta.text.len()).ok_or(Error::TooLarge)?;if text_bytes>MAX_RESPONSE_BYTES{return Err(Error::TooLarge);}on_text(&delta.text).map_err(|_|Error::Delivery)?;}
+  if delta.done{let reason=completion.take().ok_or(Error::Protocol)?.finish().map_err(|_|Error::Protocol)?;if text_bytes==0&&reason!=FinishReason::Filtered{return Err(Error::Empty);}finish=Some(reason);}
+  Ok(delta.done)
+ }).await?;finish.ok_or(Error::Protocol)
+}
+pub(crate) async fn stream_events(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,body:&serde_json::Value,mut cancel:watch::Receiver<bool>,mut on_data:impl FnMut(&str)->Result<bool,Error>)->Result<(),Error>{
+ if *cancel.borrow(){return Err(Error::Cancelled);}
  let request=client.post(format!("{}/chat/completions",config.base_url())).bearer_auth(key.expose()).header(reqwest::header::ACCEPT,"text/event-stream")
- .json(&serde_json::json!({"model":config.model(),"messages":messages,"stream":true}));
+ .json(body);
  let mut response=tokio::select!{biased;_=cancelled(&mut cancel)=>return Err(Error::Cancelled),r=request.send()=>r.map_err(network)?};
  if response.status()!=reqwest::StatusCode::OK{let status=response.status().as_u16();return Err(http_error(&mut response,&mut cancel,status).await);}
  let kind=response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|h|h.to_str().ok()).unwrap_or("");
  if !kind.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("text/event-stream"){return Err(Error::Protocol);}
- let mut framing=Decoder::default();let mut completion=CompletionDecoder::default();let mut wire=0usize;let mut text_bytes=0usize;
+ let mut framing=Decoder::default();let mut wire=0usize;
  loop {
   let chunk=tokio::select!{biased;_=cancelled(&mut cancel)=>return Err(Error::Cancelled),r=response.chunk()=>r.map_err(network)?};
   let Some(chunk)=chunk else{framing.finish();return Err(Error::Protocol);};
@@ -63,9 +75,7 @@ pub async fn stream_messages(client:&reqwest::Client,config:&ProviderConfig,key:
    for event in events {
     if *cancel.borrow(){return Err(Error::Cancelled);}
     if event.event=="error"{return Err(Error::Protocol);}
-    let delta=completion.accept(&event.data).map_err(|_|Error::Protocol)?;
-    if !delta.text.is_empty(){text_bytes=text_bytes.checked_add(delta.text.len()).ok_or(Error::TooLarge)?;if text_bytes>MAX_RESPONSE_BYTES{return Err(Error::TooLarge);}on_text(&delta.text).map_err(|_|Error::Delivery)?;}
-    if delta.done{let reason=completion.finish().map_err(|_|Error::Protocol)?;if text_bytes==0&&reason!=FinishReason::Filtered{return Err(Error::Empty);}return Ok(reason);}
+    if on_data(&event.data)?{return Ok(());}
    }
   }
  }

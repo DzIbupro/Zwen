@@ -142,6 +142,7 @@ pub fn open_private_database(path:&Path,initialize:impl FnOnce(&mut Connection)-
 }
 
 pub mod completion;
+pub mod tool_completion;
 
 pub mod journal;
 

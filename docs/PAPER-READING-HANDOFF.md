@@ -91,3 +91,7 @@
 ## 最新增量：拖放与原件核对（2026-11-09）
 
 已补上主窗口对话页原生单篇PDF拖放导入、卡片打开私有原件及阅读器失败重试。复用Tauri/Poppler/xdg-open；导入不调用模型，仍须点击发送。新控制器frontend/lib/paper-drop.ts，PaperDraftController串行导入并保护迟到与恢复状态。已同步artifacts/zwen及试用入口，安装哈希和验收限制以[拖放验收](validation/2026-11-09-paper-drop-and-original.md)为准。原生DOM/IPC闭环通过，但隔离Weston截图透明异常，不宣称真实桌面拖放/阅读器外观已验收。下一项仍可考虑原生PDF模型协议及自动长文工具；不要重做旧严格流水线，不追加真实模型调试额度。
+
+## 最新增量：长论文按需读取（2026-11-09）
+
+用户已确认上一轮真实桌面拖放及系统PDF阅读器显示成功。下一单元按用户继续指示接入长文工具路径：材料加要求超过应用单次预算时，提供仅绑定当前论文范围的read_paper_page/search_paper；普通论文保持单请求。最多6请求、累计编码工具文字96KiB、请求JSON256KiB、5分钟、无自动重试。模型输出仍为Markdown，读页/搜索仅用标准Function Calling。材料覆盖由程序记录，索引/搜索不冒充整页，停止与断线保留文字及覆盖记录。实现见core paper/document.rs、tool_completion.rs、transport paper_agent.rs和native chat.rs。真实服务能力与内容质量未实测，先前两次API授权不能追加使用。最终验收及安装以[长文验证记录](validation/2026-11-09-paper-long-reading.md)为准，桌面原入口和试用入口已同步普通构建，完整退出重开生效。

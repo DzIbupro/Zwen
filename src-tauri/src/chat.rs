@@ -28,7 +28,7 @@ fn publish(app:&tauri::AppHandle,state:&Shared,reply:Reply)->Result<(),()>{
  if s.active.as_ref().is_none_or(|a|a.id!=reply.turn.request_id){return Err(());}
  s.last=Some(reply.clone());app.emit("chat-update",reply).map_err(|_|())
 }
-fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,mut messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,attach_dir:std::path::PathBuf,media:Option<crate::paper_media::Request>,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
+fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,mut messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,attach_dir:std::path::PathBuf,media:Option<crate::paper_media::Request>,document:Option<zwen_core::paper::Document>,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
  let mut emit_at=Instant::now();let mut save_at=Instant::now();let mut first=true;
  let mut media_error=None;
  let result=(||{
@@ -42,7 +42,7 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
   runtime.block_on(async{
    let client=zwen_transport::client()?;
    use zwen_transport::retry::{stream_messages_with_retry,RetryPolicy,StreamEvent};
-   stream_messages_with_retry(&client,&config,&key,&messages,cancel,RetryPolicy::default(),|event|{
+   let mut event_sink=|event:StreamEvent<'_>|{
     match event {
      StreamEvent::Retrying(status)=>{
       turn.revision+=1;journal.checkpoint(&turn).map_err(|_|())?;
@@ -63,7 +63,9 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
      }
     }
     Ok(())
-   }).await
+   };
+   if let Some(document)=document{zwen_transport::paper_agent::read(&client,&config,&key,&messages,document,cancel,|part|event_sink(StreamEvent::Text(part))).await}
+   else{stream_messages_with_retry(&client,&config,&key,&messages,cancel,RetryPolicy::default(),event_sink).await}
   })
  })();
  turn.revision+=1;
@@ -83,7 +85,7 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
 }
 struct Prepared {
  turn:Turn,config:zwen_core::provider::ProviderConfig,
- messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,media:Option<crate::paper_media::Request>,
+ messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,media:Option<crate::paper_media::Request>,document:Option<zwen_core::paper::Document>,
 }
 fn prepare_turn(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::provider::ProviderConfig,request_id:&str,prompt:String,conversation_id:Option<&str>,isolated:bool)->Result<Prepared,ClientError>{
  let profile=serde_json::to_string(&config).map_err(|_|ClientError::storage())?;
@@ -109,7 +111,7 @@ fn prepare_turn(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::pro
   let turn=journal.begin_in(&request_id,&prompt,&request_model,conversation_id,&profile,count)?;
   let (images,consume_ids)=vision.map(|(_,images,ids)|(images,ids)).unwrap_or_default();
  messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:prompt,images});
- Ok(Prepared{turn,config:request_config,messages,consume_ids,media:None})
+ Ok(Prepared{turn,config:request_config,messages,consume_ids,media:None,document:None})
 }
 enum StartScope {Paper{source:String,options:zwen_core::paper::ReadingOptions},Conversation(Option<String>),Selection{selection:String,action_id:String,expected_revision:u64}}
 pub async fn start_paper(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_id:String,source:String,options:zwen_core::paper::ReadingOptions,question:Option<String>)->Result<Reply,ClientError>{
@@ -121,15 +123,15 @@ fn bound_document(dir:&std::path::Path,id:&str)->Result<Option<(zwen_core::paper
 }
 fn prepare_document(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::provider::ProviderConfig,request_id:&str,prompt:String,conversation:Option<&str>,source:&zwen_core::paper::Source,options:&zwen_core::paper::ReadingOptions)->Result<Prepared,ClientError>{
  let request_config=if options.read_images{let model=config.image_model().ok_or_else(||error("paper_image_model_missing","请先在模型设置中配置图片模型，或关闭页图补读"))?;config.with_model(model)?}else{config.clone()};
- let full=source.request(options,&prompt).map_err(crate::paper::error)?;
+ let reading=source.prepare(options,&prompt).map_err(crate::paper::error)?;let full=reading.prompt;let document=reading.document;
  let media=if options.read_images{let end=if options.end_page==0{source.pages.len()}else{options.end_page};let pdf=zwen_core::paper::Library::open(dir).map_err(crate::paper::error)?.pdf_path(&source.meta.id).map_err(crate::paper::error)?;Some(crate::paper_media::Request{pdf,pages:(options.start_page..=end).collect()})}else{None};
  let profile=serde_json::to_string(config).map_err(|_|ClientError::storage())?;
  let mut messages=match journal.context(conversation,&profile,full.len()){
   Ok(messages)=>messages,Err(zwen_core::Error::ContextTooLarge)=>Vec::new(),Err(e)=>return Err(e.into())
- };let count=messages.len()/2;
+ };if document.is_some()&&serde_json::to_vec(&messages).map_or(true,|v|v.len()>24*1024){messages.clear();}let count=messages.len()/2;
  let turn=journal.begin_in(request_id,&prompt,request_config.model(),conversation,&profile,count)?;
  messages.push(zwen_core::completion::Message{role:zwen_core::completion::Role::User,content:full,images:Vec::new()});
- Ok(Prepared{turn,config:request_config,messages,consume_ids:Vec::new(),media})
+ Ok(Prepared{turn,config:request_config,messages,consume_ids:Vec::new(),media,document})
 }
 #[tauri::command]
 pub async fn start_chat(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,request_id:String,prompt:String,conversation_id:Option<String>)->Result<Reply,ClientError>{
@@ -159,7 +161,7 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
     let lib=crate::paper::library(&storage)?;let paper=lib.get(&source).map_err(crate::paper::error)?;
     let question=if prompt.trim().is_empty(){"请按阅读要求分析这篇论文。"}else{prompt.trim()};
     let label=format!("论文阅读 · {}\n\n{}",paper.meta.name,question);
-    paper.request(&options,&label).map_err(crate::paper::error)?;
+    paper.prepare(&options,&label).map_err(crate::paper::error)?;
     new_binding=Some((source,options.clone()));document=Some((paper,options));(label,None,true)
    },
    StartScope::Conversation(conversation)=>{
@@ -185,7 +187,7 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
   }
   let reply=Reply{turn:prepared.turn.clone(),saved:true,retry:None};s.last=Some(reply.clone());
   let (cancel,rx)=watch::channel(false);let id=request_id;let worker=state.clone();
-  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,prepared.media,rx));
+  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,prepared.media,prepared.document,rx));
   s.active=Some(Active{id,cancel,handle:Some(handle)});Ok(reply)
  }).await.map_err(|_|ClientError::storage())?
 }
