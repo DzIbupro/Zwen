@@ -24,18 +24,18 @@
  </div>
 {/if}
 <style>
- .selection-close{float:right;margin:0 0 4px 10px;width:28px;height:28px;padding:0;font-size:20px;line-height:1;border-radius:50%}
+ .selection-close{position:relative;float:right;margin:0 0 4px 10px;width:28px;height:28px;padding:0;font-size:20px;line-height:1;border-radius:50%}.selection-close::after{content:'';position:absolute;inset:-6px}
  button:disabled{opacity:.5;cursor:default;}
  summary{display:block;width:auto;height:auto;letter-spacing:normal;font-size:13px;line-height:1.6;white-space:nowrap;cursor:pointer;}
  .selection-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;min-width:0}.other-actions{display:inline-block}.other-actions summary{cursor:pointer;padding:5px}.other-actions div{display:flex;flex-wrap:wrap;gap:4px}.selection-notice{font-size:13px;padding:6px 12px;color:var(--text);overflow-wrap:anywhere;max-height:240px;overflow:auto;flex-shrink:0;}
  pre{white-space:pre-wrap;max-height:72px;overflow:auto;font:inherit;}
  button{flex-shrink:0;white-space:nowrap;line-height:1.6;font:inherit;margin:4px 6px 0 0;padding:3px 7px;border:1px solid var(--edge);border-radius:12px;background:var(--surface);color:var(--muted);cursor:pointer;}
 
- button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
- button:hover:not(:disabled){box-shadow:var(--hover-shadow)}
- button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
+ button{transition:transform 140ms var(--ease-out),box-shadow 160ms var(--ease-out),background-color 160ms ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
+ @media(hover:hover) and (pointer:fine){button:hover:not(:disabled){box-shadow:var(--hover-shadow)}}
+ button:active:not(:disabled){box-shadow:var(--pressed-shadow);transform:scale(0.96)}
  button:focus-visible,summary:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
  button:disabled{opacity:.5;cursor:default}
- @media(prefers-reduced-motion:reduce){button{transition:none}}
+ @media(prefers-reduced-motion:reduce){button{transition-property:background-color,color,opacity;transition-duration:120ms;transform:none}}
  .selection-notice{font-size:14px;line-height:1.65;color:var(--text)}summary{font-size:14px}button{font-size:14px;background:var(--surface);color:var(--text);padding:5px 10px}.selection-actions{gap:8px}
 </style>

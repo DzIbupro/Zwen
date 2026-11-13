@@ -131,25 +131,25 @@
  .graphview{display:flex;flex-direction:column;width:100%;height:100%;min-height:0;box-sizing:border-box;max-width:1000px;margin:0 auto;padding:0 18px 8px;font-size:16px;line-height:1.65;color:var(--text)}
  .graph-bar{flex-shrink:0;display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
  .graph-bar input{flex:1;min-width:120px;border:1px solid var(--edge);border-radius:12px;padding:10px 12px;background:var(--surface);font:inherit;font-size:16px;color:var(--text);box-shadow:var(--inset-shadow)}
- button{font:inherit;font-size:14px;border:1px solid var(--edge);background:var(--surface);color:var(--text);padding:9px 13px;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow);transition:box-shadow .16s ease,background-color .16s ease}
- button:hover:not(:disabled){box-shadow:var(--hover-shadow)}button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
+ button{font:inherit;font-size:14px;border:1px solid var(--edge);background:var(--surface);color:var(--text);padding:9px 13px;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow);transition:transform 140ms var(--ease-out),box-shadow 160ms var(--ease-out),background-color 160ms ease}
+ @media(hover:hover) and (pointer:fine){button:hover:not(:disabled){box-shadow:var(--hover-shadow)}}button:active:not(:disabled){box-shadow:var(--pressed-shadow);transform:scale(0.96)}
  button:focus-visible,input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
  .graph-level{display:flex;gap:4px}.graph-level button[aria-pressed=true]{color:var(--accent);border-color:var(--accent)}
- .graph-summary{flex-shrink:0;display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:14px}
+ .graph-summary{flex-shrink:0;display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:14px;font-variant-numeric:tabular-nums}
  .graph-summary button{padding:4px 10px;font-size:13px}
  .graph-hint,.graph-limit{flex-shrink:0;font-size:13px;color:var(--muted);margin:8px 0}.graph-limit{font-size:12px;opacity:.8}
  .graph-stage{flex:1;position:relative;border:1px solid var(--edge);border-radius:18px;background:var(--bg);overflow:hidden;cursor:grab;min-height:200px;touch-action:none;box-shadow:var(--inset-shadow)}
  .graph-stage:active{cursor:grabbing}svg{position:absolute;inset:0;display:block;width:100%;height:100%}
  .sphere-guides{color:var(--muted);pointer-events:none}.sphere-guides path{fill:none;stroke:currentColor;stroke-width:.65;stroke-opacity:.07}.sphere-guides path.front{stroke-opacity:.17}
- .edge{stroke:var(--muted);stroke-width:1.4;stroke-opacity:var(--depth-opacity);cursor:pointer;pointer-events:stroke}
+ .edge{stroke:var(--muted);stroke-width:1.4;stroke-opacity:var(--depth-opacity);cursor:pointer;pointer-events:stroke;transition:stroke-opacity 160ms var(--ease-out),stroke-width 160ms var(--ease-out)}
  .edge:hover,.edge:focus-visible,.edge.selected{stroke:var(--accent);stroke-opacity:.9;stroke-width:3;outline:none}
- .node{opacity:var(--depth-opacity);cursor:pointer;outline:none}.node:hover,.node:focus-visible,.node.highlight{opacity:1}
+ .node{opacity:var(--depth-opacity);cursor:pointer;outline:none;transition:opacity 160ms var(--ease-out)}.node:hover,.node:focus-visible,.node.highlight{opacity:1}
  .node circle{fill:var(--surface-soft);stroke:var(--accent);stroke-width:1.5;cursor:pointer}
  .node circle.locked{stroke-dasharray:4 3}.node circle.note{fill:var(--surface);stroke:var(--muted);stroke-width:1.2}
  .node:focus-visible circle,.node.highlight circle{stroke-width:3;stroke:var(--accent)}
  .node text{fill:var(--text);text-anchor:middle;pointer-events:none}.node text.full{font-weight:600}
  .graph-empty{position:absolute;inset:30% 10% auto;text-align:center;color:var(--muted);font-size:14px;pointer-events:none}
  [data-relation-detail]{flex-shrink:0;max-height:150px;overflow:auto;margin-bottom:12px}[data-relation-detail] p{margin:8px 0;overflow-wrap:anywhere}
- @media(prefers-reduced-motion:reduce){button{transition:none}}
+ @media(prefers-reduced-motion:reduce){button,.edge,.node{transition-property:background-color,color,opacity;transition-duration:120ms;transform:none}}
  @media(max-width:520px){.graphview{padding-inline:0}.graph-stage{min-height:180px}}
 </style>

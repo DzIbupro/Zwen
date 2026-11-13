@@ -39,11 +39,11 @@
  .settings{max-width:620px;margin:28px auto;padding:0 18px 28px;color:var(--text)}h1{font-size:29px;font-weight:550;letter-spacing:-1px;margin:12px 0}p,small{color:var(--muted);font-size:13px;line-height:1.8}form{display:flex;flex-direction:column;margin-top:28px}label{font-size:13px;margin:18px 0 8px}input{width:100%;box-sizing:border-box;border:1px solid var(--edge);border-radius:12px;padding:11px 12px;background:var(--surface);color:var(--text);font:inherit;font-size:13px}input:focus{outline:2px solid var(--focus-ring);outline-offset:2px}small{font-size:13px;margin-top:7px}.state{margin-top:23px;color:var(--accent);font-size:13px}.failure{color:var(--danger);font-size:13px;margin-top:10px}.hint{border-left:2px solid var(--edge);padding-left:12px}.actions{display:flex;gap:12px;margin-top:20px}button{border:1px solid var(--edge);background:transparent;color:var(--muted);border-radius:12px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}button:disabled,input:disabled{opacity:.5;cursor:default}
  .secret-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.secret-row button{padding:8px 12px}.secret-state{font-size:13px;color:var(--muted)}
 
- button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
- button:hover:not(:disabled){box-shadow:var(--hover-shadow)}
- button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
+ button{transition:transform 140ms var(--ease-out),box-shadow 160ms var(--ease-out),background-color 160ms ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
+ @media(hover:hover) and (pointer:fine){button:hover:not(:disabled){box-shadow:var(--hover-shadow)}}
+ button:active:not(:disabled){box-shadow:var(--pressed-shadow);transform:scale(0.96)}
  button:focus-visible,input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
  button:disabled{opacity:.5;cursor:default}
- @media(prefers-reduced-motion:reduce){button{transition:none}}
+ @media(prefers-reduced-motion:reduce){button{transition-property:background-color,color,opacity;transition-duration:120ms;transform:none}}
  .settings{font-size:16px;line-height:1.65}h1{font-size:26px;margin:0}p{font-size:16px;line-height:1.65}label{font-size:14px}input{font-size:16px;box-shadow:var(--inset-shadow)}button{font-size:14px;background:var(--surface);color:var(--text)}.actions{flex-wrap:wrap}.failure{color:var(--danger)}@media(max-width:520px){.settings{padding-inline:0}.secret-row{gap:12px}.secret-state{overflow-wrap:anywhere}}
 </style>
