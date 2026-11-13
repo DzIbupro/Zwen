@@ -32,7 +32,6 @@
    <button data-history-clear disabled={!canDelete||!port.clear||info.loading||info.deleting||(!info.items.length&&info.page===0&&!info.hasMore)} onclick={()=>deletion={kind:'all'}}>清空全部历史</button>
   </div>
  </div>
- <p class="description">问答保存在本机。按需查看，或继续同一服务配置下的会话。</p>
  {#if info.notice}<p role="status" class="description">{info.notice}</p>{/if}
  {#if info.error}<div class="history-error" role="alert">{info.error}</div>{/if}
  {#if deletion}

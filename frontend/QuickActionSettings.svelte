@@ -9,9 +9,10 @@
  function add(){actions=[...actions,{id:`action_${crypto.randomUUID().replaceAll('-','')}`,name:'新动作',prompt:'{{selection}}',output:'display',enabled:true}];}
  onMount(()=>{void load();});
 </script>
-<section data-quick-action-settings class="quick-actions" aria-label="快捷提示词设置"><h2>划词与快捷提示词</h2><p>点击动作后才发送选中文字。使用 {'{{selection}}'} 插入选区；未填写占位符时会在末尾附加选区。</p>
+<section data-quick-action-settings class="quick-actions" aria-label="快捷提示词设置"><h2>划词与快捷提示词</h2>
+ <details class="hint-disclosure"><summary>提示词与输出说明</summary><div class="hint-disclosure-body"><p>点击动作后才发送选中文字。使用 {'{{selection}}'} 插入选区；未填写占位符时会在末尾附加选区。</p><p>保存文档时先收藏到知识库，再导出 Markdown；不会更改知识库目录。</p></div></details>
  {#if loaded}<form onsubmit={e=>{e.preventDefault();void save();}}><fieldset disabled={busy}>
- <label>文档输出目录<input aria-label="文档输出目录" bind:value={directory} maxlength="4096" placeholder="/home/用户/Documents/Zwen"/></label><p>保存文档时先收藏到知识库，再导出 Markdown；不会更改知识库目录。</p>
+ <label>文档输出目录<input aria-label="文档输出目录" bind:value={directory} maxlength="4096" placeholder="/home/用户/Documents/Zwen"/></label>
  {#each actions as action,i (action.id)}<article><div class="row"><label class="enabled"><input type="checkbox" bind:checked={action.enabled}/>启用</label><button type="button" aria-label={`上移动作 ${action.name}`} disabled={i===0} onclick={()=>move(i,-1)}>↑</button><button type="button" aria-label={`下移动作 ${action.name}`} disabled={i===actions.length-1} onclick={()=>move(i,1)}>↓</button>{#if action.id!=='translate'&&action.id!=='explain'}<button type="button" onclick={()=>actions=actions.filter(a=>a.id!==action.id)}>删除</button>{/if}</div>
  <label>名称<input bind:value={action.name} maxlength="200"/></label><label>提示词<textarea bind:value={action.prompt} rows="4" maxlength="16384"></textarea></label><label>输出方式<select bind:value={action.output}><option value="display">仅显示</option><option value="document">保存 Markdown 文档</option></select></label></article>{/each}
  <div class="row"><button type="button" disabled={actions.length>=32} onclick={add}>新增动作</button><button type="submit">保存快捷提示词</button></div></fieldset></form>{/if}

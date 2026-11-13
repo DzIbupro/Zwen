@@ -62,7 +62,7 @@
     <div class="organize-confirm" data-organize-confirm-view>
      <p><strong>确认整理</strong> — 本次将把 <b>{selectedCount} 篇</b>笔记的标题与正文、已有主题目录发送给模型 <b>{modelLabel}</b> 进行主题归纳。</p>
      <ul class="confirm-list">{#each Object.keys(info.selected) as id}{#if info.notes.find(n=>n.id===id)}<li>{info.notes.find(n=>n.id===id)!.title}</li>{/if}{/each}</ul>
-     <p class="organize-hint">整理结果带 AI 标记并可整批撤销；不会修改笔记原文。</p>
+     <details class="hint-disclosure"><summary>整理规则说明</summary><div class="hint-disclosure-body"><p>整理结果带 AI 标记并可整批撤销；不会修改笔记原文。</p></div></details>
      <div class="editor-actions"><button disabled={info.organizeBusy} onclick={()=>controller.cancelConfirm()}>返回</button><button class="primary-edit" data-organize-go disabled={info.organizeBusy} onclick={()=>void controller.runOrganize(modelLabel)}>{info.organizeBusy?'正在整理…':'确认整理'}</button></div>
     </div>
    {:else if info.lastSummary}
@@ -71,8 +71,8 @@
      <div class="editor-actions"><button data-organize-undo disabled={info.organizeBusy} onclick={()=>void controller.undoLast()}>{info.organizeBusy?'正在撤销…':'撤销本次整理'}</button><button class="primary-edit" onclick={()=>{controller.exitOrganize();void controller.loadTopics();}}>完成</button></div>
     </div>
    {:else}
-    <p class="organize-hint">勾选 1–8 篇笔记（它们将被发送给 {modelLabel} 归纳主题）：</p>
-    <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏（开启即同意将以后新收藏的标题与正文及已有主题目录发送给当前模型 {modelLabel} 归纳主题；更换模型后需重新开启）</label>
+    <label class="auto-row" title={`开启即同意将以后新收藏的标题与正文及已有主题目录发送给当前模型 ${modelLabel} 归纳主题；更换模型后需重新开启`}><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏</label>
+    <details class="hint-disclosure"><summary>手动与自动整理说明</summary><div class="hint-disclosure-body"><p>勾选 1–8 篇笔记后将发送给 {modelLabel} 归纳主题；开启自动整理后，新收藏的笔记也会自动归纳（更换模型后需重新开启）。</p></div></details>
     <ul class="note-list organize-select">
      {#each info.notes as note (note.id)}
       <li><label class="organize-row"><input type="checkbox" data-select={note.id} checked={info.selected[note.id]===true} onchange={()=>controller.toggleSelect(note.id)}/><span><strong>{note.title}</strong><small>{dateText(note.createdAt)}</small></span></label></li>

@@ -83,13 +83,12 @@
   <button onclick={resetView}>复位视图</button>
  </div>
  <div class="graph-summary"><span>{column??(displayLevel==='columns'?'栏目概览':'全部主题')} · {graph.nodes.length} 节点 · {graph.edges.length} 关系</span>{#if column}<button onclick={()=>changeLevel('columns')}>返回栏目</button>{/if}</div>
- <p class="graph-hint">拖动旋转 · 滚轮缩放 · 悬停或聚焦查看名称 · {displayLevel==='columns'?'点击栏目查看主题':'点击主题展开笔记'}</p>
- <p class="graph-limit">每次最多显示 30 个{displayLevel==='columns'?'栏目':'主题'}、60 条真实关系；主题最多展开 12 篇笔记，可搜索查找更多。</p>
  {#if selectedEdge}
   <div data-relation-detail role="status"><p>关系原因：{selectedEdge.reason}</p><p>证据笔记：{selectedEdge.evidence||'未提供'}</p>{#if selectedEdge.evidence}<button data-relation-evidence onclick={()=>onOpenNote(selectedEdge!.evidence)}>打开证据笔记</button>{/if}<button onclick={()=>selectedEdge=null}>关闭关系详情</button></div>
  {/if}
  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
  <div class="graph-stage" data-graph-stage bind:this={stageElement}
+   title={`拖动旋转 · 滚轮缩放 · 悬停或聚焦查看名称 · ${displayLevel==='columns'?'点击栏目查看主题':'点击主题展开笔记'}（每次最多显示 30 个${displayLevel==='columns'?'栏目':'主题'}、60 条关系）`}
    onwheel={onWheel} onpointerdown={onDown} onpointermove={onMove} onpointerup={onUp} onpointercancel={onUp}
    onlostpointercapture={()=>dragging=null}
    role="application" aria-label="知识球形网络（滚轮缩放，拖动旋转；Tab 选择节点和关系，回车打开）" tabindex="-1">
@@ -137,8 +136,7 @@
  .graph-level{display:flex;gap:4px}.graph-level button[aria-pressed=true]{color:var(--accent);border-color:var(--accent)}
  .graph-summary{flex-shrink:0;display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:14px;font-variant-numeric:tabular-nums}
  .graph-summary button{padding:4px 10px;font-size:13px}
- .graph-hint,.graph-limit{flex-shrink:0;font-size:13px;color:var(--muted);margin:8px 0}.graph-limit{font-size:12px;opacity:.8}
- .graph-stage{flex:1;position:relative;border:1px solid var(--edge);border-radius:18px;background:var(--bg);overflow:hidden;cursor:grab;min-height:200px;touch-action:none;box-shadow:var(--inset-shadow)}
+ .graph-stage{flex:1;position:relative;border:1px solid var(--edge);border-radius:18px;background:var(--bg);overflow:hidden;cursor:grab;min-height:200px;touch-action:none;box-shadow:var(--inset-shadow);margin-top:10px}
  .graph-stage:active{cursor:grabbing}svg{position:absolute;inset:0;display:block;width:100%;height:100%}
  .sphere-guides{color:var(--muted);pointer-events:none}.sphere-guides path{fill:none;stroke:currentColor;stroke-width:.65;stroke-opacity:.07}.sphere-guides path.front{stroke-opacity:.17}
  .edge{stroke:var(--muted);stroke-width:1.4;stroke-opacity:var(--depth-opacity);cursor:pointer;pointer-events:stroke;transition:stroke-opacity 160ms var(--ease-out),stroke-width 160ms var(--ease-out)}

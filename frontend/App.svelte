@@ -228,6 +228,7 @@
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
   const statusText = $derived({loading:'正在读取草稿',saved:'已保存到本机',dirty:'等待保存',saving:'正在保存',error:'保存未完成'}[draft.status]);
+  $effect(()=>{if(!notice)return;const t=setTimeout(()=>{notice='';},3500);return()=>clearTimeout(t);});
   const renderedReply=$derived(renderMarkdown(response));
   async function save() { try { if(!draft.loaded){await controller.start();await selection.refresh();}else await controller.flush(); notice='草稿已保存'; } catch { /* error is visible in draft state */ } }
   async function leave(quit=false) {
@@ -334,7 +335,7 @@
       <div class="composer-tools"><div><button class="tool-button" data-capture aria-label="附加截图" title="附加截图" disabled={paperContext||paperDraftState.enabled||!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿" title="保存草稿 · Ctrl S" disabled={!draft.loaded} onclick={save}><Icon name="save" size={18}/></button>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title="Enter 发送 · Shift+Enter 换行" disabled={selectionState.busy||attachmentState.pending||(!paperContext&&!pendingPaper&&attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||paperDraftState.importing||paperDraftState.restoring||(paperContext&&!pendingPaper&&!paperScope)||(paperDraftState.enabled&&!paperDraftState.loaded)||(paperDraftState.enabled&&!pendingPaper&&!paperContext)||(!draft.text.trim()&&!pendingPaper)} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>Enter ↵</kbd></button></div>
     </section>
     {/if}
-    <footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{statusText}</span><span role="status">{notice}</span></footer>
+    {#if draft.status!=='saved'||notice}<footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{draft.status!=='saved'?statusText:''}</span><span role="status">{notice}</span></footer>{/if}
   </div>
   </div>
 </div>
