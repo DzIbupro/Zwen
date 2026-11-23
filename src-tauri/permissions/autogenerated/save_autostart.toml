@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-autostart"
+description = "Enables the save_autostart command without any pre-configured scope."
+commands.allow = ["save_autostart"]
+
+[[permission]]
+identifier = "deny-save-autostart"
+description = "Denies the save_autostart command without any pre-configured scope."
+commands.deny = ["save_autostart"]

@@ -23,6 +23,8 @@ export const draftPort: DraftPort = isDesktop ? {
 };
 export const hideWindow = ()=>command<void>('hide_window');
 export const quitApp = ()=>command<void>('quit_app');
+export const loadAutostart = ()=>command<boolean>('load_autostart');
+export const saveAutostart = (enabled: boolean)=>command<boolean>('save_autostart', {enabled});
 
 import type { SurfaceInfo } from './surface';
 let browserSurface:SurfaceInfo={scaleFactor:1,mode:new URLSearchParams(location.search).get('surface')==='capsule'?'capsule':'full',generation:0,bounds:{width:Math.min(480,Math.max(1,innerWidth-32)),initialHeight:96,maxHeight:Math.max(96,Math.floor(innerHeight*.55))}};
@@ -94,6 +96,7 @@ import type {AttachmentPort,AttachmentView} from './attachments';
 export const attachmentPort:AttachmentPort=isDesktop?{
  list:()=>command<AttachmentView>('get_attachments'),
  capture:replaceId=>command<void>('capture_screenshot',{replaceId:replaceId??null}),
+ chooseImage:()=>isDesktop?command<boolean>('choose_image_attachment'):Promise.resolve(false),
  cancel:()=>command<void>('cancel_screenshot'),
  remove:id=>command<void>('remove_attachment',{id}),
  listen:cb=>listen('attachments-changed',()=>cb()),

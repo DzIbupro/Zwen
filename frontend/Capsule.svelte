@@ -16,13 +16,21 @@
   import {isDesktop,startCapsuleDrag} from './lib/bridge';
   import {boundedHeight,cssToLogicalRatio} from './lib/surface';
   import {renderMarkdown} from './lib/render';
-  let {paperLabel=null,hasPaperAttachment=false,retry=null,canRestoreQuestion=false,onRestoreQuestion=()=>{},focusRequest=0,quickActions=[],actionBusy=false,onSelectionAction,onQuickSettings,actionOutputState=null,onActionOutputRetry=()=>{},onActionOutputDismiss=()=>{},selectionState,onSelectionRetry,onSelectionDiscard,onSelectionReload,attachments,onAttachmentCapture,onAttachmentCancel,onAttachmentRemove,onAttachmentRetake,notice,draft,surface,response,running,busy,replyLabel,replyStatus,modelStatus,canSend,unsaved,onSend,onRetrySave,onEdit,onSave,onHide,onExpand,onStop,onResize}: {
-    paperLabel?:string|null;hasPaperAttachment?:boolean;retry?:RetryState|null;canRestoreQuestion?:boolean;onRestoreQuestion?:()=>void;focusRequest?:number;quickActions?:QuickAction[];actionBusy?:boolean;onSelectionAction?:(id:string)=>void;onQuickSettings?:()=>void;actionOutputState?:ActionOutputState|null;onActionOutputRetry?:()=>void;onActionOutputDismiss?:()=>void;selectionState:SelectionState;onSelectionRetry:()=>void;onSelectionDiscard:()=>void;onSelectionReload:()=>void;attachments:AttachmentState;onAttachmentCapture:()=>void;onAttachmentCancel:()=>void;onAttachmentRemove:(id:string)=>void;onAttachmentRetake:(id:string)=>void;
+  let {paperLabel=null,hasPaperAttachment=false,retry=null,canRestoreQuestion=false,onRestoreQuestion=()=>{},focusRequest=0,quickActions=[],actionBusy=false,onSelectionAction,onQuickSettings,actionOutputState=null,onActionOutputRetry=()=>{},onActionOutputDismiss=()=>{},selectionState,onSelectionRetry,onSelectionDiscard,onSelectionReload,attachments,onAttachmentCapture,onAttachmentImage,onAttachmentCancel,onAttachmentRemove,onAttachmentRetake,notice,draft,surface,response,running,busy,replyLabel,replyStatus,modelStatus,canSend,unsaved,onSend,onRetrySave,onEdit,onSave,onHide,onExpand,onStop,onResize}: {
+    paperLabel?:string|null;hasPaperAttachment?:boolean;retry?:RetryState|null;canRestoreQuestion?:boolean;onRestoreQuestion?:()=>void;focusRequest?:number;quickActions?:QuickAction[];actionBusy?:boolean;onSelectionAction?:(id:string)=>void;onQuickSettings?:()=>void;actionOutputState?:ActionOutputState|null;onActionOutputRetry?:()=>void;onActionOutputDismiss?:()=>void;selectionState:SelectionState;onSelectionRetry:()=>void;onSelectionDiscard:()=>void;onSelectionReload:()=>void;attachments:AttachmentState;onAttachmentCapture:()=>void;onAttachmentImage?:()=>void;onAttachmentCancel:()=>void;onAttachmentRemove:(id:string)=>void;onAttachmentRetake:(id:string)=>void;
     notice:string;draft:Snapshot;surface:SurfaceInfo;response:string;running:boolean;busy:boolean;replyLabel:string;replyStatus:string;modelStatus:string;canSend:boolean;unsaved:boolean;onSend:()=>void;onRetrySave:()=>void;
     onEdit:(s:string)=>void;onSave:()=>void;onHide:()=>void;onExpand:()=>void;onStop:()=>void;onResize:(height:number,generation:number)=>void;
   }=$props();
   let root:HTMLDivElement;let answer=$state<HTMLDivElement>();let stick=true;
   let dragError=$state('');
+  let attachOpen=$state(false);let fileInput=$state<HTMLInputElement>();let fileError=$state('');
+  async function handleTextFile(event:Event){
+    const el=event.currentTarget as HTMLInputElement;const file=el.files?.[0];el.value='';if(!file)return;
+    if(file.size>200*1024){fileError='单个文本文件不超过 200KB';return;}
+    fileError='';
+    try{const text=await file.text();const block=`[文件: ${file.name}]\n\`\`\`\n${text}\n\`\`\``;onEdit(draft.text.trim()?`${draft.text.trimEnd()}\n\n${block}`:block);}
+    catch{fileError='文件读取失败，请重试';}
+  }
   function dragHeader(event:MouseEvent){
     if(event.button!==0||event.detail>1||!(event.target instanceof Element)||event.target.closest('button,a,input,textarea,select,[contenteditable],[role="button"]'))return;
     event.preventDefault();dragError='';
@@ -57,7 +65,16 @@
     <div class="capsule-head" role="toolbar" tabindex="-1" aria-label="胶囊标题，拖动可移动窗口" onmousedown={dragHeader}><span class="capsule-brand"><BrandLogo compact/> Zwen <small>{modelStatus}</small></span><div class="capsule-actions">{#if running}<button data-stop title="停止生成" disabled={busy} onclick={onStop}><Icon name="stop" size={16}/><span class="sr-only">停止</span></button>{/if}<button aria-label="展开完整窗口" title="转到完整窗口，保留内容" disabled={busy||actionBusy||selectionState.busy} onclick={onExpand}><Icon name="external" size={18}/></button><button aria-label="收起胶囊" disabled={busy||actionBusy||selectionState.busy||attachments.pending} onclick={onHide}><Icon name="close" size={18}/></button></div></div>
     {#if !selectionOnly}
     {#if paperLabel}<button class="capsule-paper" data-capsule-paper disabled={busy} onclick={onExpand}><Icon name="book" size={14}/>论文阅读 · {paperLabel}</button>{/if}
-    <div class="capsule-input-row"><label class="sr-only" for="capsule-question">问题草稿</label><textarea id="capsule-question" aria-label="问题草稿" rows="1" disabled={!draft.loaded||busy} value={draft.text} oninput={e=>onEdit(e.currentTarget.value)} placeholder={hasPaperAttachment?'发送PDF开始阅读，或补充问题…':paperLabel?'围绕论文继续提问…':'输入问题，或粘贴一段文字……'}></textarea><button data-capture aria-label="附加截图" title="附加截图；不会自动发送" disabled={!!paperLabel||!draft.loaded||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={onAttachmentCapture}><Icon name="image" size={18}/></button><button aria-label="保存草稿" title="保存到本机，不发送模型" disabled={!draft.loaded} onclick={onSave}><Icon name="save" size={17}/></button><button data-send aria-label="发送问题" title="Enter 发送 · Shift+Enter 换行" disabled={!canSend||!draft.loaded||(!draft.text.trim()&&!hasPaperAttachment)||attachments.pending} onclick={onSend}><Icon name="send" size={18}/></button></div>
+    <div class="capsule-input-row"><label class="sr-only" for="capsule-question">问题草稿</label><textarea id="capsule-question" aria-label="问题草稿" rows="1" disabled={!draft.loaded||busy} value={draft.text} oninput={e=>onEdit(e.currentTarget.value)} placeholder={hasPaperAttachment?'发送PDF开始阅读，或补充问题…':paperLabel?'围绕论文继续提问…':'输入问题，或粘贴一段文字……'}></textarea><button type="button" data-attach-trigger aria-label="添加附件" title="添加附件（截图 / 图片 / 文件）" aria-expanded={attachOpen} disabled={!draft.loaded||busy} onclick={()=>{attachOpen=!attachOpen;}}><Icon name="plus" size={17}/></button><button data-send aria-label="发送问题" title="Enter 发送 · Shift+Enter 换行" disabled={!canSend||!draft.loaded||(!draft.text.trim()&&!hasPaperAttachment)||attachments.pending} onclick={onSend}><Icon name="send" size={17}/></button></div>
+    {#if attachOpen}
+     <div class="capsule-attach-bar" role="menu" aria-label="添加附件选项">
+      <button type="button" role="menuitem" data-capture disabled={!!paperLabel||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={()=>{attachOpen=false;onAttachmentCapture();}}><Icon name="image" size={14}/>截取屏幕</button>
+      {#if onAttachmentImage}<button type="button" role="menuitem" data-upload-image disabled={!!paperLabel||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={()=>{attachOpen=false;onAttachmentImage();}}><Icon name="image" size={14}/>上传图片</button>{/if}
+      <button type="button" role="menuitem" data-upload-file disabled={!draft.loaded||busy} onclick={()=>{attachOpen=false;fileInput?.click();}}><Icon name="paperclip" size={14}/>上传文本文件</button>
+     </div>
+    {/if}
+    <input bind:this={fileInput} type="file" class="sr-only" tabindex="-1" accept=".txt,.md,.markdown,.json,.csv,.ts,.js,.py,.rs,.c,.cpp,.h,.java,.go,.html,.css,.xml,.yaml,.yml,.toml,.log,.tex" onchange={e=>void handleTextFile(e)}/>
+    {#if fileError}<div class="capsule-error" role="status">{fileError}</div>{/if}
     <Attachments state={attachments} onCancel={onAttachmentCancel} onRemove={onAttachmentRemove} onRetake={onAttachmentRetake} disabled={busy}/>
     <ActionOutputNotice state={actionOutputState} onRetry={onActionOutputRetry} onDismiss={onActionOutputDismiss}/>
     {/if}

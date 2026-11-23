@@ -39,9 +39,12 @@
 {/if}
 {#if state.error}<p role="alert">{state.error}</p>{/if}
 <style>
- p{line-height:1.65;overflow-wrap:anywhere;color:var(--text)}
- button{font:inherit;font-size:14px;min-height:40px;padding:8px 14px;margin:4px 8px 4px 0;border:1px solid var(--edge);border-radius:12px;background:var(--surface);color:var(--text);cursor:pointer}
+ p{line-height:1.65;overflow-wrap:anywhere;color:var(--text);font-variant-numeric:tabular-nums}
+ button{font:inherit;font-size:14px;min-height:40px;padding:8px 14px;margin:4px 8px 4px 0;border:1px solid var(--edge);border-radius:12px;background:var(--surface);color:var(--text);cursor:pointer;box-shadow:var(--raised-shadow);transition:transform 140ms var(--ease-out),box-shadow 160ms var(--ease-out),background-color 160ms ease}
+ @media(hover:hover) and (pointer:fine){button:hover:not(:disabled){box-shadow:var(--hover-shadow)}}
+ button:active:not(:disabled){box-shadow:var(--pressed-shadow);transform:scale(0.96)}
  button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+ @media(prefers-reduced-motion:reduce){button{transition-property:background-color,color,opacity;transition-duration:120ms;transform:none}}
  [data-organize-confirm-view],[data-organize-round-progress]{padding:16px;border-radius:16px;background:var(--surface-soft)}
  [data-organize-go]{background:var(--accent);color:var(--on-accent)}
  .note-list{list-style:none;padding:0;margin:16px 0;display:flex;flex-direction:column;gap:8px;max-height:45vh;overflow-y:auto}

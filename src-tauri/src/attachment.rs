@@ -209,6 +209,44 @@ pub fn cancel_screenshot(app:AppHandle,state:tauri::State<'_,Shared>)->Result<()
  Ok(())
 }
 #[tauri::command]
+pub async fn choose_image_attachment(app:AppHandle,storage:tauri::State<'_,SharedStorage>,state:tauri::State<'_,Shared>)->Result<bool,ClientError>{
+ let (tx,rx)=tokio::sync::oneshot::channel();
+ app.run_on_main_thread(move||{
+  use gtk::prelude::*;
+  let dialog=gtk::FileChooserNative::new(Some("选择图片"),None::<&gtk::Window>,gtk::FileChooserAction::Open,Some("附加"),Some("取消"));
+  let filter=gtk::FileFilter::new();
+  filter.set_name(Some("图片文件"));
+  for pat in ["*.png","*.PNG","*.jpg","*.JPG","*.jpeg","*.JPEG","*.webp","*.WEBP","*.bmp","*.BMP","*.gif","*.GIF"]{filter.add_pattern(pat);}
+  dialog.add_filter(filter);
+  let keeper=std::rc::Rc::new(std::cell::RefCell::new(Some(dialog.clone())));
+  let tx=std::cell::RefCell::new(Some(tx));
+  dialog.connect_response(move|d,response|{
+   if let Some(tx)=tx.borrow_mut().take(){let _=tx.send(if response==gtk::ResponseType::Accept{d.filename()}else{None});}
+   d.destroy();keeper.borrow_mut().take();
+  });
+  dialog.show();
+ }).map_err(|_|ClientError::window())?;
+ let Some(chosen)=rx.await.map_err(|_|ClientError::window())? else{return Ok(false);};
+ let storage=storage.inner().clone();
+ let shared=state.inner().clone();
+ let imported=tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{
+  let directory=storage_dir(&storage)?;
+  let incoming=default_incoming(&directory);
+  ensure_private_dir(&incoming)?;
+  let id=request_id();
+  let temp_path=incoming.join(format!("{id}.png"));
+  let pixbuf=gtk::gdk_pixbuf::Pixbuf::from_file(&chosen).map_err(|_|error("invalid_image","无法读取所选图片文件，请选择常见图片格式"))?;
+  pixbuf.savev(&temp_path,"png",&[]).map_err(|_|error("invalid_image","图片转换失败，请重试"))?;
+  let mut store=AttachmentStore::open(&directory)?;
+  if let Err(err)=store.import(&id,&temp_path){let _=fs::remove_file(&temp_path);return Err(err.into());}
+  Ok(())
+ }).await.map_err(|_|ClientError::storage())?;
+ match imported{
+  Ok(())=>{notify(&app,&shared,"图片已附加到草稿 · 未发送".into());Ok(true)}
+  Err(err)=>{notify(&app,&shared,err.message.clone());Err(err)}
+ }
+}
+#[tauri::command]
 pub async fn remove_attachment(app:AppHandle,storage:tauri::State<'_,SharedStorage>,state:tauri::State<'_,Shared>,id:String)->Result<(),ClientError>{
  let storage=storage.inner().clone();
  tauri::async_runtime::spawn_blocking(move||{

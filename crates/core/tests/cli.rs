@@ -7,3 +7,10 @@ use zwen_core::cli::{parse_action, LaunchAction};
 }
 #[test] fn unknown_or_ambiguous_actions_are_rejected(){assert!(parse_action(&["capture"]).is_err());assert!(parse_action(&["show","quit"]).is_err());}
 #[test] fn capsule_is_a_distinct_explicit_entry(){assert_eq!(parse_action(&["capsule"]).unwrap(),LaunchAction::Capsule);}
+#[test]
+fn background_start_is_distinct_from_opening_a_window() {
+    let background = parse_action(&["background"]).unwrap();
+    assert_ne!(background, parse_action(&[]).unwrap());
+    assert_ne!(background, parse_action(&["capsule"]).unwrap());
+    assert_eq!(parse_action(&["--background"]).unwrap(), background);
+}

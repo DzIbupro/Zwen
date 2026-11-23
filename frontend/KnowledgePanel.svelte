@@ -62,7 +62,7 @@
     <div class="organize-confirm" data-organize-confirm-view>
      <p><strong>确认整理</strong> — 本次将把 <b>{selectedCount} 篇</b>笔记的标题与正文、已有主题目录发送给模型 <b>{modelLabel}</b> 进行主题归纳。</p>
      <ul class="confirm-list">{#each Object.keys(info.selected) as id}{#if info.notes.find(n=>n.id===id)}<li>{info.notes.find(n=>n.id===id)!.title}</li>{/if}{/each}</ul>
-     <p class="organize-hint">整理结果带 AI 标记并可整批撤销；不会修改笔记原文。</p>
+     <details class="hint-disclosure"><summary>整理规则说明</summary><div class="hint-disclosure-body"><p>整理结果带 AI 标记并可整批撤销；不会修改笔记原文。</p></div></details>
      <div class="editor-actions"><button disabled={info.organizeBusy} onclick={()=>controller.cancelConfirm()}>返回</button><button class="primary-edit" data-organize-go disabled={info.organizeBusy} onclick={()=>void controller.runOrganize(modelLabel)}>{info.organizeBusy?'正在整理…':'确认整理'}</button></div>
     </div>
    {:else if info.lastSummary}
@@ -71,8 +71,8 @@
      <div class="editor-actions"><button data-organize-undo disabled={info.organizeBusy} onclick={()=>void controller.undoLast()}>{info.organizeBusy?'正在撤销…':'撤销本次整理'}</button><button class="primary-edit" onclick={()=>{controller.exitOrganize();void controller.loadTopics();}}>完成</button></div>
     </div>
    {:else}
-    <p class="organize-hint">勾选 1–8 篇笔记（它们将被发送给 {modelLabel} 归纳主题）：</p>
-    <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏（开启即同意将以后新收藏的标题与正文及已有主题目录发送给当前模型 {modelLabel} 归纳主题；更换模型后需重新开启）</label>
+    <label class="auto-row" title={`开启即同意将以后新收藏的标题与正文及已有主题目录发送给当前模型 ${modelLabel} 归纳主题；更换模型后需重新开启`}><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏</label>
+    <details class="hint-disclosure"><summary>手动与自动整理说明</summary><div class="hint-disclosure-body"><p>勾选 1–8 篇笔记后将发送给 {modelLabel} 归纳主题；开启自动整理后，新收藏的笔记也会自动归纳（更换模型后需重新开启）。</p></div></details>
     <ul class="note-list organize-select">
      {#each info.notes as note (note.id)}
       <li><label class="organize-row"><input type="checkbox" data-select={note.id} checked={info.selected[note.id]===true} onchange={()=>controller.toggleSelect(note.id)}/><span><strong>{note.title}</strong><small>{dateText(note.createdAt)}</small></span></label></li>
@@ -91,9 +91,9 @@
    <button data-knowledge-rebuild disabled={info.busy} title="从 Markdown 文件重建索引（正文是权威）" onclick={()=>void controller.rebuild()}>重建索引</button>
   </div>
   {#if info.topics.length>0&&!info.query}
-   <div class="column-heading"><p class="topics-label">知识栏目</p><small>按栏目浏览，展开后查看主题</small></div>
+   <div class="column-heading"><p class="topics-label">知识栏目</p></div>
    <div class="column-browser" data-column-browser>
-    <div class="topics-strip column-strip" data-topics-strip role="group" aria-label="知识栏目">{#each columns as column (column.name)}<button data-column-chip aria-pressed={selectedColumn===column.name} class:column-selected={selectedColumn===column.name} onclick={()=>selectedColumn=selectedColumn===column.name?null:column.name}>{column.name}<small>{column.topics.length} 个主题</small></button>{/each}</div>
+    <div class="topics-strip column-strip" data-topics-strip role="group" aria-label="知识栏目">{#each columns as column (column.name)}<button data-column-chip aria-pressed={selectedColumn===column.name} class:column-selected={selectedColumn===column.name} onclick={()=>selectedColumn=selectedColumn===column.name?null:column.name}>{column.name}<small>{column.topics.length}</small></button>{/each}</div>
     {#if selectedColumn}<div class="column-topics" data-column-topics><div class="column-heading"><strong>{selectedColumn}</strong><button class="column-close" aria-label="收起栏目主题" onclick={()=>selectedColumn=null}>收起</button></div><div class="topics-strip" role="group" aria-label={`${selectedColumn}的主题`}>{#each columnTopics as topicView (topicView.topic.id)}<button data-topic-chip onclick={()=>void controller.openTopic(topicView.topic.id)}>{topicView.topic.name}（{topicView.count}）{topicView.topic.locked?' 🔒':''}</button>{/each}</div></div>{/if}
    </div>
   {/if}
@@ -105,7 +105,7 @@
     <div class="gov" data-topic-gov>
      <div class="gov-row"><input data-gov-rename placeholder="重命名为…" bind:value={govName} maxlength="200"/><button disabled={info.busy||!govName.trim()} onclick={()=>void controller.renameTopic(info.topicView!.id,govName).then(()=>govName='')}>重命名</button></div>
      <div class="gov-row"><input data-gov-column placeholder="栏目（重新归类）" bind:value={govColumn} maxlength="80"/><button disabled={info.busy} onclick={()=>void controller.setTopicColumn(info.topicView!.id,govColumn).then(()=>govColumn='')}>改栏目</button></div>
-     <div class="gov-row"><button data-gov-lock disabled={info.busy} onclick={()=>void controller.lockTopic(info.topicView!.id,!lockedCurrent)}>{lockedCurrent?'解锁主题':'锁定主题'}</button><button data-gov-delete disabled={info.busy} onclick={()=>{if(govArmed){void controller.deleteTopic(info.topicView!.id);govArmed=false;}else{govArmed=true;}}}>{govArmed?'确认删除主题':'删除主题'}</button><span class="gov-hint">锁定后 AI 整理不会写入该主题；删除主题保留笔记原文</span></div>
+     <div class="gov-row"><button data-gov-lock disabled={info.busy} onclick={()=>void controller.lockTopic(info.topicView!.id,!lockedCurrent)}>{lockedCurrent?'解锁主题':'锁定主题'}</button><button data-gov-delete disabled={info.busy} onclick={()=>{if(govArmed){void controller.deleteTopic(info.topicView!.id);govArmed=false;}else{govArmed=true;}}}>{govArmed?'确认删除主题':'删除主题'}</button><details class="hint-disclosure inline-hint"><summary>说明</summary><div class="hint-disclosure-body"><p>锁定后 AI 整理不会写入该主题；删除主题仅移除分组，保留笔记原文。</p></div></details></div>
      {#each info.relations.filter(r=>r.fromTopic===info.topicView?.id||r.toTopic===info.topicView?.id) as rel (rel.id)}
       <div class="gov-row" data-relation={rel.id}><span class="gov-hint">{rel.reason}</span><button onclick={()=>void controller.removeRelation(rel.id)}>删关系</button></div>
      {/each}
@@ -126,40 +126,66 @@
  {/if}
 </section>
 <style>
- .column-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.column-heading small{font-size:12px;color:var(--muted)}.column-heading .topics-label{margin:0}.column-browser{max-height:220px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:8px 4px 6px;margin-bottom:18px;border-bottom:1px solid var(--edge)}.column-browser .topics-strip{margin:0;padding:6px 0;border:0}.column-strip button{display:inline-flex;align-items:center;gap:8px}.column-strip button small{font-size:11px;color:var(--muted)}.column-strip .column-selected{border-color:var(--accent);color:var(--accent);background:var(--surface-soft)}.column-topics{padding:8px 0}.column-topics strong{font-size:13px}.column-close{border:0;background:transparent;color:var(--muted);padding:4px;font:inherit;font-size:12px;cursor:pointer}
- .knowledge{max-width:760px;margin:22px auto;padding:0 18px 28px}
- .knowledge-bar{display:flex;gap:10px;margin-bottom:14px}
- .knowledge-bar input{flex:1;border:1px solid var(--edge);border-radius:12px;padding:10px 12px;background:var(--surface);font:inherit;font-size:13px;color:var(--text)}
- .knowledge-bar button,.note-toolbar button,.editor-actions button,.organize-confirm button,.organize-result button,.topics-strip button{border:1px solid var(--edge);background:transparent;color:var(--muted);border-radius:12px;padding:9px 13px;font:inherit;font-size:13px;cursor:pointer}
- .knowledge-notice{font-size:13px;color:var(--muted);background:var(--surface-soft);border-radius:12px;padding:7px 12px;margin-bottom:10px}
- .knowledge-empty{color:var(--muted);font-size:13px;line-height:1.9}
- .note-list{max-height:min(52vh,460px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-right:4px;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
- .note-list button{width:100%;text-align:left;border:1px solid var(--edge);border-radius:16px;background:var(--surface);padding:13px 15px;cursor:pointer;font:inherit}
- .note-list button:hover{background:var(--surface);border-color:var(--edge)}
- .note-list strong{display:block;font-size:13px;color:var(--text);margin-bottom:4px}
- .note-list small{color:var(--muted);font-size:13px}
- .note-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px}
- .note-meta{margin-right:auto;font-size:13px;color:var(--muted)}
- h2{font-size:22px;letter-spacing:-.5px;margin:0 0 14px}
- .note-editor{display:flex;flex-direction:column;gap:8px}.note-editor label{font-size:13px;color:var(--muted)}.note-editor input,.note-editor textarea{border:1px solid var(--edge);border-radius:12px;padding:10px 12px;background:var(--surface);font:inherit;font-size:13px;color:var(--text);width:100%;box-sizing:border-box}.note-editor textarea{resize:vertical;line-height:1.7;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.editor-actions{display:flex;gap:10px;justify-content:flex-end;align-items:center}.editor-actions .primary-edit,.organize-confirm .primary-edit{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
- .topics-strip{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.topics-strip button{border-radius:14px;background:var(--surface-soft);border-color:var(--edge);color:var(--muted)}
- .organize-title{font-size:15px;color:var(--text)}
- .organize-hint{font-size:13px;color:var(--muted);line-height:1.8}
- .organize-row{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
- .organize-confirm p,.organize-result p{font-size:13px;line-height:1.9;color:var(--text)}
- .confirm-list{margin:8px 0;padding-left:20px;font-size:13px;color:var(--muted);line-height:1.9}
- .organize-confirm,.organize-result{border:1px solid var(--edge);border-radius:16px;background:var(--surface);padding:15px 17px}
- .note-source{font-size:13px;color:var(--muted);margin:-6px 0 12px}.note-source a{color:var(--accent)}
- .topic-view{border:1px solid var(--edge);border-radius:16px;background:var(--surface);padding:13px 15px}
- .gov{margin-top:12px;display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--edge);padding-top:10px}.gov-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.gov-row input{border:1px solid var(--edge);border-radius:12px;padding:7px 10px;font:inherit;font-size:13px;flex:1;min-width:140px;background:var(--surface);color:var(--text)}.gov-hint{font-size:13px;color:var(--muted)}.auto-row{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin-bottom:8px}
+ .knowledge{max-width:var(--reading-width);margin:14px auto;padding:0 12px 28px;color:var(--text);font-size:14px;line-height:1.6}
+ .knowledge-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+ .knowledge-functions{padding:10px;border:1px solid var(--edge);border-radius:var(--radius-card);background:var(--surface);box-shadow:var(--raised-shadow);margin-bottom:18px}
+ .knowledge-functions input{flex:1;min-width:160px;height:36px;border:1px solid var(--edge);border-radius:var(--radius-control);padding:6px 11px;background:var(--surface-soft);color:var(--text);font:inherit;font-size:13.5px}
+ .knowledge-functions input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px;background:var(--surface)}
+ .knowledge-functions button{min-height:36px;padding:6px 12px;font-size:13px;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
+ .knowledge-functions [data-organize-start]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+ @media(hover:hover) and (pointer:fine){.knowledge-functions [data-organize-start]:hover:not(:disabled){background:var(--accent);opacity:.9;color:var(--on-accent)}}
+ .knowledge-notice{font-size:13px;color:var(--muted);background:var(--surface-soft);border:1px solid var(--edge);border-radius:var(--radius-control);padding:8px 12px;margin-bottom:12px}
+ .knowledge-empty{color:var(--muted);font-size:13.5px;line-height:1.7;text-align:center;padding:42px 16px;border:1px dashed var(--edge);border-radius:var(--radius-card);background:var(--surface)}
 
- button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
- button:hover:not(:disabled){box-shadow:var(--hover-shadow)}
- button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
- button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
- button:disabled{opacity:.5;cursor:default}
- @media(prefers-reduced-motion:reduce){button{transition:none}}
- .knowledge{font-size:16px;line-height:1.65;color:var(--text)}.knowledge-bar input,.note-editor input,.note-editor textarea,.gov-row input{font-size:16px;box-shadow:var(--inset-shadow)}.note-editor label{font-size:14px}.note-list strong{font-size:16px}.knowledge-empty,.organize-confirm p,.organize-result p,.confirm-list{font-size:16px;line-height:1.65}.note-toolbar{flex-wrap:wrap}.note-list button{box-shadow:none;background:transparent;border-color:var(--edge)}.topic-view{border:0;background:transparent;padding:0}.organize-confirm,.organize-result{background:var(--surface-soft);border:0}.organize-title{font-size:16px}.auto-row{font-size:14px}button,.knowledge-bar button,.note-toolbar button,.editor-actions button,.organize-confirm button,.organize-result button,.topics-strip button{font-size:14px;background:var(--surface);color:var(--text)}.editor-actions .primary-edit,.organize-confirm .primary-edit{background:var(--accent);color:var(--on-accent)}.knowledge-bar input{min-width:0}@media(max-width:520px){.knowledge{padding-inline:0}.knowledge-bar{flex-wrap:wrap}.knowledge-bar input{flex-basis:100%}.editor-actions{flex-wrap:wrap}}
+ .column-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+ .topics-label{font-size:12px;font-weight:600;color:var(--muted);margin:0;letter-spacing:.02em}
+ .column-browser{max-height:220px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:4px 0 12px;margin-bottom:16px;border-bottom:1px solid var(--edge)}
+ .topics-strip{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0}
+ .topics-strip button{border-radius:999px;background:var(--surface);border:1px solid var(--edge);color:var(--text);font-size:12.5px;font-weight:500;padding:4px 11px;line-height:1.45}
+ @media(hover:hover) and (pointer:fine){.topics-strip button:hover:not(:disabled){background:var(--surface-hover);border-color:var(--edge-strong)}}
+ .column-strip button{display:inline-flex;align-items:center;gap:6px}
+ .column-strip button small{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+ .column-strip .column-selected{background:var(--accent-soft);border-color:var(--accent);color:var(--text);font-weight:600}
+ .column-topics{margin-top:8px;padding:10px 12px;border-radius:var(--radius-control);background:var(--surface-soft);border:1px solid var(--edge)}
+ .column-topics strong{font-size:13px;font-weight:600}
+ .column-close{border:0;background:transparent;color:var(--muted);padding:3px 7px;font-size:12px}
 
- .knowledge-bar{align-items:center;flex-wrap:wrap}.knowledge-functions{padding:16px;border:1px solid var(--edge);border-radius:18px;background:var(--surface-soft);box-shadow:var(--hover-shadow);gap:12px;margin-bottom:24px}.knowledge-functions input{min-width:150px;height:44px}.knowledge-functions button{min-height:44px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;box-shadow:var(--hover-shadow)}.knowledge-functions [data-organize-start]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}.organize-toolbar{gap:16px;min-height:44px;margin-bottom:20px}.organize-toolbar button{display:inline-flex;align-items:center;min-height:40px;line-height:1.45}.organize-title{margin:0;font-size:18px;line-height:1.45;font-weight:600}.topics-label{font-size:14px;font-weight:600;color:var(--muted);margin:0 0 10px}.topics-strip{gap:10px;padding:2px 0 12px;border-bottom:1px solid var(--edge);margin-bottom:18px}.topics-strip button{border-radius:999px;background:transparent;box-shadow:none;border:1px solid var(--edge);font-weight:500;padding:7px 13px;line-height:1.45}.topics-strip button:hover{background:var(--surface-soft);border-color:var(--muted);box-shadow:none}.note-meta,.note-list small,.organize-hint,.note-source,.gov-hint,.auto-row,.knowledge-notice{font-weight:500}.note-toolbar,.editor-actions,.gov-row{align-items:center}@media(max-width:720px){.knowledge-functions input{flex-basis:100%;width:100%}}@media(max-width:520px){.knowledge-functions{padding:12px;gap:10px}.knowledge-functions button{flex:1 1 auto}.organize-toolbar{gap:12px}}
+ .note-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+ .note-list button{width:100%;text-align:left;border:1px solid var(--edge);border-radius:var(--radius-card);background:var(--surface);padding:12px 15px;display:flex;flex-direction:column;gap:4px;transition:transform 140ms var(--ease-out),background-color 140ms ease,border-color 140ms ease}
+ @media(hover:hover) and (pointer:fine){.note-list button:hover:not(:disabled){background:var(--surface-soft);border-color:var(--edge-strong)}}
+ .note-list strong{display:block;font-size:14px;font-weight:600;color:var(--text);line-height:1.45}
+ .note-list small{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+
+ .note-detail{display:flex;flex-direction:column;gap:14px}
+ .note-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--edge)}
+ .note-toolbar button{font-size:12.5px;padding:5px 10px}
+ .note-meta{margin-right:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+ h2{font-size:21px;font-weight:600;letter-spacing:-0.015em;margin:4px 0 4px}
+ .note-source{font-size:12.5px;color:var(--muted);margin:-6px 0 6px}.note-source a{color:var(--accent)}
+
+ .note-editor{display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--edge);border-radius:var(--radius-card);padding:16px}
+ .note-editor label{font-size:12.5px;font-weight:500;color:var(--muted);margin-top:4px}
+ .note-editor input,.note-editor textarea{border:1px solid var(--edge);border-radius:var(--radius-control);padding:8px 11px;background:var(--surface-soft);font:inherit;font-size:13.5px;color:var(--text);width:100%;box-sizing:border-box}
+ .note-editor textarea{resize:vertical;line-height:1.65;font-family:var(--font-mono);font-size:13px}
+ .editor-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:8px;flex-wrap:wrap}
+ .editor-actions .primary-edit,.organize-confirm .primary-edit{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+
+ .organize-toolbar{gap:10px;padding-bottom:12px;border-bottom:1px solid var(--edge);margin-bottom:14px}
+ .organize-title{margin:0;font-size:16px;font-weight:600}
+ .organize-hint{font-size:12.5px;color:var(--muted)}
+ .organize-row{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--edge);border-radius:var(--radius-control);background:var(--surface);cursor:pointer}
+ .organize-confirm,.organize-result{border:1px solid var(--edge);border-radius:var(--radius-card);background:var(--surface);padding:16px}
+ .organize-confirm p,.organize-result p{font-size:13.5px;line-height:1.65;margin:0 0 10px}
+ .confirm-list{margin:8px 0;padding-left:20px;font-size:13px;color:var(--muted);line-height:1.7}
+ .auto-row{display:flex;gap:8px;align-items:center;font-size:13.5px;font-weight:500;color:var(--text);margin-bottom:8px;cursor:pointer}
+
+ .topic-view{background:var(--surface);border:1px solid var(--edge);border-radius:var(--radius-card);padding:16px}
+ .gov{margin-top:14px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--edge);padding-top:12px}
+ .gov-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+ .gov-row input{border:1px solid var(--edge);border-radius:var(--radius-control);padding:6px 10px;font:inherit;font-size:13px;flex:1;min-width:140px;background:var(--surface-soft);color:var(--text)}
+ .gov-hint{font-size:12.5px;color:var(--muted)}
+ .inline-hint{margin-top:0}
+
+ @media(max-width:720px){.knowledge-functions input{flex-basis:100%;width:100%}}
+ @media(max-width:520px){.knowledge{padding-inline:0}.knowledge-functions button{flex:1 1 auto}}
 </style>

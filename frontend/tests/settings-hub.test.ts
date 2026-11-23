@@ -20,8 +20,8 @@ it('supports arrow, Home and End keyboard navigation with selected tab focus',as
  try{
   const key=(id:string,key:string)=>{target.querySelector(`#settings-tab-${id}`)!.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));flushSync();};
   key('provider','ArrowRight');expect(document.activeElement?.id).toBe('settings-tab-appearance');expect(target.querySelector('[aria-selected=true]')?.id).toBe('settings-tab-appearance');
-  key('appearance','End');expect(document.activeElement?.id).toBe('settings-tab-quick');expect(target.querySelector<HTMLDivElement>('#settings-panel-quick')!.hidden).toBe(false);
-  key('quick','Home');expect(document.activeElement?.id).toBe('settings-tab-provider');
-  key('provider','ArrowLeft');expect(document.activeElement?.id).toBe('settings-tab-quick');
+  key('appearance','End');expect(document.activeElement?.id).toBe('settings-tab-selection');expect(target.querySelector<HTMLDivElement>('#settings-panel-selection')!.hidden).toBe(false);
+  key('selection','Home');expect(document.activeElement?.id).toBe('settings-tab-general');expect(target.querySelector<HTMLDivElement>('#settings-panel-general')!.hidden).toBe(false);
+  key('general','ArrowLeft');expect(document.activeElement?.id).toBe('settings-tab-selection');
  }finally{await unmount(app);target.remove();}
 });

@@ -23,11 +23,12 @@
  });
 </script>
 <div class="welcome-mark" data-welcome-background aria-hidden="true">
- <svg viewBox="54 64 148 124" focusable="false">
+ <svg viewBox="54 64 148 124" focusable="false" shape-rendering="geometricPrecision">
   <defs>
-   <!-- Keep the original silhouette; threshold its near-black texture out of the mask. -->
+   <!-- Keep the original silhouette; threshold its near-black texture out of the mask, then gently feather the edge to avoid stair-stepped aliasing. -->
    <filter id="zwen-field-threshold" color-interpolation-filters="sRGB">
     <feComponentTransfer><feFuncR type="discrete" tableValues="0 0 0 1"/><feFuncG type="discrete" tableValues="0 0 0 1"/><feFuncB type="discrete" tableValues="0 0 0 1"/></feComponentTransfer>
+    <feGaussianBlur stdDeviation="0.65"/>
    </filter>
    <mask id="zwen-field-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256" style="mask-type:luminance"><image href={mask} x="0" y="0" width="256" height="256" filter="url(#zwen-field-threshold)"/></mask>
   </defs>
@@ -41,7 +42,7 @@
  </svg>
 </div>
 <style>
- .welcome-mark{position:absolute;inset:7% 6%;pointer-events:none;user-select:none;color:var(--text);opacity:.25;z-index:0;overflow:hidden}
+ .welcome-mark{position:absolute;inset:10% 8%;pointer-events:none;user-select:none;color:var(--text);opacity:.11;z-index:0;overflow:hidden}
  svg{display:block;width:100%;height:100%}
- :global(:root[data-theme=dark]) .welcome-mark{opacity:.2}
+ :global(:root[data-theme=dark]) .welcome-mark{opacity:.09}
 </style>

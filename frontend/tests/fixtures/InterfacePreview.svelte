@@ -4,6 +4,7 @@
  import KnowledgePanel from '../../KnowledgePanel.svelte';
  import KnowledgeGraph from '../../KnowledgeGraph.svelte';
  import SettingsHub from '../../SettingsHub.svelte';
+ import GeneralSettings from '../../GeneralSettings.svelte';
  import ProviderSettings from '../../ProviderSettings.svelte';
  import AppearanceSettings from '../../AppearanceSettings.svelte';
  import SelectionSettings from '../../SelectionSettings.svelte';
@@ -47,7 +48,8 @@
  const paperController=new PaperDraftController(paperPort,s=>paperState=s);
  let settings=$state<SettingsState>({config:null,revision:0,keyAvailable:true,keySource:'keyring',fields:{baseUrl:'https://example.test/v1',model:'研究助手',keyEnv:'ZWEN_API_KEY',imageModel:''},status:'saved',loaded:true,error:null,secretSaving:false,secretNotice:null});
  let appearance=$state<AppearanceState>({theme:params.get('theme')==='dark'?'dark':'light',sidebarCollapsed:false,loaded:true,status:'saved',error:null});
- let category=$state<SettingsCategory>((['provider','appearance','selection','quick'].includes(params.get('category')??'')?params.get('category'):'provider') as SettingsCategory);
+ let category=$state<SettingsCategory>((['general','provider','appearance','selection','quick'].includes(params.get('category')??'')?params.get('category'):'provider') as SettingsCategory);
+ let autostartEnabled=$state(false);
  let enabled=$state(true);
  let quickConfig:QuickActionConfig={revision:1,actions:defaultQuickActions(),outputDirectory:'/synthetic-preview/documents'};
  const quickPort={load:async()=>quickConfig,save:async(revision:number,actions:QuickActionConfig['actions'],outputDirectory:string)=>quickConfig={revision:revision+1,actions,outputDirectory}};
@@ -64,10 +66,10 @@
  {:else if screen==='knowledge'}<KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={()=>{}} onSaveEdit={(id,title,body,source)=>knowledge.saveEdit(id,title,body,source)} modelLabel="演示模型"/>
  {:else if screen==='graph'}<KnowledgeGraph controller={knowledge} info={knowledgeState} onOpenNote={id=>{void knowledge.open(id);screen='knowledge';}} onOpenTopic={id=>void knowledge.openTopic(id)}/>
  {:else}<SettingsHub bind:category>
+ {#snippet generalPanel()}<GeneralSettings desktop={true} enabled={autostartEnabled} busy={false} error={null} onToggle={value=>autostartEnabled=value} onReload={()=>{}}/>{/snippet}
  {#snippet providerPanel()}<ProviderSettings {settings} desktop={true} onEdit={(name,value)=>settings.fields[name]=value} onSave={()=>settings.status='saved'} onReload={()=>{}} onSaveSecret={noop} onClearSecret={noop}/>{/snippet}
  {#snippet appearancePanel()}<AppearanceSettings state={appearance} onTheme={theme=>{appearance.theme=theme;document.documentElement.dataset.theme=theme==='dark'?'dark':'light';}} onReload={()=>{}}/>{/snippet}
- {#snippet selectionPanel()}<SelectionSettings desktop={true} {enabled} onToggle={value=>enabled=value}/>{/snippet}
- {#snippet quickPanel()}<QuickActionSettings port={quickPort} onChanged={()=>{}}/>{/snippet}
+ {#snippet selectionPanel()}<SelectionSettings desktop={true} {enabled} onToggle={value=>enabled=value}><QuickActionSettings port={quickPort} onChanged={()=>{}}/></SelectionSettings>{/snippet}
  </SettingsHub>{/if}
  </main>
  {#if screen!=='settings'}<section class="composer" aria-label="问题草稿"><PaperComposer controller={paperController} state={paperState} port={paperPort} destination="https://example.test/v1 · 演示模型" paperModel="演示模型" onExit={()=>paperController.close()}/><textarea aria-label="问题草稿" placeholder={screen==='paper'?'可直接发送开始精读，或补充你想了解的问题…':'输入问题，或粘贴内容…'} rows="2"></textarea><div class="composer-tools"><div><button class="tool-button" aria-label="附加截图"><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿"><Icon name="save" size={18}/></button></div><button class="primary-button" aria-label="发送（仅视觉演示）"><Icon name="send"/><kbd>Enter ↵</kbd></button></div></section>{/if}

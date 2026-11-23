@@ -9,10 +9,10 @@ pub struct BarAction { pub id: String, pub name: String }
 /// CSS is scoped to providers attached to our own widgets, never the desktop.
 fn theme_css(theme:crate::appearance::Theme)->String {
     let (surface,text,edge,button,hover)=match if theme==crate::appearance::Theme::System{crate::appearance::cached_theme()}else{theme} {
-        crate::appearance::Theme::Light=>("#e0e5ec","#30343c","#c4cad3","#f0f0f3","#d3d9e2"),
-        crate::appearance::Theme::System | crate::appearance::Theme::Dark=>("#292d35","#e7ebf3","#454c58","#30353e","#414854"),
+        crate::appearance::Theme::Light=>("#ffffff","#141416","#e4e4e7","#ffffff","#ebecef"),
+        crate::appearance::Theme::System | crate::appearance::Theme::Dark=>("#1e1e1e","#e6e6e6","#2b2b2e","#1e1e1e","#2d2d2f"),
     };
-    format!(".zwen-probe {{background-color:rgba(0,0,0,0);}} .zwen-selection {{background:{surface}; color:{text}; border:1px solid {edge}; border-radius:12px;}} button {{background:{button}; color:{text}; border:0; border-radius:8px; padding:5px 7px; min-height:22px; box-shadow:none;}} button:hover, button:checked {{background:{hover};}} button:disabled {{color:{edge};}}")
+    format!(".zwen-probe {{background-color:rgba(0,0,0,0);}} .zwen-selection {{background:{surface}; color:{text}; border:1px solid {edge}; border-radius:10px;}} button {{background:{button}; color:{text}; border:0; border-radius:7px; padding:5px 8px; min-height:22px; box-shadow:none;}} button:hover, button:checked {{background:{hover};}} button:disabled {{color:{edge};}}")
 }
 
 #[cfg(target_os = "linux")]
@@ -50,17 +50,20 @@ mod native {
                     anchor:sym!("gtk_layer_set_anchor"), margin:sym!("gtk_layer_set_margin"), _library:lib })
             }
         }
-        fn configure(&self, w:&gtk::Window, monitor:&gdk::Monitor, probe:bool) {
+        fn configure_layer(&self, w:&gtk::Window, monitor:&gdk::Monitor, probe:bool, layer_level:i32) {
             w.set_decorated(false); w.set_resizable(false); w.set_accept_focus(false); w.set_focus_on_map(false);
             unsafe {
                 let p=w.to_glib_none().0;
                 (self.init)(p); (self.namespace)(p,c"zwen-selection".as_ptr());
-                (self.monitor)(p,monitor.to_glib_none().0); (self.layer)(p,3);
+                (self.monitor)(p,monitor.to_glib_none().0); (self.layer)(p,layer_level);
                 (self.keyboard)(p,0); (self.zone)(p,0);
                 // GtkLayerShellEdge: LEFT=0 RIGHT=1 TOP=2 BOTTOM=3.
                 (self.anchor)(p,0,1); (self.anchor)(p,2,1);
                 if probe { (self.anchor)(p,1,1); (self.anchor)(p,3,1); }
             }
+        }
+        fn configure(&self, w:&gtk::Window, monitor:&gdk::Monitor, probe:bool) {
+            self.configure_layer(w, monitor, probe, 3);
         }
         fn place(&self,w:&gtk::Window,x:i32,y:i32) { unsafe {
             (self.margin)(w.to_glib_none().0,0,x); (self.margin)(w.to_glib_none().0,2,y);
@@ -72,7 +75,7 @@ mod native {
     #[derive(Default)]
     struct Runtime {
         theme_css:Option<gtk::CssProvider>,
-        layer:Option<std::rc::Rc<Layer>>, probes:Vec<gtk::Window>, bar:Option<gtk::Window>,
+        layer:Option<std::rc::Rc<Layer>>, probes:Vec<gtk::Window>, backdrops:Vec<gtk::Window>, bar:Option<gtk::Window>,
         probe_gate:geometry::ProbeGate,
         token:u64,anchor:Option<geometry::PrimedAnchor<Anchor>>,pending:Option<PendingBar>,anchor_kind:Option<&'static str>,
         buttons:Vec<(String,gtk::Button)>, selection:Option<u32>,
@@ -83,12 +86,13 @@ mod native {
     fn current(token:u64)->bool { geometry::accepts(REQUEST.load(Ordering::SeqCst),token) }
     fn clear() {
         // Extract ownership before any GTK call: unmap/destroy can synchronously emit signals.
-        let (probes,bar,handlers,buttons)=UI.with(|ui| {
+        let (probes,backdrops,bar,handlers,buttons)=UI.with(|ui| {
             let mut r=ui.borrow_mut();r.probe_gate.cancel();r.selection=None;r.anchor=None;r.pending=None;r.anchor_kind=None;
-            (std::mem::take(&mut r.probes),r.bar.take(),std::mem::take(&mut r.monitor_handlers),std::mem::take(&mut r.buttons))
+            (std::mem::take(&mut r.probes),std::mem::take(&mut r.backdrops),r.bar.take(),std::mem::take(&mut r.monitor_handlers),std::mem::take(&mut r.buttons))
         });
         for (monitor,handler) in handlers {monitor.disconnect(handler);}
         destroy_probes(probes);
+        destroy_probes(backdrops);
         if let Some(w)=bar {unsafe {w.destroy();}}
         drop(buttons);
     }
@@ -319,6 +323,29 @@ mod native {
         outer.pack_start(&scroll,false,false,0);w.add(&outer);outer.show_all();scroll.hide();scroll.set_no_show_all(true);
         with_layer(|layer|layer.configure(&w,&monitor,false));
         if !current(token) {unsafe {w.destroy();}return;}
+        if let Some(display)=gdk::Display::default() {
+            for i in 0..display.n_monitors() {
+                let Some(m)=display.monitor(i) else {continue;};
+                let bg=gtk::Window::new(gtk::WindowType::Toplevel);
+                bg.set_app_paintable(true);
+                if let Some(screen)=gtk::prelude::WidgetExt::screen(&bg) { if let Some(visual)=screen.rgba_visual() { bg.set_visual(Some(&visual)); } }
+                bg.style_context().add_class("zwen-probe");
+                bg.style_context().add_provider(&css,600);
+                // Layer 2 (Top) sits strictly below the bar at Layer 3 (Overlay), catching any click outside the bar.
+                with_layer(|layer|layer.configure_layer(&bg,&m,true,2));
+                bg.add_events(gdk::EventMask::BUTTON_PRESS_MASK);
+                let dismiss_app=app.clone();
+                bg.connect_button_press_event(move|_,_|{
+                    if current(token) {
+                        crate::selection::toolbar_action(&dismiss_app,id,"__dismiss",revision);
+                        cancel(token);
+                    }
+                    glib::Propagation::Stop
+                });
+                UI.with(|ui|ui.borrow_mut().backdrops.push(bg.clone()));
+                bg.show_all();
+            }
+        }
         UI.with(|ui|ui.borrow_mut().bar=Some(w.clone()));
         let geometry=monitor.geometry();let (_,natural)=w.preferred_size();
         let (left,top)=match point{Some((x,y))=>geometry::position(x,y,geometry.width(),geometry.height(),natural.width,natural.height),None=>geometry::top_center(geometry.width(),geometry.height(),natural.width,natural.height)};

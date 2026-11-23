@@ -8,10 +8,12 @@
   import {paperPort} from './lib/bridge';
   import Icon from './Icon.svelte';
   import SettingsHub, {type SettingsCategory} from './SettingsHub.svelte';
+  import GeneralSettings from './GeneralSettings.svelte';
   import SelectionSettings from './SelectionSettings.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
-  import {AppearanceController,initialAppearance,applyAppearance,watchSystemTheme,type AppearanceState} from './lib/appearance';
-  import {appearancePort} from './lib/bridge';
+  import {AppearanceController,initialAppearance,applyAppearance,watchSystemTheme,loadPalette,savePalette,applyPalette,DEFAULT_CUSTOM_APPEARANCE,loadCustomAppearance,saveCustomAppearance,applyCustomAppearance,type AppearanceState,type ColorPalette,type CustomAppearance} from './lib/appearance';
+  import {DEFAULT_GENERAL_PREFERENCES,loadGeneralPreferences,saveGeneralPreferences,applyGeneralPreferences,type GeneralPreferences} from './lib/preferences';
+  import {appearancePort,loadAutostart,saveAutostart} from './lib/bridge';
   import RetryNotice from './RetryNotice.svelte';
   import ActionOutputNotice from './ActionOutputNotice.svelte';
   import QuickActionSettings from './QuickActionSettings.svelte';
@@ -54,6 +56,31 @@
   const initialUi=initialAppearance((window as Window & {__ZWEN_APPEARANCE__?:unknown}).__ZWEN_APPEARANCE__,{getItem:key=>localStorage.getItem(key)});
   let appearanceState=$state<AppearanceState>({...initialUi,loaded:false,status:'loading',error:null});
   const appearance=new AppearanceController(appearancePort,s=>{appearanceState=s;applyAppearance(s);},initialUi);
+  const initialPalette=loadPalette();
+  let palette=$state<ColorPalette>(initialPalette);
+  applyPalette(initialPalette);
+  function setPalette(next:ColorPalette){palette=next;applyPalette(next);savePalette(next);}
+  const initialCustom=loadCustomAppearance();
+  let customAppearance=$state<CustomAppearance>(initialCustom);
+  applyCustomAppearance(initialCustom);
+  function updateCustomAppearance(patch:Partial<CustomAppearance>){customAppearance={...customAppearance,...patch};applyCustomAppearance(customAppearance);saveCustomAppearance(customAppearance);}
+  function resetCustomAppearance(){customAppearance={...DEFAULT_CUSTOM_APPEARANCE};applyCustomAppearance(customAppearance);saveCustomAppearance(customAppearance);}
+  const initialGeneral=loadGeneralPreferences();
+  let generalPrefs=$state<GeneralPreferences>(initialGeneral);
+  applyGeneralPreferences(initialGeneral);
+  function updateGeneralPrefs(patch:Partial<GeneralPreferences>){generalPrefs={...generalPrefs,...patch};applyGeneralPreferences(generalPrefs);saveGeneralPreferences(generalPrefs);}
+  function resetAllPreferences(){setPalette('monochrome');resetCustomAppearance();generalPrefs={...DEFAULT_GENERAL_PREFERENCES};applyGeneralPreferences(generalPrefs);saveGeneralPreferences(generalPrefs);notice='已恢复默认界面与常规偏好';}
+  let autostartEnabled=$state<boolean|null>(null);
+  let autostartBusy=$state(false);
+  let autostartError=$state<string|null>(null);
+  async function updateAutostart(enabled?: boolean){
+    if(!isDesktop||autostartBusy)return;
+    autostartBusy=true;
+    autostartError=null;
+    try{autostartEnabled=await (enabled===undefined?loadAutostart():saveAutostart(enabled));}
+    catch(error){autostartError=error instanceof Error?error.message:'开机自启动设置暂不可用';}
+    finally{autostartBusy=false;}
+  }
   function navigate(destination:'chat'|'history'|'knowledge'|'graph'|'settings'){
     if(closing)return;
     if(destination==='chat'){view=chatState.reply||chatState.running||chatState.error?'reply':'ask';}
@@ -116,7 +143,7 @@
     const accepted=pendingPaper?await chat.sendPaper(pendingPaper.id,{...paperDraftState.options},sent,()=>controller.flush()):await chat.send(sent,()=>controller.flush());
     if(accepted){sendDraft.accept(ticket,chatState);if(pendingPaper)paperDraft.accepted();}else sendDraft.cancel(ticket);
   }
-  async function openQuickSettings(){await switchSurface('full');settingsCategory='quick';view='settings';await tick();document.getElementById('settings-tab-quick')?.focus();}
+  async function openQuickSettings(){await switchSurface('full');settingsCategory='selection';view='settings';await tick();document.getElementById('settings-tab-selection')?.focus();}
   async function selectAction(id:string,expected?:{item:SelectionItem;config:QuickActionConfig}){
     if(appDisposed||closing)return;
     if(expected&&(selectionState.pending?.id!==expected.item.id||selectionState.pending.text!==expected.item.text))return;
@@ -179,6 +206,16 @@
   }
   async function retryReplySave(){try{await chat.settle();}catch(e){notice=e instanceof Error?e.message:'回答保存未完成';}}
   function captureScreenshot(replaceId?:string|null){if(paperDraftState.enabled||paperContext){notice='论文阅读使用PDF，截图仍保留在草稿；可开启普通新对话发送截图';return;}if(!isDesktop){notice='浏览器仅预览，请在桌面应用中截图';return;}void attachmentController.capture(replaceId??null);}
+  function chooseImageAttachment(){if(paperDraftState.enabled||paperContext){notice='论文阅读使用PDF，图片仍保留在草稿；可开启普通新对话发送图片';return;}if(!isDesktop){notice='浏览器仅预览，请在桌面应用中上传图片';return;}void attachmentController.chooseImage();}
+  let attachMenuOpen=$state(false);let attachMenuWrap=$state<HTMLDivElement>();let fileInput=$state<HTMLInputElement>();
+  async function handleTextFile(event:Event){
+    const el=event.currentTarget as HTMLInputElement;const file=el.files?.[0];el.value='';if(!file)return;
+    if(file.size>200*1024){notice='单个文本文件不超过 200KB；PDF 论文请使用「上传论文 PDF」';return;}
+    try{const text=await file.text();const block=`[文件: ${file.name}]\n\`\`\`\n${text}\n\`\`\``;controller.edit(draft.text.trim()?`${draft.text.trimEnd()}\n\n${block}`:block);notice=`已附加文件：${file.name}`;}
+    catch{notice='文件读取失败，请重试';}
+  }
+  async function uploadPaperFromMenu(){attachMenuOpen=false;if(!isDesktop){notice='浏览器仅预览，请在桌面应用中导入PDF';return;}if(!paperDraftState.enabled)await paperDraft.enable();await paperDraft.choose();}
+  function closeAttachOnOutside(event:PointerEvent){if(attachMenuOpen&&attachMenuWrap&&event.target instanceof Node&&!attachMenuWrap.contains(event.target))attachMenuOpen=false;}
   async function saveToKnowledge(){
     const reply=chatState.reply;
     if(!reply||!reply.answer||chatState.running||bookmarkSaving)return;
@@ -192,11 +229,51 @@
     }catch{notice='收藏未完成，请重试';}finally{bookmarkSaving=null;}
   }
 
-  function applySurface(next:SurfaceInfo){if(canApplySurface(surface.generation,next.generation)){surface=next;document.documentElement.dataset.surface=next.mode;}}
+  let surfacePhase=$state<'idle'|'leaving-to-capsule'|'leaving-to-full'|'entering-ready'|'entering'>('idle');
+  let surfaceTimer:ReturnType<typeof setTimeout>|undefined;
+  let surfaceRaf:number|undefined;
+  function clearSurfaceMotion(){clearTimeout(surfaceTimer);if(surfaceRaf!==undefined){cancelAnimationFrame(surfaceRaf);surfaceRaf=undefined;}}
+  function startSurfaceEnter(delayMs=0){
+    clearSurfaceMotion();
+    const run=()=>{
+      surfaceRaf=requestAnimationFrame(()=>{
+        surfaceRaf=requestAnimationFrame(()=>{
+          surfaceRaf=undefined;
+          surfacePhase='entering';
+          surfaceTimer=setTimeout(()=>{surfacePhase='idle';},560);
+        });
+      });
+    };
+    if(delayMs>0){surfaceTimer=setTimeout(run,delayMs);}else{run();}
+  }
+  function applySurface(next:SurfaceInfo,deferEnter=false){
+    if(canApplySurface(surface.generation,next.generation)){
+      const changed=surface.mode!==next.mode;
+      surface=next;
+      document.documentElement.dataset.surface=next.mode;
+      if(changed){
+        clearSurfaceMotion();
+        surfacePhase='entering-ready';
+        if(deferEnter&&isDesktop){
+          surfaceTimer=setTimeout(()=>startSurfaceEnter(0),260);
+        }else{
+          startSurfaceEnter(0);
+        }
+      }
+    }
+  }
   async function switchSurface(mode:'full'|'capsule'){
     if(switching)return;switching=true;
-    try{await controller.flush();applySurface(await ensureSurface(mode,{get:getSurface,set:setSurface}));if(mode==='full'&&response)view='reply';}
-    catch(error){notice=error instanceof Error?error.message:'窗口切换未完成，内容已保留';}
+    clearSurfaceMotion();
+    surfacePhase=mode==='capsule'?'leaving-to-capsule':'leaving-to-full';
+    const reduced=!isDesktop||generalPrefs.motionSpeed==='off'||window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const exitDelay=reduced?0:generalPrefs.motionSpeed==='snappy'?100:180;
+    try{
+      await Promise.all([controller.flush(),exitDelay?new Promise(r=>setTimeout(r,exitDelay)):Promise.resolve()]);
+      applySurface(await ensureSurface(mode,{get:getSurface,set:setSurface}),true);
+      if(mode==='full'&&response)view='reply';
+    }
+    catch(error){surfacePhase='idle';notice=error instanceof Error?error.message:'窗口切换未完成，内容已保留';}
     finally{switching=false;}
   }
   const resizeQueue=new ResizeQueue(resizeCapsule,()=>{notice='窗口尺寸调整未完成，可展开完整窗口';});
@@ -228,13 +305,14 @@
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
   const statusText = $derived({loading:'正在读取草稿',saved:'已保存到本机',dirty:'等待保存',saving:'正在保存',error:'保存未完成'}[draft.status]);
+  $effect(()=>{if(!notice)return;const t=setTimeout(()=>{notice='';},3500);return()=>clearTimeout(t);});
   const renderedReply=$derived(renderMarkdown(response));
   async function save() { try { if(!draft.loaded){await controller.start();await selection.refresh();}else await controller.flush(); notice='草稿已保存'; } catch { /* error is visible in draft state */ } }
   async function leave(quit=false) {
     if (!isDesktop) { notice='这是浏览器预览，草稿保存在此浏览器；桌面收起功能请在应用中使用';return; }
-    if(quit&&(actionBusy||actionOutputState&&actionOutputState.stage!=='saved')){notice='请先完成或取消文档自动保存，再退出';return;}
-    if(quit&&knowledge.pendingEditorId()){notice='知识库仍有编辑未完成，请先保存编辑或取消；切换页面会保留本次编辑';view='knowledge';void knowledge.open(knowledge.pendingEditorId()!);return;}
-    if(quit&&(selectionState.busy||selectionState.pending)){notice='请先处理待导入选区，再退出';return;}
+    if(quit&&(actionBusy||actionOutputState&&actionOutputState.stage!=='saved')){notice='请先完成或取消文档自动保存，再退出';void setSurface('full').catch(()=>{});return;}
+    if(quit&&knowledge.pendingEditorId()){notice='知识库仍有编辑未完成，请先保存编辑或取消；切换页面会保留本次编辑';view='knowledge';void knowledge.open(knowledge.pendingEditorId()!);void setSurface('full').catch(()=>{});return;}
+    if(quit&&(selectionState.busy||selectionState.pending)){notice='请先处理待导入选区，再退出';void setSurface('full').catch(()=>{});return;}
     if(closing)return;
     const endQuick=surface.mode==='capsule'&&quickSession.active;
     if(endQuick&&(actionBusy||selectionState.busy||(!quit&&attachmentState.pending))){notice='请等待选区处理完成，或先取消截图，再关闭胶囊';return;}
@@ -255,15 +333,16 @@
         });
       }else if(quit)await chat.settle();
       await controller.leave(quit ? quitApp : hideWindow);
-    } catch(e){notice=e instanceof Error?e.message:'退出未完成，当前内容已保留';}finally{closing=false;}
+    } catch(e){notice=e instanceof Error?e.message:'退出未完成，当前内容已保留';if(quit)void setSurface('full').catch(()=>{});}finally{closing=false;}
   }
   function keydown(e:KeyboardEvent) {
     if (e.isComposing || e.keyCode===229) return;
-    if (shouldSendQuestion(e)){e.preventDefault();void send();}
-    if (e.key==='Escape') {e.preventDefault();void leave();}
+    if (shouldSendQuestion(e,generalPrefs.sendKey)){e.preventDefault();void send();}
+    if (e.key==='Escape' && generalPrefs.escToHide) {e.preventDefault();void leave();}
     if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s') {e.preventDefault();void save();}
   }
   onMount(()=>{if(isDesktop)void paperDraft.restore();
+    void updateAutostart();
     let disposed=false;const unlisteners:(()=>void)[]=[];
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
     const unwatchTheme=watchSystemTheme(()=>appearanceState);void appearance.start();void provider.load();void chat.load();
@@ -277,20 +356,23 @@
     void getSurface().then(value=>{if(!disposed)applySurface(value);}).catch(()=>{if(!disposed)notice='窗口模式读取失败';});
     if(isDesktop) void listen<SelectionCommand>('selection-command',e=>{if(!disposed)void selectionCommands.handle(e.payload).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'选区操作未开始；材料已保留';});}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='选区命令事件暂不可用，请手动打开面板重试';});
     if(isDesktop) void listen('selection-ready',()=>{if(!disposed)void selection.refresh();}).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{if(!disposed)notice='选区事件暂不可用，可重新读取状态';});
-    if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{if(disposed)return;applySurface(e.payload);if(e.payload.mode==='full'&&response&&view==='ask')view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{if(disposed)return;applySurface(e.payload,true);if(e.payload.mode==='full'&&response&&view==='ask')view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop) void listen<SurfaceInfo>('surface-presented',e=>{if(disposed)return;if(e.payload.generation>=surface.generation&&surfacePhase==='entering-ready')startSurfaceEnter(generalPrefs.motionSpeed==='off'?0:generalPrefs.motionSpeed==='snappy'?25:60);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop)void listen('request-settings',()=>{if(!disposed)view='settings';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>{if(!disposed)void leave(quit);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='关闭事件暂不可用，请使用面板按钮';});
     }
-    return ()=>{unwatchTheme();clearTimeout(bookmarkTimer);disposed=true;appDisposed=true;selectionCommands.dispose();appearance.dispose();for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();paperDraft.dispose();actionOutput.dispose();resizeQueue.clear();};
+    return ()=>{unwatchTheme();clearTimeout(bookmarkTimer);clearSurfaceMotion();disposed=true;appDisposed=true;selectionCommands.dispose();appearance.dispose();for(const fn of unlisteners)fn();controller.dispose();selection.dispose();attachmentController.dispose();knowledge.dispose();chat.dispose();paperDraft.dispose();actionOutput.dispose();resizeQueue.clear();};
   });
 </script>
 
-<svelte:window onkeydown={keydown}/>
+<svelte:window onkeydown={keydown} onpointerdown={closeAttachOnOutside}/>
 {#if surface.mode==='capsule'}
-<Capsule paperLabel={pendingPaper?.name??(paperContext?paperScope?.source.name??'论文会话':paperDraftState.enabled?'请添加PDF':null)} hasPaperAttachment={!!pendingPaper} retry={chatState.reply?.retry??null} {canRestoreQuestion} onRestoreQuestion={()=>void restoreQuestion()} {focusRequest} quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!!pendingPaper||paperContext||!attachmentState.items.length||!!imageModelOf(settings.config))&&!paperDraftState.importing&&!paperDraftState.restoring&&(!paperContext||!!pendingPaper||!!paperScope)&&(!paperDraftState.enabled||!!pendingPaper||paperContext)&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching||closing} onEdit={s=>{if(!closing)controller.edit(s);}} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+<div class="surface-stage" data-surface-phase={surfacePhase}>
+<Capsule paperLabel={pendingPaper?.name??(paperContext?paperScope?.source.name??'论文会话':paperDraftState.enabled?'请添加PDF':null)} hasPaperAttachment={!!pendingPaper} retry={chatState.reply?.retry??null} {canRestoreQuestion} onRestoreQuestion={()=>void restoreQuestion()} {focusRequest} quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentImage={chooseImageAttachment} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!!pendingPaper||paperContext||!attachmentState.items.length||!!imageModelOf(settings.config))&&!paperDraftState.importing&&!paperDraftState.restoring&&(!paperContext||!!pendingPaper||!!paperScope)&&(!paperDraftState.enabled||!!pendingPaper||paperContext)&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching||closing} onEdit={s=>{if(!closing)controller.edit(s);}} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+</div>
 {:else}
-<div class="shell" class:sidebar-collapsed={appearanceState.sidebarCollapsed}>
+<div class="shell" class:sidebar-collapsed={appearanceState.sidebarCollapsed} data-surface-phase={surfacePhase}>
   <Sidebar collapsed={appearanceState.sidebarCollapsed} active={view==='history'?'history':view==='knowledge'?'knowledge':view==='graph'?'graph':view==='settings'?'settings':'chat'} disabled={!appearanceState.loaded} canNew={!closing&&!chatState.running&&!chatState.stopping} onToggle={()=>void appearance.update({sidebarCollapsed:!appearanceState.sidebarCollapsed})} onNavigate={navigate} onNew={newConversation}/>
   <div class="main-panel">
   <header class="titlebar">
@@ -309,13 +391,13 @@
         <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
       {:else if view==='settings'}
         <SettingsHub bind:category={settingsCategory}>
-          {#snippet appearancePanel()}<AppearanceSettings state={appearanceState} onTheme={theme=>void appearance.update({theme})} onReload={()=>void appearance.start()}/>{/snippet}
+          {#snippet generalPanel()}<GeneralSettings desktop={isDesktop} enabled={autostartEnabled} busy={autostartBusy} error={autostartError} prefs={generalPrefs} onToggle={enabled=>void updateAutostart(enabled)} onReload={()=>void updateAutostart()} onPrefsChange={updateGeneralPrefs} onResetAll={resetAllPreferences}/>{/snippet}
+          {#snippet appearancePanel()}<AppearanceSettings state={appearanceState} {palette} custom={customAppearance} onTheme={theme=>void appearance.update({theme})} onPalette={setPalette} onCustom={updateCustomAppearance} onResetCustom={resetCustomAppearance} onReload={()=>void appearance.start()}/>{/snippet}
           {#snippet providerPanel()}<ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>{/snippet}
-          {#snippet selectionPanel()}<SelectionSettings desktop={isDesktop} enabled={candidateEnabled} onToggle={onCandidateToggle}/>{/snippet}
-          {#snippet quickPanel()}{#if isDesktop}<QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{:else}<p class="preview-banner">请在桌面应用中配置快捷操作。</p>{/if}{/snippet}
+          {#snippet selectionPanel()}<SelectionSettings desktop={isDesktop} enabled={candidateEnabled} onToggle={onCandidateToggle}>{#if isDesktop}<QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{/if}</SelectionSettings>{/snippet}
         </SettingsHub>
       {:else if view==='ask'}
-        <div class="empty-conversation"><div class="welcome-scene"><WelcomeMark/><p>今天想问 Zwen 什么问题？</p></div></div>
+        <div class="empty-conversation"><div class="welcome-scene">{#if generalPrefs.showWelcomeMark}<WelcomeMark/>{/if}<p>今天想问 Zwen 什么问题？</p></div></div>
       {:else}
         <section class="answer">{#if view==='reply'&&chatState.reply}<div class="user-question"><p>{chatState.reply.prompt}</p></div>{/if}<div class="answer-label"><BrandLogo compact/><strong>{chatState.reply?.model||'模型回复'}</strong><span>{replyLabel} · {replyStatus}</span></div><div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html renderedReply}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>停止生成</button>{/if}{#if view==='reply'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save disabled={bookmarkSaving!==null} aria-live="polite" onclick={()=>void saveToKnowledge()}>{bookmarkSaving===chatState.reply.requestId?'正在收藏…':bookmarkSaved===chatState.reply.requestId?'已收藏 ✓':'收藏到知识库'}</button>{/if}{#if paperContext&&chatState.reply?.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-paper-export onclick={()=>void exportPaper()}>导出 Markdown</button>{/if}{#if view==='reply'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
       {/if}
@@ -331,10 +413,10 @@
       <PaperComposer controller={paperDraft} state={paperDraftState} port={paperPort} context={paperScope} paperModel={settings.config?.model??''} destination={settings.config?`${settings.config.baseUrl} · ${settings.config.model}`:'未配置模型服务'} onOpenStart={()=>{if(notice==='系统未能打开论文原件，请检查默认PDF阅读器后重试。')notice='';}} reading={paperContext} desktop={isDesktop} disabled={closing||chatState.running||chatState.stopping||actionBusy} onExit={exitPaperMode}/>
       <Attachments state={attachmentState} onCancel={()=>void attachmentController.cancel()} onRemove={id=>void attachmentController.remove(id)} onRetake={id=>captureScreenshot(id)}/>
       <label class="sr-only" for="question">问题草稿</label><textarea bind:this={input} id="question" disabled={!draft.loaded||closing} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder={pendingPaper?'可直接发送开始精读，或补充你想了解的问题…':paperContext?'围绕这篇论文继续提问…':'输入问题，或粘贴内容…'} spellcheck="false" rows="2"></textarea>
-      <div class="composer-tools"><div><button class="tool-button" data-capture aria-label="附加截图" title="附加截图" disabled={paperContext||paperDraftState.enabled||!isDesktop||!draft.loaded||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>captureScreenshot(null)}><Icon name="image"/></button><button class="tool-button" aria-label="保存草稿" title="保存草稿 · Ctrl S" disabled={!draft.loaded} onclick={save}><Icon name="save" size={18}/></button>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title="Enter 发送 · Shift+Enter 换行" disabled={selectionState.busy||attachmentState.pending||(!paperContext&&!pendingPaper&&attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||paperDraftState.importing||paperDraftState.restoring||(paperContext&&!pendingPaper&&!paperScope)||(paperDraftState.enabled&&!paperDraftState.loaded)||(paperDraftState.enabled&&!pendingPaper&&!paperContext)||(!draft.text.trim()&&!pendingPaper)} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>Enter ↵</kbd></button></div>
+      <div class="composer-tools"><div><div class="attach-menu-wrap" bind:this={attachMenuWrap}><button type="button" class="tool-button" data-attach-trigger aria-label="添加附件" title="添加附件（截图 / 图片 / 文件）" aria-expanded={attachMenuOpen} disabled={!draft.loaded||closing} onclick={()=>{attachMenuOpen=!attachMenuOpen;}}><Icon name="plus" size={17}/></button>{#if attachMenuOpen}<div class="attach-menu" role="menu" aria-label="添加附件选项"><button type="button" role="menuitem" data-capture disabled={paperContext||paperDraftState.enabled||!isDesktop||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>{attachMenuOpen=false;captureScreenshot(null);}}><Icon name="image" size={15}/>截取屏幕</button><button type="button" role="menuitem" data-upload-image disabled={paperContext||paperDraftState.enabled||!isDesktop||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>{attachMenuOpen=false;chooseImageAttachment();}}><Icon name="image" size={15}/>上传图片</button><button type="button" role="menuitem" data-upload-file disabled={!draft.loaded||closing} onclick={()=>{attachMenuOpen=false;fileInput?.click();}}><Icon name="paperclip" size={15}/>上传文本文件</button><button type="button" role="menuitem" data-upload-paper disabled={!isDesktop||closing||chatState.running||chatState.stopping||actionBusy} onclick={()=>void uploadPaperFromMenu()}><Icon name="book" size={15}/>上传论文 PDF</button></div>{/if}<input bind:this={fileInput} type="file" class="sr-only" tabindex="-1" accept=".txt,.md,.markdown,.json,.csv,.ts,.js,.py,.rs,.c,.cpp,.h,.java,.go,.html,.css,.xml,.yaml,.yml,.toml,.log,.tex" onchange={e=>void handleTextFile(e)}/></div>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title={generalPrefs.sendKey==='ctrl-enter'?'Ctrl+Enter 发送 · Enter 换行':'Enter 发送 · Shift+Enter 换行'} disabled={selectionState.busy||attachmentState.pending||(!paperContext&&!pendingPaper&&attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||paperDraftState.importing||paperDraftState.restoring||(paperContext&&!pendingPaper&&!paperScope)||(paperDraftState.enabled&&!paperDraftState.loaded)||(paperDraftState.enabled&&!pendingPaper&&!paperContext)||(!draft.text.trim()&&!pendingPaper)} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>{generalPrefs.sendKey==='ctrl-enter'?'Ctrl+↵':'Enter ↵'}</kbd></button></div>
     </section>
     {/if}
-    <footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{statusText}</span><span role="status">{notice}</span></footer>
+    {#if draft.status!=='saved'||notice}<footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{draft.status!=='saved'?statusText:''}</span><span role="status">{notice}</span></footer>{/if}
   </div>
   </div>
 </div>

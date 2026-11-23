@@ -1,4 +1,5 @@
 mod appearance;
+mod autostart;
 mod niri;
 mod selection;
 mod chat;
@@ -78,12 +79,12 @@ async fn set_surface(app:tauri::AppHandle,mode:String)->Result<windows::Snapshot
 #[tauri::command]
 async fn resize_capsule(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{windows::resize(app,height,generation).await}
 fn launch(app:&tauri::AppHandle, action:LaunchAction,token:Option<&str>) {
+    if action == LaunchAction::Background { return; }
     if let LaunchAction::Selection(mode)=action {selection::capture(app.clone(),mode);return;}
     if let LaunchAction::CandidateCallback=action {selection::candidate_callback(app.clone(),token);return;}
     if action==LaunchAction::Screenshot {selection::dismiss_bar(app);attachment::start_from_app(app,None);return;}
     if action == LaunchAction::Quit {
         if let Some(window)=app.get_webview_window("main") {
-            let _=window.show();
             let _=window.emit("request-quit",());
         } else { app.exit(0); }
         return;
@@ -114,7 +115,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action,refs.get(1).copied()); }
         }))
-        .invoke_handler(tauri::generate_handler![paper::paper_import_pdf,paper::paper_open,paper::paper_list_page,paper::paper_metadata,paper::paper_defaults,paper::paper_legacy_papers,paper::paper_legacy_open,paper::paper_session_info,paper::paper_export,paper::paper_legacy,paper::paper_legacy_report,paper::paper_list,paper::paper_choose,paper::paper_sessions,paper::paper_source,paper::paper_start,organize_round::organize_prepare,organize_round::organize_round_status,organize_round::organize_round_start,organize_round::organize_round_stop,organize_round::organize_round_undo,appearance::load_appearance,appearance::save_appearance,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document])
+        .invoke_handler(tauri::generate_handler![paper::paper_import_pdf,paper::paper_open,paper::paper_list_page,paper::paper_metadata,paper::paper_defaults,paper::paper_legacy_papers,paper::paper_legacy_open,paper::paper_session_info,paper::paper_export,paper::paper_legacy,paper::paper_legacy_report,paper::paper_list,paper::paper_choose,paper::paper_sessions,paper::paper_source,paper::paper_start,organize_round::organize_prepare,organize_round::organize_round_status,organize_round::organize_round_start,organize_round::organize_round_stop,organize_round::organize_round_undo,appearance::load_appearance,appearance::save_appearance,autostart::load_autostart,autostart::save_autostart,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::choose_image_attachment,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -146,7 +147,7 @@ fn main() {
                 let window=if capsule_surface(action){window.max_inner_size(480.0,96.0)}else{window};
                 window.on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
                     .build()?;
-                if let Err(error)=tray::setup(app){eprintln!("Zwen 托盘暂不可用，仍可通过应用入口或快捷键唤出：{error}");}
+                tray::initialize(app.handle());
             }
             appearance::watch_system(app.handle());
             launch(app.handle(), action,args.get(1).map(String::as_str));

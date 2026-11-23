@@ -12,11 +12,11 @@
  </div>
 {/if}
 <style>.action-output{padding:8px 12px;font-size:13px;line-height:1.6;overflow-wrap:anywhere;color:var(--muted);flex-shrink:0}button{font:inherit;border:1px solid var(--edge);background:transparent;border-radius:12px;color:inherit;margin:4px;padding:4px 7px;cursor:pointer}
- button{transition:box-shadow .16s ease,background-color .16s ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
- button:hover:not(:disabled){box-shadow:var(--hover-shadow)}
- button:active:not(:disabled){box-shadow:var(--pressed-shadow)}
+ button{transition:transform 140ms var(--ease-out),box-shadow 160ms var(--ease-out),background-color 160ms ease;border-radius:12px;cursor:pointer;box-shadow:var(--raised-shadow)}
+ @media(hover:hover) and (pointer:fine){button:hover:not(:disabled){box-shadow:var(--hover-shadow)}}
+ button:active:not(:disabled){box-shadow:var(--pressed-shadow);transform:scale(0.96)}
  button:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
  button:disabled{opacity:.5;cursor:default}
- @media(prefers-reduced-motion:reduce){button{transition:none}}
+ @media(prefers-reduced-motion:reduce){button{transition-property:background-color,color,opacity;transition-duration:120ms;transform:none}}
  .action-output{font-size:14px;line-height:1.65;color:var(--muted)}button{font-size:14px;background:var(--surface);color:var(--text);padding:5px 10px}
 </style>

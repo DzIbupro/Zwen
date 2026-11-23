@@ -4,6 +4,7 @@ export interface AttachmentView {items:AttachmentItem[];capture:CaptureInfo;noti
 export interface AttachmentPort {
  list():Promise<AttachmentView>;
  capture(replaceId?:string|null):Promise<void>;
+ chooseImage?():Promise<boolean>;
  cancel():Promise<void>;
  remove(id:string):Promise<void>;
  listen(cb:()=>void):Promise<()=>void>;
@@ -64,6 +65,16 @@ export class AttachmentController {
    await this.port.capture(replaceId??null);
   }catch(error){
    this.publish({pending:false,notice:this.message(error,'截图未能开始')});
+  }finally{
+   await this.load();
+  }
+ }
+ async chooseImage():Promise<void>{
+  if(this.disposed||!this.state.loaded||this.state.pending||!this.port.chooseImage)return;
+  try{
+   await this.port.chooseImage();
+  }catch(error){
+   this.publish({notice:this.message(error,'图片未能附加')});
   }finally{
    await this.load();
   }

@@ -1,3 +1,83 @@
+export type ColorPalette='monochrome'|'slate'|'paper';
+export type FontPreset='default'|'noto-sans'|'noto-serif'|'open-sans'|'mono';
+export type FontSizePreset='compact'|'normal'|'comfortable'|'large';
+export type RadiusPreset='sharp'|'normal'|'soft';
+export type WidthPreset='focused'|'normal'|'wide';
+export interface CustomAppearance{
+ accent:string|null;
+ font:FontPreset;
+ fontSize:FontSizePreset;
+ radius:RadiusPreset;
+ readingWidth:WidthPreset;
+ customBg:string|null;
+ customSidebar:string|null;
+}
+export const DEFAULT_CUSTOM_APPEARANCE:CustomAppearance={
+ accent:null,
+ font:'default',
+ fontSize:'normal',
+ radius:'normal',
+ readingWidth:'normal',
+ customBg:null,
+ customSidebar:null,
+};
+export const DEFAULT_PALETTE:ColorPalette='monochrome';
+export const PALETTE_KEY='zwen.palette.v1';
+export const CUSTOM_APPEARANCE_KEY='zwen.custom-appearance.v1';
+const HEX_COLOR=/^#[0-9a-fA-F]{6}$/;
+export function parsePalette(value:unknown):ColorPalette{return value==='slate'||value==='paper'||value==='monochrome'?value:DEFAULT_PALETTE;}
+export function loadPalette(storage:Pick<Storage,'getItem'>=localStorage):ColorPalette{try{return parsePalette(storage.getItem(PALETTE_KEY));}catch{return DEFAULT_PALETTE;}}
+export function savePalette(palette:ColorPalette,storage:Pick<Storage,'setItem'>=localStorage){try{storage.setItem(PALETTE_KEY,palette);}catch{/* ignore storage errors */}}
+export function applyPalette(palette:ColorPalette){document.documentElement.dataset.palette=parsePalette(palette);}
+export function parseCustomAppearance(value:unknown):CustomAppearance{
+ if(!value||typeof value!=='object')return{...DEFAULT_CUSTOM_APPEARANCE};
+ const v=value as Record<string,unknown>;
+ return{
+  accent:typeof v.accent==='string'&&HEX_COLOR.test(v.accent)?v.accent:null,
+  font:v.font==='noto-sans'||v.font==='noto-serif'||v.font==='open-sans'||v.font==='mono'?v.font:'default',
+  fontSize:v.fontSize==='compact'||v.fontSize==='comfortable'||v.fontSize==='large'?v.fontSize:'normal',
+  radius:v.radius==='sharp'||v.radius==='soft'?v.radius:'normal',
+  readingWidth:v.readingWidth==='focused'||v.readingWidth==='wide'?v.readingWidth:'normal',
+  customBg:typeof v.customBg==='string'&&HEX_COLOR.test(v.customBg)?v.customBg:null,
+  customSidebar:typeof v.customSidebar==='string'&&HEX_COLOR.test(v.customSidebar)?v.customSidebar:null,
+ };
+}
+export function loadCustomAppearance(storage:Pick<Storage,'getItem'>=localStorage):CustomAppearance{try{return parseCustomAppearance(JSON.parse(storage.getItem(CUSTOM_APPEARANCE_KEY)??'null'));}catch{return{...DEFAULT_CUSTOM_APPEARANCE};}}
+export function saveCustomAppearance(custom:CustomAppearance,storage:Pick<Storage,'setItem'>=localStorage){try{storage.setItem(CUSTOM_APPEARANCE_KEY,JSON.stringify(custom));}catch{/* ignore storage errors */}}
+function contrastInk(hex:string):string{
+ const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+ return (0.299*r+0.587*g+0.114*b)>160?'#141416':'#ffffff';
+}
+export function applyCustomAppearance(custom:CustomAppearance){
+ const root=document.documentElement;
+ const s=root.style;
+ const fonts:Record<FontPreset,string>={
+  default:'"Red Hat Text","Noto Sans","Noto Sans CJK SC","Microsoft YaHei UI",system-ui,sans-serif',
+  'noto-sans':'"Noto Sans","Noto Sans CJK SC","Microsoft YaHei UI",system-ui,sans-serif',
+  'noto-serif':'"Noto Serif CJK SC",Georgia,serif',
+  'open-sans':'"Open Sans","Noto Sans CJK SC","Microsoft YaHei UI",system-ui,sans-serif',
+  mono:'"Source Code Pro","Noto Sans Mono CJK SC","Consolas",ui-monospace,monospace',
+ };
+ const sizes:Record<FontSizePreset,[string,string]>={compact:['13px','13.5px'],normal:['14px','15px'],comfortable:['14.5px','16.5px'],large:['15.5px','18px']};
+ const radii:Record<RadiusPreset,[string,string]>={sharp:['5px','10px'],normal:['8px','16px'],soft:['12px','22px']};
+ const widths:Record<WidthPreset,string>={focused:'680px',normal:'760px',wide:'920px'};
+ s.setProperty('--font-sans',fonts[custom.font]);
+ s.setProperty('--ui-size',sizes[custom.fontSize][0]);
+ s.setProperty('--prose-size',sizes[custom.fontSize][1]);
+ s.setProperty('--radius-control',radii[custom.radius][0]);
+ s.setProperty('--radius-card',radii[custom.radius][1]);
+ s.setProperty('--reading-width',widths[custom.readingWidth]);
+ if(custom.accent){
+  s.setProperty('--accent',custom.accent);
+  s.setProperty('--on-accent',contrastInk(custom.accent));
+  s.setProperty('--focus-ring',custom.accent);
+  s.setProperty('--accent-soft',`color-mix(in srgb,${custom.accent} 13%,transparent)`);
+ }else{
+  s.removeProperty('--accent');s.removeProperty('--on-accent');s.removeProperty('--focus-ring');s.removeProperty('--accent-soft');
+ }
+ if(custom.customBg){s.setProperty('--bg',custom.customBg);}else{s.removeProperty('--bg');}
+ if(custom.customSidebar){s.setProperty('--sidebar-bg',custom.customSidebar);}else{s.removeProperty('--sidebar-bg');}
+}
 export interface Appearance{theme:'light'|'dark'|'system';sidebarCollapsed:boolean}
 export interface AppearanceState extends Appearance{loaded:boolean;status:'loading'|'saving'|'saved'|'error';error:string|null}
 export interface AppearancePort{load():Promise<Appearance>;save(preferences:Appearance):Promise<Appearance>}

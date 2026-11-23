@@ -57,13 +57,15 @@ pub async fn activate_if_current(app:tauri::AppHandle,capsule:bool,intent:u64)->
     // renderer switches layouts first; showing earlier painted a stale
     // full-window strip (the ghosted titlebar) into the capsule frame.
     let _=window.emit("surface-changed",&snapshot);
-    std::thread::sleep(std::time::Duration::from_millis(120));
+    std::thread::sleep(std::time::Duration::from_millis(45));
     if !current(intent){return Ok(c.snapshot(&window));}
     window.show().map_err(|_|ClientError::window())?;
     if capsule {let width=c.bounds.width;if let Some(p)=&mut c.placement {p.place(width);}else{let _=window.center();}}
     let _=window.set_focus();Ok(snapshot)
  }).await.unwrap_or_else(|_|Err(ClientError::window()));
- crate::capture_frame::restore(restore_app,blank).await;result
+ crate::capture_frame::restore(restore_app.clone(),blank).await;
+ if let Ok(snapshot)=&result{if let Some(window)=restore_app.get_webview_window("main"){let _=window.emit("surface-presented",snapshot);}}
+ result
 }
 pub async fn resize(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{
  tauri::async_runtime::spawn_blocking(move||{

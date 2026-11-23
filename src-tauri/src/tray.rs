@@ -9,15 +9,40 @@ pub fn dispatch(app:&tauri::AppHandle,id:&str){
   Some(Action::Open)=>crate::launch(app,LaunchAction::Show,None),
   Some(Action::Capsule)=>crate::launch(app,LaunchAction::Capsule,None),
   Some(Action::Screenshot)=>crate::launch(app,LaunchAction::Screenshot,None),
-  Some(Action::Settings)|Some(Action::Quit)=>{
-   let event=if action(id)==Some(Action::Settings){"request-settings"}else{"request-quit"};
+  Some(Action::Settings)=>{
    let app=app.clone();let activate=crate::windows::activate(app.clone(),false);
-   tauri::async_runtime::spawn(async move{if activate.await.is_ok(){if let Some(window)=app.get_webview_window("main"){let _=window.emit(event,());}}});
+   tauri::async_runtime::spawn(async move{if activate.await.is_ok(){if let Some(window)=app.get_webview_window("main"){let _=window.emit("request-settings",());}}});
+  }
+  Some(Action::Quit)=>{
+   if let Some(window)=app.get_webview_window("main"){let _=window.emit("request-quit",());}
+   else{app.exit(0);}
   }
   None=>{}
  }
 }
-pub fn setup(app:&tauri::App)->tauri::Result<()>{
+pub fn initialize(app: &tauri::AppHandle) {
+ if let Err(error) = setup(app) {
+  eprintln!("Zwen 托盘暂不可用，仍可通过应用入口或快捷键唤出：{error}");
+  #[cfg(target_os = "linux")]
+  {
+   let app = app.clone();
+   // At login the compositor can start Zwen before the panel owns the tray service.
+   tauri::async_runtime::spawn(async move {
+    loop {
+     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+     let (finished, result) = tokio::sync::oneshot::channel();
+     let handle = app.clone();
+     if app.run_on_main_thread(move || {
+      let _ = finished.send(setup(&handle).is_ok());
+     }).is_err() { break; }
+     if !matches!(result.await, Ok(false)) { break; }
+    }
+   });
+  }
+ }
+}
+
+fn setup(app:&tauri::AppHandle)->tauri::Result<()>{
  let open=MenuItem::with_id(app,"zwen.tray.open","打开 Zwen",true,None::<&str>)?;
  let capsule=MenuItem::with_id(app,"zwen.tray.capsule","快捷胶囊",true,None::<&str>)?;
  let screenshot=MenuItem::with_id(app,"zwen.tray.screenshot","截图（Shift+Alt+S）",true,None::<&str>)?;
