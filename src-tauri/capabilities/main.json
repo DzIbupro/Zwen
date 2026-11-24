@@ -28,6 +28,8 @@
     "allow-delete-chat-turn",
     "allow-delete-chat-history",
     "allow-get-chat-turn",
+    "allow-get-conversation-turns",
+    "allow-set-app-locale",
     "allow-claim-selection",
     "allow-acknowledge-selection",
     "allow-get-attachments",
@@ -89,6 +91,7 @@
     "allow-paper-import-pdf",
     "allow-paper-open",
     "allow-paper-list-page",
-    "allow-paper-metadata"
+    "allow-paper-metadata",
+    "allow-check-github-update"
   ]
 }

@@ -1,9 +1,30 @@
 //! Native system tray: window actions reuse normal lifecycle/save protection.
+use std::sync::Mutex;
 use tauri::{Emitter,Manager,menu::{Menu,MenuItem},tray::{TrayIconBuilder,TrayIconEvent,MouseButton,MouseButtonState}};
 use zwen_core::cli::LaunchAction;
 const ID:&str="zwen-resident";
 #[derive(Debug,PartialEq)]enum Action{Open,Capsule,Screenshot,Settings,Quit}
 fn action(id:&str)->Option<Action>{Some(match id{"zwen.tray.open"=>Action::Open,"zwen.tray.capsule"=>Action::Capsule,"zwen.tray.screenshot"=>Action::Screenshot,"zwen.tray.settings"=>Action::Settings,"zwen.tray.quit"=>Action::Quit,_=>return None})}
+struct TrayItems {
+ open: MenuItem<tauri::Wry>,
+ capsule: MenuItem<tauri::Wry>,
+ screenshot: MenuItem<tauri::Wry>,
+ settings: MenuItem<tauri::Wry>,
+ quit: MenuItem<tauri::Wry>,
+}
+static TRAY_ITEMS: Mutex<Option<TrayItems>> = Mutex::new(None);
+pub fn refresh_locale(_app: &tauri::AppHandle) {
+ let s = crate::i18n::strings();
+ if let Ok(guard) = TRAY_ITEMS.lock() {
+  if let Some(items) = guard.as_ref() {
+   let _ = items.open.set_text(s.tray_open);
+   let _ = items.capsule.set_text(s.tray_capsule);
+   let _ = items.screenshot.set_text(s.tray_screenshot);
+   let _ = items.settings.set_text(s.tray_settings);
+   let _ = items.quit.set_text(s.tray_quit);
+  }
+ }
+}
 pub fn dispatch(app:&tauri::AppHandle,id:&str){
  match action(id){
   Some(Action::Open)=>crate::launch(app,LaunchAction::Show,None),
@@ -43,11 +64,12 @@ pub fn initialize(app: &tauri::AppHandle) {
 }
 
 fn setup(app:&tauri::AppHandle)->tauri::Result<()>{
- let open=MenuItem::with_id(app,"zwen.tray.open","打开 Zwen",true,None::<&str>)?;
- let capsule=MenuItem::with_id(app,"zwen.tray.capsule","快捷胶囊",true,None::<&str>)?;
- let screenshot=MenuItem::with_id(app,"zwen.tray.screenshot","截图（Shift+Alt+S）",true,None::<&str>)?;
- let settings=MenuItem::with_id(app,"zwen.tray.settings","设置",true,None::<&str>)?;
- let quit=MenuItem::with_id(app,"zwen.tray.quit","保存并退出",true,None::<&str>)?;
+ let s = crate::i18n::strings();
+ let open=MenuItem::with_id(app,"zwen.tray.open",s.tray_open,true,None::<&str>)?;
+ let capsule=MenuItem::with_id(app,"zwen.tray.capsule",s.tray_capsule,true,None::<&str>)?;
+ let screenshot=MenuItem::with_id(app,"zwen.tray.screenshot",s.tray_screenshot,true,None::<&str>)?;
+ let settings=MenuItem::with_id(app,"zwen.tray.settings",s.tray_settings,true,None::<&str>)?;
+ let quit=MenuItem::with_id(app,"zwen.tray.quit",s.tray_quit,true,None::<&str>)?;
  let menu=Menu::with_items(app,&[&open,&capsule,&screenshot,&settings,&quit])?;
  let mut builder=TrayIconBuilder::with_id(ID).menu(&menu).title("Zwen").tooltip("Zwen").show_menu_on_left_click(false)
   .on_menu_event(|app,event|dispatch(app,event.id.as_ref()))
@@ -57,7 +79,11 @@ fn setup(app:&tauri::AppHandle)->tauri::Result<()>{
    }
   });
  if let Some(icon)=app.default_window_icon(){builder=builder.icon(icon.clone());}
- builder.build(app)?;Ok(())
+ builder.build(app)?;
+ if let Ok(mut guard) = TRAY_ITEMS.lock() {
+  *guard = Some(TrayItems { open, capsule, screenshot, settings, quit });
+ }
+ Ok(())
 }
 #[cfg(test)]mod tests{
  use super::*;

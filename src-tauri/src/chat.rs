@@ -262,6 +262,30 @@ pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::St
  }).await.map_err(|_|ClientError::storage())?
 }
 
+#[tauri::command]
+pub async fn get_conversation_turns(storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,conversation_id:String)->Result<Vec<Reply>,ClientError>{
+ let storage=storage.inner().clone();let state=chat.inner().clone();tauri::async_runtime::spawn_blocking(move||{
+  if conversation_id.is_empty()||conversation_id.len()>100{return Err(zwen_core::Error::InvalidChat.into());}
+  let s=state.lock().map_err(|_|ClientError::storage())?;
+  let journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;
+  let turns=journal.conversation_turns(&conversation_id)?;
+  let mut replies:Vec<Reply>=turns.into_iter().map(|turn|{
+   if let Some(live)=&s.last{
+    if live.turn.request_id==turn.request_id&&live.turn.revision>=turn.revision{
+     return live.clone();
+    }
+   }
+   Reply{turn,saved:true,retry:None}
+  }).collect();
+  if let Some(live)=&s.last{
+   if live.turn.conversation_id==conversation_id&&!replies.iter().any(|r|r.turn.request_id==live.turn.request_id){
+    replies.push(live.clone());
+   }
+  }
+  Ok(replies)
+ }).await.map_err(|_|ClientError::storage())?
+}
+
 #[cfg(test)]mod tests{
  use super::*;
  use zwen_core::provider::ProviderConfig;

@@ -1,6 +1,7 @@
 import { Marked, type Tokens } from 'marked';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
+import { proseLinkClick } from './links';
 
 function escape(text: string): string {
   return text.replace(/[&<>"']/g, c=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]!);
@@ -22,6 +23,14 @@ const marked = new Marked({ gfm: true, breaks: false, renderer: { html: token=>e
     renderer(token: Tokens.Generic) { return math(String(token.text), false); } },
 ] });
 
+function enhanceCodeBlocks(html: string): string {
+  return html.replace(/<pre><code(?:\s+class="language-([A-Za-z0-9_+-]+)")?>([\s\S]*?)<\/code><\/pre>/g, (_match, lang: string | undefined, body: string) => {
+    const label = lang ? escape(lang) : 'code';
+    const classAttr = lang ? ` class="language-${escape(lang)}"` : '';
+    return `<div class="code-block-wrap"><div class="code-block-head"><span class="code-lang">${label}</span><button type="button" class="code-copy-btn" data-copy-code aria-label="Copy code">Copy</button></div><pre><code${classAttr}>${body}</code></pre></div>`;
+  });
+}
+
 export function renderMarkdown(text: string): string {
   const limited = text.length > 65536;
   const source = limited ? text.slice(0, 65536) : text;
@@ -32,5 +41,51 @@ export function renderMarkdown(text: string): string {
     FORBID_TAGS: ['script','style','iframe','object','embed','form','input','button','img','video','audio'],
     FORBID_ATTR: ['id','name'],
   });
-  return clean + (limited ? '<p class="preview-limit">预览仅显示前 64K 字符，完整草稿仍保留在输入框。</p>' : '');
+  return enhanceCodeBlocks(clean) + (limited ? '<p class="preview-limit">预览仅显示前 64K 字符，完整草稿仍保留在输入框。</p>' : '');
+}
+
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback below
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.append(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+export function handleProseClick(event: MouseEvent, openExternal: (url: string) => Promise<void>) {
+  const target = event.target instanceof Element ? event.target : null;
+  const copyBtn = target?.closest<HTMLButtonElement>('button[data-copy-code]');
+  if (copyBtn) {
+    event.preventDefault();
+    event.stopPropagation();
+    const codeText = copyBtn.closest('.code-block-wrap')?.querySelector('pre code')?.textContent ?? '';
+    void copyTextToClipboard(codeText).then(ok => {
+      if (!ok) return;
+      copyBtn.textContent = '✓';
+      copyBtn.dataset.copied = 'true';
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy';
+        delete copyBtn.dataset.copied;
+      }, 1500);
+    });
+    return;
+  }
+  proseLinkClick(event, openExternal);
 }

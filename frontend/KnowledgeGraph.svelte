@@ -4,6 +4,7 @@
  import {buildColumnGraph,columnName,columnNodeId,projectSphere,sphereGuides,clampZoom,dragRotation,isRotationDrag,INITIAL_YAW,INITIAL_PITCH} from './lib/graphSphere';
  import type {KnowledgeController,KnowledgeState} from './lib/knowledge';
  import type {GraphNode,GraphEdge} from './lib/graph';
+ import {t} from './lib/i18n.svelte';
  let {controller,info,onOpenNote,onOpenTopic}:{controller:KnowledgeController;info:KnowledgeState;onOpenNote:(id:string)=>void;onOpenTopic:(id:string)=>void}=$props();
  let stageElement:HTMLDivElement;
  let fitScale=$state(1);
@@ -75,16 +76,16 @@
  }
  const shortLabel=(name:string)=>Array.from(name).slice(0,9).join('')+(Array.from(name).length>9?'…':'');
 </script>
-<section class="graphview" data-graph aria-label="知识网络">
+<section class="graphview" data-graph aria-label={t('title.graph')}>
  <div class="graph-bar">
-  <div class="graph-level" aria-label="网络层级"><button disabled={!hasColumns} title={hasColumns?'按栏目查看':'主题尚未分栏'} aria-pressed={displayLevel==='columns'} onclick={()=>changeLevel('columns')}>栏目</button><button aria-pressed={displayLevel==='topics'} onclick={()=>changeLevel('topics')}>主题</button></div>
-  <input data-graph-search type="search" placeholder={displayLevel==='columns'?'筛选栏目或主题…':'筛选主题…'} value={filter} oninput={e=>{filter=e.currentTarget.value;selectedEdge=null;}}/>
-  <button aria-label="放大知识网络" onclick={()=>zoom=clampZoom(zoom*1.2)}>放大</button><button aria-label="缩小知识网络" onclick={()=>zoom=clampZoom(zoom/1.2)}>缩小</button>
-  <button onclick={resetView}>复位视图</button>
+  <div class="graph-level" aria-label={t('title.graph')}><button disabled={!hasColumns} aria-pressed={displayLevel==='columns'} onclick={()=>changeLevel('columns')}>{t('graph.columns')}</button><button aria-pressed={displayLevel==='topics'} onclick={()=>changeLevel('topics')}>{t('graph.topics')}</button></div>
+  <input data-graph-search type="search" placeholder={displayLevel==='columns'?t('graph.searchColumns'):t('graph.searchTopics')} value={filter} oninput={e=>{filter=e.currentTarget.value;selectedEdge=null;}}/>
+  <button aria-label={t('graph.zoomIn')} onclick={()=>zoom=clampZoom(zoom*1.2)}>{t('graph.zoomIn')}</button><button aria-label={t('graph.zoomOut')} onclick={()=>zoom=clampZoom(zoom/1.2)}>{t('graph.zoomOut')}</button>
+  <button onclick={resetView}>{t('graph.reset')}</button>
  </div>
- <div class="graph-summary"><span>{column??(displayLevel==='columns'?'栏目概览':'全部主题')} · {graph.nodes.length} 节点 · {graph.edges.length} 关系</span>{#if column}<button onclick={()=>changeLevel('columns')}>返回栏目</button>{/if}</div>
+ <div class="graph-summary"><span>{column??(displayLevel==='columns'?t('graph.overviewColumns'):t('graph.allTopics'))} · {t('graph.nodes',{count:graph.nodes.length})} · {t('graph.edges',{count:graph.edges.length})}</span>{#if column}<button onclick={()=>changeLevel('columns')}>{t('graph.backColumns')}</button>{/if}</div>
  {#if selectedEdge}
-  <div data-relation-detail role="status"><p>关系原因：{selectedEdge.reason}</p><p>证据笔记：{selectedEdge.evidence||'未提供'}</p>{#if selectedEdge.evidence}<button data-relation-evidence onclick={()=>onOpenNote(selectedEdge!.evidence)}>打开证据笔记</button>{/if}<button onclick={()=>selectedEdge=null}>关闭关系详情</button></div>
+  <div data-relation-detail role="status"><p>{t('graph.relationReason')}{selectedEdge.reason}</p><p>{t('graph.relationEvidence')}{selectedEdge.evidence||t('graph.noEvidence')}</p>{#if selectedEdge.evidence}<button data-relation-evidence onclick={()=>onOpenNote(selectedEdge!.evidence)}>{t('graph.openEvidence')}</button>{/if}<button onclick={()=>selectedEdge=null}>{t('graph.closeDetail')}</button></div>
  {/if}
  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
  <div class="graph-stage" data-graph-stage bind:this={stageElement}

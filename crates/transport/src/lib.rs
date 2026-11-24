@@ -4,6 +4,7 @@ use tokio::sync::watch;
 use zwen_core::{provider::{ProviderConfig,ApiKey},completion::{CompletionDecoder,FinishReason},stream::{Decoder,MAX_CHUNK_BYTES}};
 pub mod retry;
 pub mod paper_agent;
+pub mod update;
 pub const MAX_RESPONSE_BYTES:usize=256*1024;
 pub const MAX_WIRE_BYTES:usize=8*1024*1024;
 pub const MAX_MESSAGE_IMAGES:usize=8;

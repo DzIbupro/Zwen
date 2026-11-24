@@ -10,4 +10,5 @@
  {#snippet providerPanel()}<ProviderSettings {settings} desktop={true} onEdit={(name,value)=>settings.fields[name]=value} {onSave} {onReload} onSaveSecret={async()=>{}} onClearSecret={async()=>{}}/>{/snippet}
  {#snippet appearancePanel()}<h1>外观内容</h1>{/snippet}
  {#snippet selectionPanel()}<h1>划词与快捷动作内容</h1>{/snippet}
+ {#snippet archivePanel()}<h1>归档内容</h1>{/snippet}
 </SettingsHub>

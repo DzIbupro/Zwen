@@ -18,6 +18,7 @@ mod organize_round;
 mod quick_actions;
 mod tray;
 mod selection_bar;
+mod i18n;
 use serde::Serialize;
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 use zwen_core::{Draft, Error as CoreError, Store, cli::{LaunchAction, parse_action}};
@@ -78,6 +79,13 @@ async fn set_surface(app:tauri::AppHandle,mode:String)->Result<windows::Snapshot
 }
 #[tauri::command]
 async fn resize_capsule(app:tauri::AppHandle,height:f64,generation:u64)->Result<(),ClientError>{windows::resize(app,height,generation).await}
+const GITHUB_RELEASE_REPO: &str = "DzIbupro/Zwen";
+#[tauri::command]
+async fn check_github_update()->Result<zwen_transport::update::ReleaseCheck,ClientError>{
+    zwen_transport::update::check_github_release(GITHUB_RELEASE_REPO, env!("CARGO_PKG_VERSION"))
+        .await
+        .map_err(|message| ClientError { code: "update_check_failed", message })
+}
 fn launch(app:&tauri::AppHandle, action:LaunchAction,token:Option<&str>) {
     if action == LaunchAction::Background { return; }
     if let LaunchAction::Selection(mode)=action {selection::capture(app.clone(),mode);return;}
@@ -115,7 +123,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action,refs.get(1).copied()); }
         }))
-        .invoke_handler(tauri::generate_handler![paper::paper_import_pdf,paper::paper_open,paper::paper_list_page,paper::paper_metadata,paper::paper_defaults,paper::paper_legacy_papers,paper::paper_legacy_open,paper::paper_session_info,paper::paper_export,paper::paper_legacy,paper::paper_legacy_report,paper::paper_list,paper::paper_choose,paper::paper_sessions,paper::paper_source,paper::paper_start,organize_round::organize_prepare,organize_round::organize_round_status,organize_round::organize_round_start,organize_round::organize_round_stop,organize_round::organize_round_undo,appearance::load_appearance,appearance::save_appearance,autostart::load_autostart,autostart::save_autostart,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::choose_image_attachment,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document])
+        .invoke_handler(tauri::generate_handler![paper::paper_import_pdf,paper::paper_open,paper::paper_list_page,paper::paper_metadata,paper::paper_defaults,paper::paper_legacy_papers,paper::paper_legacy_open,paper::paper_session_info,paper::paper_export,paper::paper_legacy,paper::paper_legacy_report,paper::paper_list,paper::paper_choose,paper::paper_sessions,paper::paper_source,paper::paper_start,organize_round::organize_prepare,organize_round::organize_round_status,organize_round::organize_round_start,organize_round::organize_round_stop,organize_round::organize_round_undo,appearance::load_appearance,appearance::save_appearance,autostart::load_autostart,autostart::save_autostart,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,chat::get_conversation_turns,i18n::set_app_locale,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::choose_image_attachment,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document,check_github_update])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -126,8 +134,12 @@ fn main() {
             // A stale watcher callback must never cold-start collection.
             if action==LaunchAction::CandidateCallback {app.handle().exit(0);return Ok(());}
             let directory=std::env::var_os("ZWEN_DATA_DIR").or_else(||std::env::var_os("STUDY_ASSISTANT_DATA_DIR")).map(PathBuf::from)
-                .map(Ok).unwrap_or_else(|| app.path().app_data_dir().map_err(|_|ClientError::storage()));
+                .map(Ok).unwrap_or_else(|| app.path().app_data_dir().map(|preferred|{
+                    let legacy=preferred.parent().unwrap_or(&preferred).join("io.zwen.desktop.legacy");
+                    zwen_core::paths::choose_data_directory(&preferred,&legacy,preferred.join("state.sqlite3").exists(),legacy.join("state.sqlite3").exists())
+                }).map_err(|_|ClientError::storage()));
             let appearance=appearance::initialize(&directory);
+            i18n::restore_from_dir(&directory);
             app.manage(chat::Shared::default());
             app.manage(selection::Shared::default());
             app.manage(attachment::Shared::default());

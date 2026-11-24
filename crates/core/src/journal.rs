@@ -70,6 +70,19 @@ impl Journal {
  }
  pub fn find(&self,id:&str)->Result<Option<Turn>,Error>{read(&self.connection,Some(id))}
 
+ pub fn conversation_turns(&self,conversation:&str)->Result<Vec<Turn>,Error>{
+  if conversation.is_empty()||conversation.len()>100{return Err(Error::InvalidChat);}
+  let mut statement=self.connection.prepare("SELECT CASE WHEN length(request_id)<=100 THEN request_id END FROM turns WHERE conversation_id=?1 ORDER BY id ASC")?;
+  let ids=statement.query_map([conversation],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+  let mut turns=Vec::with_capacity(ids.len());
+  for id in ids{
+   if let Some(turn)=read(&self.connection,Some(&id))?{
+    turns.push(turn);
+   }
+  }
+  Ok(turns)
+ }
+
  pub fn open(path:&Path)->Result<Self,Error>{
   let connection=open_private_database(path,|c|{
    let version:i64=c.pragma_query_value(None,"user_version",|r|r.get(0))?;

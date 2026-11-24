@@ -25,6 +25,34 @@ export const hideWindow = ()=>command<void>('hide_window');
 export const quitApp = ()=>command<void>('quit_app');
 export const loadAutostart = ()=>command<boolean>('load_autostart');
 export const saveAutostart = (enabled: boolean)=>command<boolean>('save_autostart', {enabled});
+export const setAppLocale = (locale: string): Promise<void> => isDesktop
+  ? command<void>('set_app_locale', {locale})
+  : Promise.resolve();
+
+export const APP_VERSION = '0.0.2';
+export const GITHUB_REPO_URL = 'https://github.com/DzIbupro/Zwen';
+export interface ReleaseCheck {
+  status: 'update_available' | 'up_to_date' | 'no_release';
+  currentVersion: string;
+  latestVersion: string | null;
+  hasUpdate: boolean;
+  releaseUrl: string;
+  releaseName: string | null;
+  publishedAt: string | null;
+  notes: string | null;
+}
+export const checkGithubUpdate = (): Promise<ReleaseCheck> => isDesktop
+  ? command<ReleaseCheck>('check_github_update')
+  : Promise.resolve({
+      status: 'no_release',
+      currentVersion: APP_VERSION,
+      latestVersion: null,
+      hasUpdate: false,
+      releaseUrl: `${GITHUB_REPO_URL}/releases`,
+      releaseName: null,
+      publishedAt: null,
+      notes: null,
+    });
 
 import type { SurfaceInfo } from './surface';
 let browserSurface:SurfaceInfo={scaleFactor:1,mode:new URLSearchParams(location.search).get('surface')==='capsule'?'capsule':'full',generation:0,bounds:{width:Math.min(480,Math.max(1,innerWidth-32)),initialHeight:96,maxHeight:Math.max(96,Math.floor(innerHeight*.55))}};
@@ -55,7 +83,7 @@ export const chatPort:ChatPort=isDesktop?{
 }:{listen:async()=>()=>{},load:async()=>({reply:null,activeRequestId:null}),start:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中发送');},stop:async()=>null,settle:async()=>null};
 
 import type {HistoryPort,Summary} from './history';
-export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId}),remove:requestId=>command<void>('delete_chat_turn',{requestId}),removeMany:requestIds=>command<number>('delete_chat_history',{scope:{kind:'selected',requestIds}}),clear:()=>command<number>('delete_chat_history',{scope:{kind:'all'}})}:{list:async()=>[],get:async()=>null};
+export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId}),thread:conversationId=>command<ChatReply[]>('get_conversation_turns',{conversationId}),remove:requestId=>command<void>('delete_chat_turn',{requestId}),removeMany:requestIds=>command<number>('delete_chat_history',{scope:{kind:'selected',requestIds}}),clear:()=>command<number>('delete_chat_history',{scope:{kind:'all'}})}:{list:async()=>[],get:async()=>null,thread:async()=>[]};
 
 import type {KnowledgePort,KnowledgeState} from './knowledge';
 import type {SaveNoteInput,Note,NoteMeta,TopicView,OrganizeSummaryView,SourceMetaInput,RelationView} from './knowledge';

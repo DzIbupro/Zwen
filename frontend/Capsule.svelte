@@ -15,7 +15,9 @@
   import type {SurfaceInfo} from './lib/surface';
   import {isDesktop,startCapsuleDrag} from './lib/bridge';
   import {boundedHeight,cssToLogicalRatio} from './lib/surface';
-  import {renderMarkdown} from './lib/render';
+  import {handleProseClick,renderMarkdown} from './lib/render';
+  import {openExternal} from './lib/bridge';
+  import {t} from './lib/i18n.svelte';
   let {paperLabel=null,hasPaperAttachment=false,retry=null,canRestoreQuestion=false,onRestoreQuestion=()=>{},focusRequest=0,quickActions=[],actionBusy=false,onSelectionAction,onQuickSettings,actionOutputState=null,onActionOutputRetry=()=>{},onActionOutputDismiss=()=>{},selectionState,onSelectionRetry,onSelectionDiscard,onSelectionReload,attachments,onAttachmentCapture,onAttachmentImage,onAttachmentCancel,onAttachmentRemove,onAttachmentRetake,notice,draft,surface,response,running,busy,replyLabel,replyStatus,modelStatus,canSend,unsaved,onSend,onRetrySave,onEdit,onSave,onHide,onExpand,onStop,onResize}: {
     paperLabel?:string|null;hasPaperAttachment?:boolean;retry?:RetryState|null;canRestoreQuestion?:boolean;onRestoreQuestion?:()=>void;focusRequest?:number;quickActions?:QuickAction[];actionBusy?:boolean;onSelectionAction?:(id:string)=>void;onQuickSettings?:()=>void;actionOutputState?:ActionOutputState|null;onActionOutputRetry?:()=>void;onActionOutputDismiss?:()=>void;selectionState:SelectionState;onSelectionRetry:()=>void;onSelectionDiscard:()=>void;onSelectionReload:()=>void;attachments:AttachmentState;onAttachmentCapture:()=>void;onAttachmentImage?:()=>void;onAttachmentCancel:()=>void;onAttachmentRemove:(id:string)=>void;onAttachmentRetake:(id:string)=>void;
     notice:string;draft:Snapshot;surface:SurfaceInfo;response:string;running:boolean;busy:boolean;replyLabel:string;replyStatus:string;modelStatus:string;canSend:boolean;unsaved:boolean;onSend:()=>void;onRetrySave:()=>void;
@@ -62,15 +64,15 @@
 <svelte:window onresize={()=>{dpr=devicePixelRatio;}}/>
 <div bind:this={root} data-capsule class="capsule-root" style={`--capsule-max:${surface.bounds.maxHeight/ratio}px;--capsule-width:${surface.bounds.width/ratio}px;min-height:${surface.bounds.initialHeight/ratio}px`}>
   <div class="capsule-compose">
-    <div class="capsule-head" role="toolbar" tabindex="-1" aria-label="胶囊标题，拖动可移动窗口" onmousedown={dragHeader}><span class="capsule-brand"><BrandLogo compact/> Zwen <small>{modelStatus}</small></span><div class="capsule-actions">{#if running}<button data-stop title="停止生成" disabled={busy} onclick={onStop}><Icon name="stop" size={16}/><span class="sr-only">停止</span></button>{/if}<button aria-label="展开完整窗口" title="转到完整窗口，保留内容" disabled={busy||actionBusy||selectionState.busy} onclick={onExpand}><Icon name="external" size={18}/></button><button aria-label="收起胶囊" disabled={busy||actionBusy||selectionState.busy||attachments.pending} onclick={onHide}><Icon name="close" size={18}/></button></div></div>
+    <div class="capsule-head" role="toolbar" tabindex="-1" aria-label={t('capsule.dragTitle')} onmousedown={dragHeader}><span class="capsule-brand"><BrandLogo compact/> Zwen <small>{modelStatus}</small></span><div class="capsule-actions">{#if running}<button data-stop title={t('reply.stop')} disabled={busy} onclick={onStop}><Icon name="stop" size={16}/><span class="sr-only">{t('capsule.stop')}</span></button>{/if}<button aria-label={t('capsule.expand')} title={t('capsule.expandTitle')} disabled={busy||actionBusy||selectionState.busy} onclick={onExpand}><Icon name="external" size={18}/></button><button aria-label={t('capsule.hide')} disabled={busy||actionBusy||selectionState.busy||attachments.pending} onclick={onHide}><Icon name="close" size={18}/></button></div></div>
     {#if !selectionOnly}
-    {#if paperLabel}<button class="capsule-paper" data-capsule-paper disabled={busy} onclick={onExpand}><Icon name="book" size={14}/>论文阅读 · {paperLabel}</button>{/if}
-    <div class="capsule-input-row"><label class="sr-only" for="capsule-question">问题草稿</label><textarea id="capsule-question" aria-label="问题草稿" rows="1" disabled={!draft.loaded||busy} value={draft.text} oninput={e=>onEdit(e.currentTarget.value)} placeholder={hasPaperAttachment?'发送PDF开始阅读，或补充问题…':paperLabel?'围绕论文继续提问…':'输入问题，或粘贴一段文字……'}></textarea><button type="button" data-attach-trigger aria-label="添加附件" title="添加附件（截图 / 图片 / 文件）" aria-expanded={attachOpen} disabled={!draft.loaded||busy} onclick={()=>{attachOpen=!attachOpen;}}><Icon name="plus" size={17}/></button><button data-send aria-label="发送问题" title="Enter 发送 · Shift+Enter 换行" disabled={!canSend||!draft.loaded||(!draft.text.trim()&&!hasPaperAttachment)||attachments.pending} onclick={onSend}><Icon name="send" size={17}/></button></div>
+    {#if paperLabel}<button class="capsule-paper" data-capsule-paper disabled={busy} onclick={onExpand}><Icon name="book" size={14}/>{t('capsule.paperPrefix')} · {paperLabel}</button>{/if}
+    <div class="capsule-input-row"><label class="sr-only" for="capsule-question">{t('composer.label')}</label><textarea id="capsule-question" aria-label={t('composer.label')} rows="1" disabled={!draft.loaded||busy} value={draft.text} oninput={e=>onEdit(e.currentTarget.value)} placeholder={hasPaperAttachment?t('capsule.placeholderPaper'):paperLabel?t('capsule.placeholderPaperFollow'):t('capsule.placeholder')}></textarea><button type="button" data-attach-trigger aria-label={t('composer.attach')} title={t('composer.attachTitle')} aria-expanded={attachOpen} disabled={!draft.loaded||busy} onclick={()=>{attachOpen=!attachOpen;}}><Icon name="plus" size={17}/></button><button data-send aria-label={t('capsule.send')} title={t('composer.sendTipEnter')} disabled={!canSend||!draft.loaded||(!draft.text.trim()&&!hasPaperAttachment)||attachments.pending} onclick={onSend}><Icon name="send" size={17}/></button></div>
     {#if attachOpen}
-     <div class="capsule-attach-bar" role="menu" aria-label="添加附件选项">
-      <button type="button" role="menuitem" data-capture disabled={!!paperLabel||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={()=>{attachOpen=false;onAttachmentCapture();}}><Icon name="image" size={14}/>截取屏幕</button>
-      {#if onAttachmentImage}<button type="button" role="menuitem" data-upload-image disabled={!!paperLabel||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={()=>{attachOpen=false;onAttachmentImage();}}><Icon name="image" size={14}/>上传图片</button>{/if}
-      <button type="button" role="menuitem" data-upload-file disabled={!draft.loaded||busy} onclick={()=>{attachOpen=false;fileInput?.click();}}><Icon name="paperclip" size={14}/>上传文本文件</button>
+     <div class="capsule-attach-bar" role="menu" aria-label={t('composer.attachOptions')}>
+      <button type="button" role="menuitem" data-capture disabled={!!paperLabel||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={()=>{attachOpen=false;onAttachmentCapture();}}><Icon name="image" size={14}/>{t('composer.screenshot')}</button>
+      {#if onAttachmentImage}<button type="button" role="menuitem" data-upload-image disabled={!!paperLabel||attachments.pending||attachments.items.length>=attachments.max||busy} onclick={()=>{attachOpen=false;onAttachmentImage();}}><Icon name="image" size={14}/>{t('composer.uploadImage')}</button>{/if}
+      <button type="button" role="menuitem" data-upload-file disabled={!draft.loaded||busy} onclick={()=>{attachOpen=false;fileInput?.click();}}><Icon name="paperclip" size={14}/>{t('composer.uploadFile')}</button>
      </div>
     {/if}
     <input bind:this={fileInput} type="file" class="sr-only" tabindex="-1" accept=".txt,.md,.markdown,.json,.csv,.ts,.js,.py,.rs,.c,.cpp,.h,.java,.go,.html,.css,.xml,.yaml,.yml,.toml,.log,.tex" onchange={e=>void handleTextFile(e)}/>
@@ -80,15 +82,15 @@
     {/if}
     <SelectionNotice actions={quickActions} {actionBusy} onAction={onSelectionAction} onSettings={onQuickSettings} state={selectionState} onRetry={onSelectionRetry} onDiscard={onSelectionDiscard} onReload={onSelectionReload}/>
     {#if dragError}<div class="capsule-error" role="status">{dragError}</div>{/if}
-    {#if notice}<div class="capsule-error" role="status">{notice}{#if unsaved}<button onclick={onRetrySave}>重试保存</button>{/if}</div>{/if}
-    {#if canRestoreQuestion}<button data-restore-question class="capsule-restore" disabled={busy} onclick={onRestoreQuestion}>恢复问题，重新提问</button>{/if}
-    {#if draft.error&&!selectionOnly}<div class="capsule-error" role="alert">{draft.error}<button onclick={onSave}>重试</button></div>{/if}
+    {#if notice}<div class="capsule-error" role="status">{notice}{#if unsaved}<button onclick={onRetrySave}>{t('draft.retrySave')}</button>{/if}</div>{/if}
+    {#if canRestoreQuestion}<button data-restore-question class="capsule-restore" disabled={busy} onclick={onRestoreQuestion}>{t('reply.restore')}</button>{/if}
+    {#if draft.error&&!selectionOnly}<div class="capsule-error" role="alert">{draft.error}<button onclick={onSave}>{t('capsule.retry')}</button></div>{/if}
   </div>
   {#if (response||running)&&(!selectionOnly||(actionBusy&&running))}
-    <div class="capsule-response-label">{replyLabel} <span>{replyStatus}</span></div>
+    <div class="capsule-response-label">{replyLabel} <span class="stream-status">{#if running}<span class="stream-dot" aria-hidden="true"></span>{/if}{replyStatus}</span></div>
     {#if response}
-    <div bind:this={answer} data-capsule-answer class="capsule-answer prose" onscroll={e=>{const box=e.currentTarget;stick=box.scrollHeight-box.scrollTop-box.clientHeight<32;}}>{@html html}</div>
-    {:else}<div data-capsule-waiting class="capsule-waiting">{#if retry}<RetryNotice {retry}/>{:else}<span role="status">正在等待模型回复…</span>{/if}</div>{/if}
+    <div bind:this={answer} data-capsule-answer class="capsule-answer prose" role="presentation" onclick={e=>handleProseClick(e,openExternal)} onkeydown={e=>handleProseClick(e as unknown as MouseEvent,openExternal)} onscroll={e=>{const box=e.currentTarget;stick=box.scrollHeight-box.scrollTop-box.clientHeight<32;}}>{@html html}{#if running}<div class="stream-tail" data-streaming-indicator aria-hidden="true"><span></span><span></span><span></span></div>{/if}</div>
+    {:else}<div data-capsule-waiting class="capsule-waiting">{#if retry}<RetryNotice {retry}/>{:else}<div class="thinking-indicator" role="status"><span class="thinking-spinner" aria-hidden="true"></span><span>{t('reply.waitingModel').replace(/[…\.]+$/,'')}</span><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>{/if}</div>{/if}
   {/if}
 </div>
 

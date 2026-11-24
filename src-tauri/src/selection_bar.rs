@@ -303,21 +303,23 @@ mod native {
         });
         w.set_size_request(320,44);w.style_context().add_class("zwen-selection");w.style_context().add_provider(&css,600);
         let outer=gtk::Box::new(gtk::Orientation::Vertical,3);outer.set_border_width(5);
+        let s = crate::i18n::strings();
+        let translate_label = actions.iter().find(|a| a.id == "translate").map(|a| a.name.as_str()).unwrap_or(s.bar_translate);
+        let explain_label = actions.iter().find(|a| a.id == "explain").map(|a| a.name.as_str()).unwrap_or(s.bar_explain);
         let row=gtk::Box::new(gtk::Orientation::Horizontal,3);
-        for (key,label) in [("ask","问一问 Zwen"),("translate","翻译"),("explain","详细解释")] {
+        for (key,label) in [("ask",s.bar_ask),("translate",translate_label),("explain",explain_label)] {
             let b=button(&app,token,id,revision,pid,key,label);
             b.set_sensitive(key=="ask"||actions.iter().any(|a|a.id==key));
             row.pack_start(&b,false,false,0);
         }
-        let other=gtk::ToggleButton::with_label("其他");other.set_can_focus(false);other.style_context().add_provider(&style(),600); row.pack_start(&other,false,false,0);
+        let other=gtk::ToggleButton::with_label(s.bar_other);other.set_can_focus(false);other.style_context().add_provider(&style(),600); row.pack_start(&other,false,false,0);
         UI.with(|ui|ui.borrow_mut().buttons.push(("__other".into(),other.clone().upcast::<gtk::Button>())));
-        row.pack_start(&button(&app,token,id,revision,pid,"__dismiss","×"),false,false,0);
         outer.pack_start(&row,false,false,0);
         let menu=gtk::Box::new(gtk::Orientation::Vertical,3);
         for action in actions.iter().filter(|a|!matches!(a.id.as_str(),"ask"|"translate"|"explain"|"__settings"|"__dismiss")) {
             menu.pack_start(&button(&app,token,id,revision,pid,&action.id,&action.name),false,false,0);
         }
-        menu.pack_start(&button(&app,token,id,revision,pid,"__settings","管理快捷提示词"),false,false,0);
+        menu.pack_start(&button(&app,token,id,revision,pid,"__settings",s.bar_manage),false,false,0);
         let scroll=gtk::ScrolledWindow::new(None::<&gtk::Adjustment>,None::<&gtk::Adjustment>);
         scroll.set_policy(gtk::PolicyType::Never,gtk::PolicyType::Automatic);scroll.set_max_content_height(250);scroll.set_propagate_natural_height(true);scroll.add(&menu);
         outer.pack_start(&scroll,false,false,0);w.add(&outer);outer.show_all();scroll.hide();scroll.set_no_show_all(true);

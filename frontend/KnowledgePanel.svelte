@@ -4,6 +4,7 @@
  import {untrack} from 'svelte';
  import {renderMarkdown} from './lib/render';import {proseLinkClick} from './lib/links';import {openExternal} from './lib/bridge';
  import type {KnowledgeController,KnowledgeState,NoteMeta} from './lib/knowledge';
+ import {getLocale,t} from './lib/i18n.svelte';
  let {controller,info,onTrace,onSaveEdit,modelLabel}:{controller:KnowledgeController;info:KnowledgeState;onTrace:(requestId:string)=>void;onSaveEdit:(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null})=>Promise<NoteMeta|null>;modelLabel:string}=$props();
  let selectedColumn=$state<string|null>(null);
  const columns=$derived(knowledgeColumns(info.topics));
@@ -26,23 +27,23 @@
  let govColumn: string = $state('');
  let govArmed: boolean = $state(false);
  function remember(){if(info.current)controller.rememberEditorDraft(info.current.meta.id,{title:editTitle,body:editBody,sourceTitle:srcTitle,sourceUrl:srcUrl,sourceLoc:srcLoc});}
- const dateText=(value:number)=>new Date(value*1000).toLocaleString('zh-CN',{dateStyle:'short',timeStyle:'short'});
+ const dateText=(value:number)=>new Date(value*1000).toLocaleString(getLocale(),{dateStyle:'short',timeStyle:'short'});
  const selectedCount=$derived(Object.keys(info.selected).length);
 </script>
-<section class="knowledge" data-knowledge aria-label="知识库">
+<section class="knowledge" data-knowledge aria-label={t('title.knowledge')}>
  {#if info.current}
   <div class="note-detail" data-note-detail>
    {#if info.notice}<div class="knowledge-notice" role="status">{info.notice}</div>{/if}
-   <div class="note-toolbar"><button onclick={()=>{armed=null;editing=false;controller.close();}}>← 返回列表</button><button data-note-export disabled={info.busy} onclick={()=>void controller.exportNote(info.current!.meta.id).then(path=>{exportMsg=path?`已导出到 ${path}`:'';})}>{exportMsg?'已导出':'导出'}</button>{#if info.current.meta.source||info.current.meta.model}<span class="note-meta">{info.current.meta.source}{info.current.meta.model?` · ${info.current.meta.model}`:''}</span>{/if}<button data-note-trace disabled={!info.current.meta.request} title={info.current.meta.request?'跳转到原始问答':'本笔记没有来源链接'} onclick={()=>{if(info.current?.meta.request)onTrace(info.current.meta.request);}}>查看原始问答</button><button data-note-edit disabled={editing||info.busy} onclick={()=>{editTitle=info.current!.meta.title;editBody=info.current!.body;srcTitle=info.current!.meta.sourceTitle??'';srcUrl=info.current!.meta.sourceUrl??'';srcLoc=info.current!.meta.sourceLoc??'';editing=true;armed=null;remember();}}>编辑</button><button data-note-delete onclick={()=>{if(armed===info.current?.meta.id){void controller.remove(info.current!.meta.id);armed=null;}else{armed=info.current!.meta.id;}}}>{armed===info.current?.meta.id?'确认删除':'删除'}</button></div>
+   <div class="note-toolbar"><button onclick={()=>{armed=null;editing=false;controller.close();}}>{t('knowledge.back')}</button><button data-note-export disabled={info.busy} onclick={()=>void controller.exportNote(info.current!.meta.id).then(path=>{exportMsg=path?`已导出到 ${path}`:'';})}>{exportMsg?t('knowledge.exported'):t('knowledge.export')}</button>{#if info.current.meta.source||info.current.meta.model}<span class="note-meta">{info.current.meta.source}{info.current.meta.model?` · ${info.current.meta.model}`:''}</span>{/if}<button data-note-trace disabled={!info.current.meta.request} title={info.current.meta.request?t('knowledge.trace'):undefined} onclick={()=>{if(info.current?.meta.request)onTrace(info.current.meta.request);}}>{t('knowledge.trace')}</button><button data-note-edit disabled={editing||info.busy} onclick={()=>{editTitle=info.current!.meta.title;editBody=info.current!.body;srcTitle=info.current!.meta.sourceTitle??'';srcUrl=info.current!.meta.sourceUrl??'';srcLoc=info.current!.meta.sourceLoc??'';editing=true;armed=null;remember();}}>{t('knowledge.edit')}</button><button data-note-delete onclick={()=>{if(armed===info.current?.meta.id){void controller.remove(info.current!.meta.id);armed=null;}else{armed=info.current!.meta.id;}}}>{armed===info.current?.meta.id?t('knowledge.confirmDelete'):t('knowledge.delete')}</button></div>
    {#if editing}
     <div class="note-editor" data-note-editor>
-     <label for="note-title-input">标题</label><input id="note-title-input" data-note-title-input maxlength="200" value={editTitle} disabled={editBusy||info.busy} oninput={e=>{editTitle=e.currentTarget.value;remember();}}/>
-     <label for="note-body-input">正文（Markdown）</label>
+     <label for="note-title-input">{t('knowledge.noteTitle')}</label><input id="note-title-input" data-note-title-input maxlength="200" value={editTitle} disabled={editBusy||info.busy} oninput={e=>{editTitle=e.currentTarget.value;remember();}}/>
+     <label for="note-body-input">{t('knowledge.noteBody')}</label>
      <textarea id="note-body-input" data-note-body-input rows="12" value={editBody} disabled={editBusy||info.busy} oninput={e=>{editBody=e.currentTarget.value;remember();}}></textarea>
-     <label for="note-source-title">来源标题（可选）</label><input id="note-source-title" data-note-source-title maxlength="200" value={srcTitle} disabled={editBusy||info.busy} oninput={e=>{srcTitle=e.currentTarget.value;remember();}}/>
-     <label for="note-source-url">来源 URL（可选）</label><input id="note-source-url" data-note-source-url maxlength="2048" value={srcUrl} disabled={editBusy||info.busy} oninput={e=>{srcUrl=e.currentTarget.value;remember();}}/>
-     <label for="note-source-loc">页码或位置（可选）</label><input id="note-source-loc" data-note-source-loc maxlength="200" value={srcLoc} disabled={editBusy||info.busy} oninput={e=>{srcLoc=e.currentTarget.value;remember();}}/>
-     <div class="editor-actions"><button disabled={editBusy||info.busy} onclick={()=>{if(info.current)controller.discardEditorDraft(info.current.meta.id);editing=false;}}>取消</button><button class="primary-edit" data-note-save-edit disabled={editBusy||info.busy||!editTitle.trim()} onclick={()=>{const savingId=info.current!.meta.id;editBusy=true;void onSaveEdit(savingId,editTitle,editBody,{sourceTitle:srcTitle||null,sourceUrl:srcUrl||null,sourceLoc:srcLoc||null}).then(saved=>{if(saved&&info.current?.meta.id===savingId){editing=false;srcTitle='';srcUrl='';srcLoc='';}}).catch(()=>{}).finally(()=>{editBusy=false;});}}>{editBusy?'正在保存…':'保存编辑'}</button></div>
+     <label for="note-source-title">{t('knowledge.sourceTitle')}</label><input id="note-source-title" data-note-source-title maxlength="200" value={srcTitle} disabled={editBusy||info.busy} oninput={e=>{srcTitle=e.currentTarget.value;remember();}}/>
+     <label for="note-source-url">{t('knowledge.sourceUrl')}</label><input id="note-source-url" data-note-source-url maxlength="2048" value={srcUrl} disabled={editBusy||info.busy} oninput={e=>{srcUrl=e.currentTarget.value;remember();}}/>
+     <label for="note-source-loc">{t('knowledge.sourceLoc')}</label><input id="note-source-loc" data-note-source-loc maxlength="200" value={srcLoc} disabled={editBusy||info.busy} oninput={e=>{srcLoc=e.currentTarget.value;remember();}}/>
+     <div class="editor-actions"><button disabled={editBusy||info.busy} onclick={()=>{if(info.current)controller.discardEditorDraft(info.current.meta.id);editing=false;}}>{t('history.cancel')}</button><button class="primary-edit" data-note-save-edit disabled={editBusy||info.busy||!editTitle.trim()} onclick={()=>{const savingId=info.current!.meta.id;editBusy=true;void onSaveEdit(savingId,editTitle,editBody,{sourceTitle:srcTitle||null,sourceUrl:srcUrl||null,sourceLoc:srcLoc||null}).then(saved=>{if(saved&&info.current?.meta.id===savingId){editing=false;srcTitle='';srcUrl='';srcLoc='';}}).catch(()=>{}).finally(()=>{editBusy=false;});}}>{editBusy?t('composer.saving'):t('knowledge.saveEdit')}</button></div>
     </div>
    {:else}
     <h2>{info.current.meta.title}</h2>
@@ -84,23 +85,23 @@
   </div>
  {:else}
   {#if exportMsg}<div class="knowledge-notice" role="status">{exportMsg}</div>{/if}
-  <div class="knowledge-bar knowledge-functions" role="group" aria-label="知识库操作">
-   <input aria-label="搜索知识笔记" data-knowledge-search type="search" placeholder="搜索标题或正文…" value={info.query} oninput={e=>{void controller.refresh(e.currentTarget.value);}}/>
-   <button data-export-all disabled={info.busy} onclick={()=>void controller.exportAll().then(path=>{if(path)exportMsg=`已导出全部笔记到 ${path}`;})}>导出全部</button>
-   <button data-organize-start disabled={info.busy} onclick={()=>{controller.enterOrganize();void controller.loadTopics();}}>AI 整理</button>
-   <button data-knowledge-rebuild disabled={info.busy} title="从 Markdown 文件重建索引（正文是权威）" onclick={()=>void controller.rebuild()}>重建索引</button>
+  <div class="knowledge-bar knowledge-functions" role="group" aria-label={t('title.knowledge')}>
+   <input aria-label={t('knowledge.searchPlaceholder')} data-knowledge-search type="search" placeholder={t('knowledge.searchPlaceholder')} value={info.query} oninput={e=>{void controller.refresh(e.currentTarget.value);}}/>
+   <button data-export-all disabled={info.busy} onclick={()=>void controller.exportAll().then(path=>{if(path)exportMsg=`已导出全部笔记到 ${path}`;})}>{t('knowledge.exportAll')}</button>
+   <button data-organize-start disabled={info.busy} onclick={()=>{controller.enterOrganize();void controller.loadTopics();}}>{t('knowledge.aiOrganize')}</button>
+   <button data-knowledge-rebuild disabled={info.busy} title={t('knowledge.rebuild')} onclick={()=>void controller.rebuild()}>{t('knowledge.rebuild')}</button>
   </div>
   {#if info.topics.length>0&&!info.query}
-   <div class="column-heading"><p class="topics-label">知识栏目</p></div>
+   <div class="column-heading"><p class="topics-label">{t('knowledge.columns')}</p></div>
    <div class="column-browser" data-column-browser>
-    <div class="topics-strip column-strip" data-topics-strip role="group" aria-label="知识栏目">{#each columns as column (column.name)}<button data-column-chip aria-pressed={selectedColumn===column.name} class:column-selected={selectedColumn===column.name} onclick={()=>selectedColumn=selectedColumn===column.name?null:column.name}>{column.name}<small>{column.topics.length}</small></button>{/each}</div>
-    {#if selectedColumn}<div class="column-topics" data-column-topics><div class="column-heading"><strong>{selectedColumn}</strong><button class="column-close" aria-label="收起栏目主题" onclick={()=>selectedColumn=null}>收起</button></div><div class="topics-strip" role="group" aria-label={`${selectedColumn}的主题`}>{#each columnTopics as topicView (topicView.topic.id)}<button data-topic-chip onclick={()=>void controller.openTopic(topicView.topic.id)}>{topicView.topic.name}（{topicView.count}）{topicView.topic.locked?' 🔒':''}</button>{/each}</div></div>{/if}
+    <div class="topics-strip column-strip" data-topics-strip role="group" aria-label={t('knowledge.columns')}>{#each columns as column (column.name)}<button data-column-chip aria-pressed={selectedColumn===column.name} class:column-selected={selectedColumn===column.name} onclick={()=>selectedColumn=selectedColumn===column.name?null:column.name}>{column.name}<small>{column.topics.length}</small></button>{/each}</div>
+    {#if selectedColumn}<div class="column-topics" data-column-topics><div class="column-heading"><strong>{selectedColumn}</strong><button class="column-close" aria-label={t('knowledge.collapse')} onclick={()=>selectedColumn=null}>{t('knowledge.collapse')}</button></div><div class="topics-strip" role="group" aria-label={selectedColumn}>{#each columnTopics as topicView (topicView.topic.id)}<button data-topic-chip onclick={()=>void controller.openTopic(topicView.topic.id)}>{topicView.topic.name}（{topicView.count}）{topicView.topic.locked?' 🔒':''}</button>{/each}</div></div>{/if}
    </div>
   {/if}
   {#if info.topicView}
    {@const lockedCurrent=info.topics.find(t=>t.topic.id===info.topicView?.id)?.topic.locked??false}
    <div class="topic-view" data-topic-view>
-    <div class="note-toolbar"><strong>{info.topicView.title}</strong><button onclick={()=>controller.closeTopic()}>关闭</button></div>
+    <div class="note-toolbar"><strong>{info.topicView.title}</strong><button onclick={()=>controller.closeTopic()}>{t('knowledge.close')}</button></div>
     <ul class="note-list">{#each info.topicView.notes as note (note.meta.id)}<li><button onclick={()=>void controller.open(note.meta.id)}><strong>{note.meta.title}</strong><small>{dateText(note.meta.createdAt)}</small></button></li>{/each}</ul>
     <div class="gov" data-topic-gov>
      <div class="gov-row"><input data-gov-rename placeholder="重命名为…" bind:value={govName} maxlength="200"/><button disabled={info.busy||!govName.trim()} onclick={()=>void controller.renameTopic(info.topicView!.id,govName).then(()=>govName='')}>重命名</button></div>
@@ -114,7 +115,7 @@
   {:else}
    {#if info.notice}<div class="knowledge-notice" role="status">{info.notice}</div>{/if}
    {#if info.loaded&&info.notes.length===0}
-    <p class="knowledge-empty">{info.query?'没有匹配的笔记。':'还没有收藏。在模型回答下点「收藏到知识库」，问答与截图就会保存在这里。'}</p>
+    <p class="knowledge-empty">{info.query?t('knowledge.emptySearch'):t('knowledge.empty')}</p>
    {:else}
     <ul class="note-list">
      {#each info.notes as note (note.id)}

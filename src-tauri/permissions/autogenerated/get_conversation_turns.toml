@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-conversation-turns"
+description = "Enables the get_conversation_turns command without any pre-configured scope."
+commands.allow = ["get_conversation_turns"]
+
+[[permission]]
+identifier = "deny-get-conversation-turns"
+description = "Denies the get_conversation_turns command without any pre-configured scope."
+commands.deny = ["get_conversation_turns"]

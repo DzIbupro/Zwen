@@ -11,13 +11,17 @@
   import GeneralSettings from './GeneralSettings.svelte';
   import SelectionSettings from './SelectionSettings.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
+  import ArchiveSettings from './ArchiveSettings.svelte';
   import {AppearanceController,initialAppearance,applyAppearance,watchSystemTheme,loadPalette,savePalette,applyPalette,DEFAULT_CUSTOM_APPEARANCE,loadCustomAppearance,saveCustomAppearance,applyCustomAppearance,type AppearanceState,type ColorPalette,type CustomAppearance} from './lib/appearance';
   import {DEFAULT_GENERAL_PREFERENCES,loadGeneralPreferences,saveGeneralPreferences,applyGeneralPreferences,type GeneralPreferences} from './lib/preferences';
-  import {appearancePort,loadAutostart,saveAutostart} from './lib/bridge';
+  import {getLocale,t,type Locale} from './lib/i18n.svelte';
+  import {assignToProject,bindReplyToActiveProject,cleanupDeletedRecords,createProject,detachFromProject,getActiveProjectId,getDisplayTitle,getProjectById,getProjectIdFor,getProjects,renameRecord,setActiveProjectId} from './lib/history-org.svelte';
+  import type {Summary} from './lib/history';
+  import {appearancePort,loadAutostart,saveAutostart,setAppLocale} from './lib/bridge';
   import RetryNotice from './RetryNotice.svelte';
   import ActionOutputNotice from './ActionOutputNotice.svelte';
   import QuickActionSettings from './QuickActionSettings.svelte';
-  import {defaultQuickActions,type QuickActionConfig} from './lib/quick-actions';
+  import {defaultQuickActions,localizePresetQuickActions,type QuickActionConfig} from './lib/quick-actions';
   import {ActionOutputController,type ActionOutputState} from './lib/action-output';
   import {quickActionPort,actionOutputPort} from './lib/bridge';
   import {QuickSession} from './lib/quick-session';
@@ -28,7 +32,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { DraftController, type Snapshot } from './lib/draft';
   import { draftPort, isDesktop, hideWindow, quitApp } from './lib/bridge';
-  import { renderMarkdown } from './lib/render';
+  import { renderMarkdown, handleProseClick, copyTextToClipboard } from './lib/render';
   import Capsule from './Capsule.svelte';
   import {getSurface,setSurface,resizeCapsule} from './lib/bridge';
   import {canApplySurface,ensureSurface,ResizeQueue,type SurfaceInfo} from './lib/surface';
@@ -48,7 +52,6 @@
   import Attachments from './Attachments.svelte';
   import {AttachmentController,type AttachmentState} from './lib/attachments';
   import {attachmentPort,openExternal,invokeRaw as invoke} from './lib/bridge';
-  import {proseLinkClick} from './lib/links';
   import KnowledgePanel from './KnowledgePanel.svelte';
   import KnowledgeGraph from './KnowledgeGraph.svelte';
   import {KnowledgeController,type KnowledgeState} from './lib/knowledge';
@@ -69,7 +72,7 @@
   let generalPrefs=$state<GeneralPreferences>(initialGeneral);
   applyGeneralPreferences(initialGeneral);
   function updateGeneralPrefs(patch:Partial<GeneralPreferences>){generalPrefs={...generalPrefs,...patch};applyGeneralPreferences(generalPrefs);saveGeneralPreferences(generalPrefs);}
-  function resetAllPreferences(){setPalette('monochrome');resetCustomAppearance();generalPrefs={...DEFAULT_GENERAL_PREFERENCES};applyGeneralPreferences(generalPrefs);saveGeneralPreferences(generalPrefs);notice='已恢复默认界面与常规偏好';}
+  function resetAllPreferences(){setPalette('monochrome');resetCustomAppearance();generalPrefs={...DEFAULT_GENERAL_PREFERENCES};applyGeneralPreferences(generalPrefs);saveGeneralPreferences(generalPrefs);notice=t('general.resetNotice');}
   let autostartEnabled=$state<boolean|null>(null);
   let autostartBusy=$state(false);
   let autostartError=$state<string|null>(null);
@@ -86,11 +89,25 @@
     if(destination==='chat'){view=chatState.reply||chatState.running||chatState.error?'reply':'ask';}
     else{view=destination;if(destination==='knowledge')void knowledge.refresh();if(destination==='graph'){void knowledge.refresh();void knowledge.loadTopics();void knowledge.loadRelations();}}
   }
-  let quickConfig=$state<QuickActionConfig>({revision:0,actions:defaultQuickActions(),outputDirectory:''});
+  let quickConfig=$state<QuickActionConfig>({revision:0,actions:defaultQuickActions(getLocale()),outputDirectory:''});
   let actionBusy=$state(false);
   let focusRequest=$state(0);
   const quickSession=new QuickSession();
   let quickConfigLoaded=$state(false);
+  let syncingQuickLocale=false;
+  async function syncQuickActionsLocale(targetLocale:Locale){
+    const {actions:nextActions,changed}=localizePresetQuickActions(quickConfig.actions,targetLocale);
+    if(!changed)return;
+    quickConfig={...quickConfig,actions:nextActions};
+    if(!isDesktop||!quickConfigLoaded||syncingQuickLocale)return;
+    syncingQuickLocale=true;
+    try{
+      const saved=await quickActionPort.save(quickConfig.revision,nextActions,quickConfig.outputDirectory);
+      quickConfig=saved;
+    }catch{/* ignore conflict; next load or manual save will reconcile */}
+    finally{syncingQuickLocale=false;}
+  }
+  $effect(()=>{const loc=getLocale();void syncQuickActionsLocale(loc);});
   let actionOutputState=$state<ActionOutputState|null>(null);
   const actionOutput=new ActionOutputController(actionOutputPort,s=>actionOutputState=s);
   let notice=$state('');
@@ -103,11 +120,57 @@
   let switching=$state(false);let closing=$state(false);
   const startupSession=new StartupSession((window as Window & {__ZWEN_RUN_ID__?:unknown}).__ZWEN_RUN_ID__,{getItem:key=>sessionStorage.getItem(key),setItem:(key,value)=>sessionStorage.setItem(key,value)});
   let chatState=$state<ChatState>({answer:'',running:false,stopping:false,loaded:false,error:null,reply:null});
-  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;chatState=s;if(s.loaded)startupSession.markLoaded(s.reply!==null);settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){view='reply';}},{freshStart:startupSession.fresh});
+  let sidebarHistory=$state<Summary[]>([]);
+  async function refreshSidebarHistory(){
+    if(!isDesktop)return;
+    try{
+      const page0=await historyPort.list(0);
+      if(page0.length>20){
+        try{
+          const page1=await historyPort.list(1);
+          sidebarHistory=[...page0.slice(0,20),...page1.slice(0,20)];
+        }catch{sidebarHistory=page0.slice(0,20);}
+      }else{
+        sidebarHistory=page0;
+      }
+    }catch{/* ignore sidebar history refresh errors */}
+  }
+  let threadTurns=$state<ChatReply[]>([]);
+  let loadedThreadConv=$state<string|null>(null);
+  async function loadConversationThread(conversationId:string|null|undefined){
+    if(!isDesktop||!conversationId||!historyPort.thread){
+      threadTurns=[];loadedThreadConv=null;return;
+    }
+    if(loadedThreadConv===conversationId&&threadTurns.length>0)return;
+    try{
+      const turns=await historyPort.thread(conversationId);
+      threadTurns=turns;
+      loadedThreadConv=conversationId;
+    }catch{
+      /* fall back gracefully to single turn */
+    }
+  }
+  const priorTurns=$derived.by(()=>{
+    const currentId=chatState.reply?.requestId;
+    const convId=chatState.conversationId??chatState.reply?.conversationId;
+    if(!convId||!threadTurns.length)return [];
+    return threadTurns.filter(r=>r.conversationId===convId&&r.requestId!==currentId&&r.createdAt<=(chatState.reply?.createdAt??Number.MAX_SAFE_INTEGER));
+  });
+  let copiedId=$state<string|null>(null);
+  let copyTimer:ReturnType<typeof setTimeout>|undefined;
+  function copyAnswerText(id:string,text:string){
+    void copyTextToClipboard(text).then(ok=>{
+      if(!ok)return;
+      clearTimeout(copyTimer);
+      copiedId=id;
+      copyTimer=setTimeout(()=>{if(copiedId===id)copiedId=null;},1600);
+    });
+  }
+  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;const finished=chatState.running&&!s.running;chatState=s;if(s.reply)bindReplyToActiveProject(s.reply.requestId,s.reply.conversationId,{title:s.reply.prompt,model:s.reply.model,createdAt:s.reply.createdAt});if(s.reply?.conversationId&&(appeared||finished||loadedThreadConv!==s.reply.conversationId)){loadedThreadConv=null;void loadConversationThread(s.reply.conversationId);}if(appeared||finished)void refreshSidebarHistory();if(s.loaded)startupSession.markLoaded(s.reply!==null);settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){view='reply';}},{freshStart:startupSession.fresh});
   const response=$derived(chatState.answer);
   const running=$derived(chatState.running);
-  const replyStatus=$derived(chatState.reply?.retry?'等待重试':chatState.reply?({streaming:'生成中',complete:'已完成',stopped:'已停止',failed:'生成失败',interrupted:'上次中断',limited:'已达限制',filtered:'服务限制'}[chatState.reply.state]):chatState.running?'等待回复':'');
-  const replyLabel='模型回复';
+  const replyStatus=$derived(chatState.reply?.retry?t('reply.retrying'):chatState.reply?({streaming:t('reply.streaming'),complete:t('reply.complete'),stopped:t('reply.stopped'),failed:t('reply.failed'),interrupted:t('reply.interrupted'),limited:t('reply.limited'),filtered:t('reply.filtered')}[chatState.reply.state]):chatState.running?t('reply.waiting'):'');
+  const replyLabel=$derived(t('reply.label'));
   const paperContext=$derived((chatState.conversationId??chatState.reply?.conversationId)?.startsWith('paper-')??false);
   let paperDraftState=$state<PaperDraftState>({enabled:false,restoring:false,recoveryAvailable:false,loaded:false,importing:false,paper:null,options:defaultReadingOptions(),notice:''});
   const paperDraft=new PaperDraftController(paperPort,s=>paperDraftState=s,{getItem:key=>sessionStorage.getItem(key),setItem:(key,value)=>sessionStorage.setItem(key,value),removeItem:key=>sessionStorage.removeItem(key)});
@@ -182,9 +245,72 @@
   }
   function traceToHistory(requestId:string){traceRequestId=requestId;view='history';}
   async function saveNoteEdit(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null}){return knowledge.saveEdit(id,title,body,source);}
-  function newConversation(){if(closing)return;if(chat.newConversation()){quickSession.release();view='ask';notice='已准备新对话，当前草稿保留';}}
-  function historyDeleted(ids:string[]){if(ids.includes(chatState.reply?.requestId??'')&&chat.newConversation())quickSession.release();}
-  function continueHistory(reply:ChatReply){if(closing)return;if(chat.adopt(reply)){quickSession.release();view='reply';notice='继续此会话将附带近期问答';}}
+  const allProjects=$derived(getProjects());
+  const activeProjectId=$derived(getActiveProjectId());
+  const activeProject=$derived(getProjectById(activeProjectId));
+  const currentReplyTitle=$derived(chatState.reply?getDisplayTitle(chatState.reply.requestId,chatState.reply.prompt):'');
+  const currentReplyProject=$derived(chatState.reply?getProjectById(getProjectIdFor(chatState.reply.requestId,chatState.reply.conversationId)):null);
+  let renamingTitle=$state(false);
+  let titleDraft=$state('');
+  let titleProjectMenuOpen=$state(false);
+  let titleProjectWrap=$state<HTMLDivElement>();
+  let creatingTitleProject=$state(false);
+  let newTitleProjectName=$state('');
+  function startRenameTitle(){if(!chatState.reply)return;titleDraft=currentReplyTitle;renamingTitle=true;}
+  function saveRenameTitle(e?:Event){e?.preventDefault();if(!chatState.reply)return;renameRecord(chatState.reply.requestId,titleDraft);renamingTitle=false;}
+  function assignCurrentReplyToProject(projectId:string){
+    const r=chatState.reply;if(!r)return;
+    if(projectId==='__new__'){creatingTitleProject=true;newTitleProjectName='';return;}
+    if(!projectId){detachFromProject([{requestId:r.requestId,conversationId:r.conversationId}]);setActiveProjectId(null);return;}
+    assignToProject([{requestId:r.requestId,conversationId:r.conversationId,title:r.prompt,model:r.model,createdAt:r.createdAt}],projectId);
+    setActiveProjectId(projectId);
+  }
+  function submitNewTitleProject(e:Event){
+    e.preventDefault();
+    const created=createProject(newTitleProjectName);
+    if(created){
+      creatingTitleProject=false;newTitleProjectName='';
+      assignCurrentReplyToProject(created.id);
+    }
+  }
+  function newConversation(){if(closing)return;setActiveProjectId(null);threadTurns=[];loadedThreadConv=null;renamingTitle=false;titleProjectMenuOpen=false;if(chat.newConversation()){quickSession.release();view='ask';notice='已准备新对话，当前草稿保留';}}
+  function newConversationInProject(projectId:string|null){
+    if(closing)return;
+    setActiveProjectId(projectId);
+    threadTurns=[];loadedThreadConv=null;renamingTitle=false;titleProjectMenuOpen=false;
+    if(chat.newConversation()){
+      quickSession.release();
+      view='ask';
+      const proj=getProjectById(projectId);
+      notice=proj?t('chat.newInProjectNotice',{name:proj.name}):'已准备新对话，当前草稿保留';
+    }
+  }
+  async function deleteSidebarConversation(requestId:string){
+    if(closing||chatState.running||chatState.stopping||!historyPort.remove)return;
+    try{
+      await historyPort.remove(requestId);
+      historyDeleted([requestId]);
+    }catch(e){
+      notice=e instanceof Error?e.message:'删除失败';
+    }
+  }
+  async function openSidebarConversation(requestId:string){
+    if(closing||chatState.running||chatState.stopping)return;
+    if(chatState.reply?.requestId===requestId){view='reply';return;}
+    try{
+      const reply=await historyPort.get(requestId);
+      if(reply){
+        continueHistory(reply);
+      }else{
+        notice='此记录已删除或暂不可读取';
+      }
+    }catch(e){
+      notice=e instanceof Error?e.message:'对话读取失败';
+    }
+  }
+  function historyDeleted(ids:string[]){cleanupDeletedRecords(ids);if(ids.includes(chatState.reply?.requestId??'')&&chat.newConversation())quickSession.release();void refreshSidebarHistory();}
+  function historyCleared(){cleanupDeletedRecords(null);if(chat.newConversation())quickSession.release();sidebarHistory=[];}
+  function continueHistory(reply:ChatReply){if(closing)return;if(chat.adopt(reply)){setActiveProjectId(getProjectIdFor(reply.requestId,reply.conversationId));loadedThreadConv=null;void loadConversationThread(reply.conversationId);quickSession.release();view='reply';notice='继续此会话将附带近期问答';}}
   let draggingPdf=$state(false);
   const paperDrop=createPaperDropHandler({
     blocked:()=>surface.mode!=='full'||!['ask','reply'].includes(view)?'请在主窗口的对话页面拖入PDF':closing||chatState.running||chatState.stopping||actionBusy||selectionState.busy||attachmentState.pending||paperDraftState.importing||paperDraftState.restoring?'请等待当前操作完成，再拖入PDF':chatState.reply&&!chatState.reply.saved?'请先保存当前回答，再导入PDF':null,
@@ -215,7 +341,10 @@
     catch{notice='文件读取失败，请重试';}
   }
   async function uploadPaperFromMenu(){attachMenuOpen=false;if(!isDesktop){notice='浏览器仅预览，请在桌面应用中导入PDF';return;}if(!paperDraftState.enabled)await paperDraft.enable();await paperDraft.choose();}
-  function closeAttachOnOutside(event:PointerEvent){if(attachMenuOpen&&attachMenuWrap&&event.target instanceof Node&&!attachMenuWrap.contains(event.target))attachMenuOpen=false;}
+  function closeMenusOnOutside(event:PointerEvent){
+    if(attachMenuOpen&&attachMenuWrap&&event.target instanceof Node&&!attachMenuWrap.contains(event.target))attachMenuOpen=false;
+    if(titleProjectMenuOpen&&titleProjectWrap&&event.target instanceof Node&&!titleProjectWrap.contains(event.target))titleProjectMenuOpen=false;
+  }
   async function saveToKnowledge(){
     const reply=chatState.reply;
     if(!reply||!reply.answer||chatState.running||bookmarkSaving)return;
@@ -304,7 +433,7 @@
   const knowledge=new KnowledgeController(knowledgePort,s=>knowledgeState=s);
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
-  const statusText = $derived({loading:'正在读取草稿',saved:'已保存到本机',dirty:'等待保存',saving:'正在保存',error:'保存未完成'}[draft.status]);
+  const statusText = $derived({loading:t('draft.loading'),saved:t('draft.saved'),dirty:t('draft.dirty'),saving:t('draft.saving'),error:t('draft.error')}[draft.status]);
   $effect(()=>{if(!notice)return;const t=setTimeout(()=>{notice='';},3500);return()=>clearTimeout(t);});
   const renderedReply=$derived(renderMarkdown(response));
   async function save() { try { if(!draft.loaded){await controller.start();await selection.refresh();}else await controller.flush(); notice='草稿已保存'; } catch { /* error is visible in draft state */ } }
@@ -345,10 +474,10 @@
     void updateAutostart();
     let disposed=false;const unlisteners:(()=>void)[]=[];
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
-    const unwatchTheme=watchSystemTheme(()=>appearanceState);void appearance.start();void provider.load();void chat.load();
+    const unwatchTheme=watchSystemTheme(()=>appearanceState);void appearance.start();void provider.load();void chat.load();void refreshSidebarHistory();if(isDesktop)void setAppLocale(getLocale());
     if(isDesktop)void listen<{paperId:string}>('paper-open-failed',e=>{if(!disposed&&(pendingPaper?.id??paperScope?.source.id)===e.payload.paperId)notice='系统未能打开论文原件，请检查默认PDF阅读器后重试。';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop)void getCurrentWebview().onDragDropEvent(event=>{if(!disposed)void paperDrop(event.payload);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='拖放暂不可用，请点击论文阅读中的上传PDF';});
-    if(isDesktop)void quickActionPort.load().then(c=>{if(disposed)return;quickConfig=c;quickConfigLoaded=true;}).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'快捷提示词读取失败';});
+    if(isDesktop)void quickActionPort.load().then(c=>{if(disposed)return;quickConfig=c;quickConfigLoaded=true;void syncQuickActionsLocale(getLocale());}).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'快捷提示词读取失败';});
     draftReady=controller.start();
     void draftReady.then(()=>{if(disposed)return;input?.focus();void selection.refresh();}).catch(()=>{});
     void attachmentController.start();
@@ -366,54 +495,117 @@
   });
 </script>
 
-<svelte:window onkeydown={keydown} onpointerdown={closeAttachOnOutside}/>
+<svelte:window onkeydown={keydown} onpointerdown={closeMenusOnOutside}/>
 {#if surface.mode==='capsule'}
 <div class="surface-stage" data-surface-phase={surfacePhase}>
-<Capsule paperLabel={pendingPaper?.name??(paperContext?paperScope?.source.name??'论文会话':paperDraftState.enabled?'请添加PDF':null)} hasPaperAttachment={!!pendingPaper} retry={chatState.reply?.retry??null} {canRestoreQuestion} onRestoreQuestion={()=>void restoreQuestion()} {focusRequest} quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentImage={chooseImageAttachment} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?'已配置模型':'需配置密钥'):'模型未配置'} canSend={!selectionState.busy&&!attachmentState.pending&&(!!pendingPaper||paperContext||!attachmentState.items.length||!!imageModelOf(settings.config))&&!paperDraftState.importing&&!paperDraftState.restoring&&(!paperContext||!!pendingPaper||!!paperScope)&&(!paperDraftState.enabled||!!pendingPaper||paperContext)&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching||closing} onEdit={s=>{if(!closing)controller.edit(s);}} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
+<Capsule paperLabel={pendingPaper?.name??(paperContext?paperScope?.source.name??'论文会话':paperDraftState.enabled?'请添加PDF':null)} hasPaperAttachment={!!pendingPaper} retry={chatState.reply?.retry??null} {canRestoreQuestion} onRestoreQuestion={()=>void restoreQuestion()} {focusRequest} quickActions={quickConfig.actions} {actionBusy} onSelectionAction={id=>void selectAction(id)} onQuickSettings={()=>void openQuickSettings()} {actionOutputState} onActionOutputRetry={()=>void actionOutput.retry()} onActionOutputDismiss={()=>actionOutput.dismiss()} {selectionState} onSelectionRetry={()=>void selection.applyPending()} onSelectionDiscard={()=>void selection.discard()} onSelectionReload={()=>void selection.refresh()} attachments={attachmentState} onAttachmentCapture={()=>captureScreenshot(null)} onAttachmentImage={chooseImageAttachment} onAttachmentCancel={()=>void attachmentController.cancel()} onAttachmentRemove={id=>void attachmentController.remove(id)} onAttachmentRetake={id=>captureScreenshot(id)} notice={selectionState.pending?.mode==='candidate'?notice:combinedNotice} {draft} {surface} {response} {running} {replyLabel} {replyStatus} modelStatus={settings.config?(settings.keyAvailable?t('model.configured'):t('model.needKey')):t('model.unconfigured')} canSend={!selectionState.busy&&!attachmentState.pending&&(!!pendingPaper||paperContext||!attachmentState.items.length||!!imageModelOf(settings.config))&&!paperDraftState.importing&&!paperDraftState.restoring&&(!paperContext||!!pendingPaper||!!paperScope)&&(!paperDraftState.enabled||!!pendingPaper||paperContext)&&isDesktop&&chatState.loaded&&settings.status!=='loading'&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} unsaved={!!chatState.reply&&!chatState.reply.saved&&!chatState.running&&chatState.reply.state!=='streaming'} busy={switching||closing} onEdit={s=>{if(!closing)controller.edit(s);}} onSave={save} onHide={()=>leave()} onExpand={()=>switchSurface('full')} onStop={stopReply} onSend={()=>void send()} onRetrySave={()=>void retryReplySave()} onResize={resize}/>
 </div>
 {:else}
 <div class="shell" class:sidebar-collapsed={appearanceState.sidebarCollapsed} data-surface-phase={surfacePhase}>
-  <Sidebar collapsed={appearanceState.sidebarCollapsed} active={view==='history'?'history':view==='knowledge'?'knowledge':view==='graph'?'graph':view==='settings'?'settings':'chat'} disabled={!appearanceState.loaded} canNew={!closing&&!chatState.running&&!chatState.stopping} onToggle={()=>void appearance.update({sidebarCollapsed:!appearanceState.sidebarCollapsed})} onNavigate={navigate} onNew={newConversation}/>
+  <Sidebar collapsed={appearanceState.sidebarCollapsed} active={view==='history'?'history':view==='knowledge'?'knowledge':view==='graph'?'graph':view==='settings'?'settings':'chat'} disabled={!appearanceState.loaded} canNew={!closing&&!chatState.running&&!chatState.stopping} activeRequestId={chatState.reply?.requestId??null} recentSummaries={sidebarHistory} onToggle={()=>void appearance.update({sidebarCollapsed:!appearanceState.sidebarCollapsed})} onNavigate={navigate} onNew={newConversation} onNewInProject={id=>newConversationInProject(id)} onOpenConversation={id=>void openSidebarConversation(id)} onDeleteConversation={id=>void deleteSidebarConversation(id)}/>
   <div class="main-panel">
   <header class="titlebar">
-    <span class="context-title">{view==='settings'?'设置':view==='history'?'问答历史':view==='knowledge'?'知识库':view==='graph'?'知识网络':'当前对话'}</span>
-    <div class="window-actions"><button class="capsule-launch" title="打开快捷胶囊" disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>快捷胶囊</span></button><button class="icon-button" aria-label="收起面板" title="保存并收起" onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button icon-button" data-quit-app aria-label="保存并退出" title={closing?'正在退出…':'保存并退出'} disabled={closing} onclick={()=>leave(true)}><Icon name="close"/></button></div>
+    <div class="title-cluster">
+      {#if view==='reply'&&chatState.reply}
+        <div class="title-breadcrumb" data-chat-title>
+          <div class="title-project-wrap" bind:this={titleProjectWrap}>
+            {#if creatingTitleProject}
+              <form class="inline-project-form" onsubmit={submitNewTitleProject}>
+                <input type="text" maxlength="80" placeholder={t('history.projectNamePlaceholder')} bind:value={newTitleProjectName} onkeydown={e=>{if(e.key==='Escape'){creatingTitleProject=false;newTitleProjectName='';}}}/>
+                <button type="submit" disabled={!newTitleProjectName.trim()}>{t('history.create')}</button>
+                <button type="button" onclick={()=>{creatingTitleProject=false;newTitleProjectName='';}}>{t('history.cancel')}</button>
+              </form>
+            {:else if currentReplyProject}
+              <button type="button" class="title-project-btn" data-title-project-btn aria-haspopup="menu" aria-expanded={titleProjectMenuOpen} onclick={()=>{titleProjectMenuOpen=!titleProjectMenuOpen;}}>{currentReplyProject.name} ▾</button>
+              <span class="title-sep" aria-hidden="true">/</span>
+            {:else}
+              <button type="button" class="title-project-add" data-title-project-btn title={t('history.moveToProject')} aria-label={t('history.moveToProject')} aria-haspopup="menu" aria-expanded={titleProjectMenuOpen} onclick={()=>{titleProjectMenuOpen=!titleProjectMenuOpen;}}>+</button>
+            {/if}
+            {#if titleProjectMenuOpen}
+              <div class="title-project-menu" role="menu" aria-label={t('chat.projectLabel')}>
+                {#each allProjects as proj (proj.id)}
+                  <button type="button" role="menuitem" class:active-item={currentReplyProject?.id===proj.id} onclick={()=>{titleProjectMenuOpen=false;assignCurrentReplyToProject(proj.id);}}>{proj.name}</button>
+                {/each}
+                {#if currentReplyProject}
+                  <button type="button" role="menuitem" onclick={()=>{titleProjectMenuOpen=false;assignCurrentReplyToProject('');}}>{t('history.detachProject')}</button>
+                {/if}
+                <button type="button" role="menuitem" class="new-proj-item" onclick={()=>{titleProjectMenuOpen=false;assignCurrentReplyToProject('__new__');}}>+ {t('history.newProject')}</button>
+              </div>
+            {/if}
+          </div>
+          {#if renamingTitle}
+            <form class="title-rename-form" data-title-rename-form onsubmit={saveRenameTitle}>
+              <input type="text" maxlength="120" bind:value={titleDraft} onblur={()=>saveRenameTitle()} onkeydown={e=>{if(e.key==='Escape'){renamingTitle=false;}}}/>
+            </form>
+          {:else}
+            <button type="button" class="context-title-btn" data-title-rename-trigger title={`${currentReplyTitle} · ${t('history.rename')}`} onclick={startRenameTitle}>{currentReplyTitle}</button>
+          {/if}
+        </div>
+      {:else if view==='ask'}
+        {#if activeProject}
+          <span class="title-project" data-active-project-crumb>{activeProject.name}</span>
+        {/if}
+      {:else}
+        <span class="context-title">{view==='settings'?t('title.settings'):view==='history'?t('title.history'):view==='knowledge'?t('title.knowledge'):t('title.graph')}</span>
+      {/if}
+    </div>
+    <div class="window-actions"><button class="capsule-launch" title={t('window.capsuleTitle')} disabled={switching} onclick={()=>switchSurface('capsule')}><Icon name="external" size={18}/><span>{t('window.capsule')}</span></button><button class="icon-button" aria-label={t('window.hide')} title={t('window.hideTitle')} onclick={()=>leave()}><Icon name="minus"/></button><button class="quit-button icon-button" data-quit-app aria-label={t('window.quit')} title={closing?t('window.quitting'):t('window.quit')} disabled={closing} onclick={()=>leave(true)}><Icon name="close"/></button></div>
   </header>
-  {#if !isDesktop}<div class="preview-banner">浏览器界面预览 · 不会请求模型</div>{/if}
-  {#if appearanceState.error&&view!=='settings'}<div class="appearance-save-error" role="alert">{appearanceState.error}<button onclick={()=>{settingsCategory='appearance';view='settings';}}>外观设置</button></div>{/if}
+  {#if !isDesktop}<div class="preview-banner">{t('preview.banner')}</div>{/if}
+  {#if appearanceState.error&&view!=='settings'}<div class="appearance-save-error" role="alert">{appearanceState.error}<button onclick={()=>{settingsCategory='appearance';view='settings';}}>{t('appearance.aria')}</button></div>{/if}
   <div class="workspace">
     <main>
       {#if view==='history'}
-        <HistoryPanel port={historyPort} canDelete={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onDeleted={id=>historyDeleted([id])} onBulkDeleted={historyDeleted} currentRequestId={chatState.reply?.requestId??null} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
+        <HistoryPanel port={historyPort} canDelete={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onDeleted={id=>historyDeleted([id])} onBulkDeleted={historyDeleted} onClearedAll={historyCleared} currentRequestId={chatState.reply?.requestId??null} canContinue={chatState.loaded&&!chatState.running&&!chatState.stopping&&(!chatState.reply||chatState.reply.saved)} onContinue={continueHistory} onNewInProject={id=>newConversationInProject(id)} focusRequestId={traceRequestId} onFocusConsumed={()=>traceRequestId=null}/>
       {:else if view==='graph'}
         <KnowledgeGraph controller={knowledge} info={knowledgeState} onOpenNote={id=>void knowledge.open(id).then(()=>{view='knowledge';})} onOpenTopic={id=>{view='knowledge';void knowledge.openTopic(id);}}/>
       {:else if view==='knowledge'}
-        <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??'未配置模型'}/>
+        <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??t('model.unconfigured')}/>
       {:else if view==='settings'}
         <SettingsHub bind:category={settingsCategory}>
           {#snippet generalPanel()}<GeneralSettings desktop={isDesktop} enabled={autostartEnabled} busy={autostartBusy} error={autostartError} prefs={generalPrefs} onToggle={enabled=>void updateAutostart(enabled)} onReload={()=>void updateAutostart()} onPrefsChange={updateGeneralPrefs} onResetAll={resetAllPreferences}/>{/snippet}
           {#snippet appearancePanel()}<AppearanceSettings state={appearanceState} {palette} custom={customAppearance} onTheme={theme=>void appearance.update({theme})} onPalette={setPalette} onCustom={updateCustomAppearance} onResetCustom={resetCustomAppearance} onReload={()=>void appearance.start()}/>{/snippet}
           {#snippet providerPanel()}<ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>{/snippet}
           {#snippet selectionPanel()}<SelectionSettings desktop={isDesktop} enabled={candidateEnabled} onToggle={onCandidateToggle}>{#if isDesktop}<QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{/if}</SelectionSettings>{/snippet}
+          {#snippet archivePanel()}<ArchiveSettings/>{/snippet}
         </SettingsHub>
       {:else if view==='ask'}
-        <div class="empty-conversation"><div class="welcome-scene">{#if generalPrefs.showWelcomeMark}<WelcomeMark/>{/if}<p>今天想问 Zwen 什么问题？</p></div></div>
+        <div class="empty-conversation"><div class="welcome-scene">{#if generalPrefs.showWelcomeMark}<WelcomeMark/>{/if}<p>{t('welcome.prompt')}</p></div></div>
       {:else}
-        <section class="answer">{#if view==='reply'&&chatState.reply}<div class="user-question"><p>{chatState.reply.prompt}</p></div>{/if}<div class="answer-label"><BrandLogo compact/><strong>{chatState.reply?.model||'模型回复'}</strong><span>{replyLabel} · {replyStatus}</span></div><div class="prose" role="presentation" onclick={e=>proseLinkClick(e,openExternal)} onkeydown={e=>proseLinkClick(e as unknown as MouseEvent,openExternal)}>{@html renderedReply}</div>{#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>停止生成</button>{/if}{#if view==='reply'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save disabled={bookmarkSaving!==null} aria-live="polite" onclick={()=>void saveToKnowledge()}>{bookmarkSaving===chatState.reply.requestId?'正在收藏…':bookmarkSaved===chatState.reply.requestId?'已收藏 ✓':'收藏到知识库'}</button>{/if}{#if paperContext&&chatState.reply?.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-paper-export onclick={()=>void exportPaper()}>导出 Markdown</button>{/if}{#if view==='reply'&&!response&&chatState.running}<p>正在等待模型回复…</p>{/if}</section>
+        <section class="answer">
+          {#each priorTurns as turn (turn.requestId)}
+            <div class="prior-turn" data-prior-turn={turn.requestId}>
+              <div class="user-question"><p>{turn.prompt}</p></div>
+              <div class="answer-label"><BrandLogo compact/><strong>{turn.model||t('reply.label')}</strong><button type="button" class="text-button ml-auto" data-copy-reply onclick={()=>copyAnswerText(turn.requestId,turn.answer)}>{copiedId===turn.requestId?t('reply.copied'):t('reply.copy')}</button></div>
+              <div class="prose" role="presentation" onclick={e=>handleProseClick(e,openExternal)} onkeydown={e=>handleProseClick(e as unknown as MouseEvent,openExternal)}>{@html renderMarkdown(turn.answer)}</div>
+            </div>
+          {/each}
+          {#if view==='reply'&&chatState.reply}<div class="user-question"><p>{chatState.reply.prompt}</p></div>{/if}
+          <div class="answer-label"><BrandLogo compact/><strong>{chatState.reply?.model||t('reply.label')}</strong><span class="stream-status">{#if running}<span class="stream-dot" aria-hidden="true"></span>{/if}{replyLabel} · {replyStatus}</span></div>
+          <div class="prose" role="presentation" onclick={e=>handleProseClick(e,openExternal)} onkeydown={e=>handleProseClick(e as unknown as MouseEvent,openExternal)}>{@html renderedReply}</div>
+          {#if view==='reply'&&response&&running}<div class="stream-tail" data-streaming-indicator aria-hidden="true"><span></span><span></span><span></span></div>{/if}
+          {#if view==='reply'&&!response&&chatState.running}<div class="thinking-indicator" data-thinking-indicator role="status"><span class="thinking-spinner" aria-hidden="true"></span><span>{t('reply.waitingModel').replace(/[…\.]+$/,'')}</span><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>{/if}
+          <div class="answer-actions">
+            {#if view==='reply'&&running}<button class="text-button" data-stop onclick={stopReply}>{t('reply.stop')}</button>{/if}
+            {#if view==='reply'&&chatState.reply&&chatState.reply.answer&&!chatState.running}<button type="button" class="text-button" data-copy-reply onclick={()=>copyAnswerText(chatState.reply!.requestId,chatState.reply!.answer)}>{copiedId===chatState.reply.requestId?t('reply.copied'):t('reply.copy')}</button>{/if}
+            {#if view==='reply'&&chatState.reply&&chatState.reply.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-knowledge-save disabled={bookmarkSaving!==null} aria-live="polite" onclick={()=>void saveToKnowledge()}>{bookmarkSaving===chatState.reply.requestId?t('reply.bookmarking'):bookmarkSaved===chatState.reply.requestId?t('reply.bookmarked'):t('reply.bookmark')}</button>{/if}
+            {#if paperContext&&chatState.reply?.saved&&chatState.reply.answer&&!chatState.running}<button class="text-button" data-paper-export onclick={()=>void exportPaper()}>{t('reply.exportMd')}</button>{/if}
+          </div>
+        </section>
       {/if}
     </main>
     <ActionOutputNotice state={actionOutputState} onRetry={()=>void actionOutput.retry()} onDismiss={()=>actionOutput.dismiss()}/>
         <SelectionNotice actions={quickConfig.actions} {actionBusy} onAction={id=>void selectAction(id)} onSettings={()=>void openQuickSettings()} state={selectionState} onRetry={()=>void selection.applyPending()} onDiscard={()=>void selection.discard()} onReload={()=>void selection.refresh()}/>
     {#if chatState.running&&chatState.reply?.retry}<RetryNotice retry={chatState.reply.retry}/>{/if}
-    {#if canRestoreQuestion&&(view==='reply'||view==='ask')}<button class="text-button" data-restore-question onclick={()=>void restoreQuestion()}>恢复问题，重新提问</button>{/if}
-    {#if chatState.error}<div class="error" role="alert"><strong>{chatState.error}</strong>{#if !chatState.loaded}<button onclick={()=>void chat.load()}>重新读取对话</button>{/if}{#if chatState.reply&&!chatState.reply.saved&&!chatState.running}<button onclick={()=>void retryReplySave()}>重试保存回答</button>{/if}</div>{/if}
-    {#if draft.error}<div class="error" role="alert"><strong>{draft.error}</strong><span>原有文件不会被自动替换。</span><button onclick={()=>draft.loaded ? save() : controller.start().then(()=>selection.refresh()).catch(()=>{})}>{draft.loaded ? '重试保存' : '重新读取'}</button></div>{/if}
-    {#if view!=='settings'&&view!=='history'}<section class="composer" aria-label="问题草稿">
-      {#if draggingPdf}<p class="paper-drop-notice" role="status">松开导入这篇 PDF，仅保存在本机；点击发送才开始分析。</p>{/if}
-      <PaperComposer controller={paperDraft} state={paperDraftState} port={paperPort} context={paperScope} paperModel={settings.config?.model??''} destination={settings.config?`${settings.config.baseUrl} · ${settings.config.model}`:'未配置模型服务'} onOpenStart={()=>{if(notice==='系统未能打开论文原件，请检查默认PDF阅读器后重试。')notice='';}} reading={paperContext} desktop={isDesktop} disabled={closing||chatState.running||chatState.stopping||actionBusy} onExit={exitPaperMode}/>
+    {#if canRestoreQuestion&&(view==='reply'||view==='ask')}<button class="text-button" data-restore-question onclick={()=>void restoreQuestion()}>{t('reply.restore')}</button>{/if}
+    {#if chatState.error}<div class="error" role="alert"><strong>{chatState.error}</strong>{#if !chatState.loaded}<button onclick={()=>void chat.load()}>{t('reply.reloadChat')}</button>{/if}{#if chatState.reply&&!chatState.reply.saved&&!chatState.running}<button onclick={()=>void retryReplySave()}>{t('reply.retrySave')}</button>{/if}</div>{/if}
+    {#if draft.error}<div class="error" role="alert"><strong>{draft.error}</strong><span>{t('draft.keepOriginal')}</span><button onclick={()=>draft.loaded ? save() : controller.start().then(()=>selection.refresh()).catch(()=>{})}>{draft.loaded ? t('draft.retrySave') : t('draft.reload')}</button></div>{/if}
+    {#if view==='ask'||view==='reply'}<section class="composer" aria-label={t('composer.label')}>
+      {#if draggingPdf}<p class="paper-drop-notice" role="status">{t('composer.dropPdf')}</p>{/if}
+      <PaperComposer controller={paperDraft} state={paperDraftState} port={paperPort} context={paperScope} paperModel={settings.config?.model??''} destination={settings.config?`${settings.config.baseUrl} · ${settings.config.model}`:t('model.unconfiguredService')} onOpenStart={()=>{if(notice==='系统未能打开论文原件，请检查默认PDF阅读器后重试。')notice='';}} reading={paperContext} desktop={isDesktop} disabled={closing||chatState.running||chatState.stopping||actionBusy} onExit={exitPaperMode}/>
       <Attachments state={attachmentState} onCancel={()=>void attachmentController.cancel()} onRemove={id=>void attachmentController.remove(id)} onRetake={id=>captureScreenshot(id)}/>
-      <label class="sr-only" for="question">问题草稿</label><textarea bind:this={input} id="question" disabled={!draft.loaded||closing} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder={pendingPaper?'可直接发送开始精读，或补充你想了解的问题…':paperContext?'围绕这篇论文继续提问…':'输入问题，或粘贴内容…'} spellcheck="false" rows="2"></textarea>
-      <div class="composer-tools"><div><div class="attach-menu-wrap" bind:this={attachMenuWrap}><button type="button" class="tool-button" data-attach-trigger aria-label="添加附件" title="添加附件（截图 / 图片 / 文件）" aria-expanded={attachMenuOpen} disabled={!draft.loaded||closing} onclick={()=>{attachMenuOpen=!attachMenuOpen;}}><Icon name="plus" size={17}/></button>{#if attachMenuOpen}<div class="attach-menu" role="menu" aria-label="添加附件选项"><button type="button" role="menuitem" data-capture disabled={paperContext||paperDraftState.enabled||!isDesktop||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>{attachMenuOpen=false;captureScreenshot(null);}}><Icon name="image" size={15}/>截取屏幕</button><button type="button" role="menuitem" data-upload-image disabled={paperContext||paperDraftState.enabled||!isDesktop||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>{attachMenuOpen=false;chooseImageAttachment();}}><Icon name="image" size={15}/>上传图片</button><button type="button" role="menuitem" data-upload-file disabled={!draft.loaded||closing} onclick={()=>{attachMenuOpen=false;fileInput?.click();}}><Icon name="paperclip" size={15}/>上传文本文件</button><button type="button" role="menuitem" data-upload-paper disabled={!isDesktop||closing||chatState.running||chatState.stopping||actionBusy} onclick={()=>void uploadPaperFromMenu()}><Icon name="book" size={15}/>上传论文 PDF</button></div>{/if}<input bind:this={fileInput} type="file" class="sr-only" tabindex="-1" accept=".txt,.md,.markdown,.json,.csv,.ts,.js,.py,.rs,.c,.cpp,.h,.java,.go,.html,.css,.xml,.yaml,.yml,.toml,.log,.tex" onchange={e=>void handleTextFile(e)}/></div>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>清空</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>撤销清空</button>{/if}</div><button class="primary-button" data-send title={generalPrefs.sendKey==='ctrl-enter'?'Ctrl+Enter 发送 · Enter 换行':'Enter 发送 · Shift+Enter 换行'} disabled={selectionState.busy||attachmentState.pending||(!paperContext&&!pendingPaper&&attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||paperDraftState.importing||paperDraftState.restoring||(paperContext&&!pendingPaper&&!paperScope)||(paperDraftState.enabled&&!paperDraftState.loaded)||(paperDraftState.enabled&&!pendingPaper&&!paperContext)||(!draft.text.trim()&&!pendingPaper)} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?'正在保存…':'发送'}</span><Icon name="send"/><kbd>{generalPrefs.sendKey==='ctrl-enter'?'Ctrl+↵':'Enter ↵'}</kbd></button></div>
+      <label class="sr-only" for="question">{t('composer.label')}</label><textarea bind:this={input} id="question" disabled={!draft.loaded||closing} value={draft.text} oninput={e=>controller.edit(e.currentTarget.value)} placeholder={pendingPaper?t('composer.placeholderPaper'):paperContext?t('composer.placeholderPaperFollow'):t('composer.placeholder')} spellcheck="false" rows="2"></textarea>
+      <div class="composer-tools"><div><div class="attach-menu-wrap" bind:this={attachMenuWrap}><button type="button" class="tool-button" data-attach-trigger aria-label={t('composer.attach')} title={t('composer.attachTitle')} aria-expanded={attachMenuOpen} disabled={!draft.loaded||closing} onclick={()=>{attachMenuOpen=!attachMenuOpen;}}><Icon name="plus" size={17}/></button>{#if attachMenuOpen}<div class="attach-menu" role="menu" aria-label={t('composer.attachOptions')}><button type="button" role="menuitem" data-capture disabled={paperContext||paperDraftState.enabled||!isDesktop||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>{attachMenuOpen=false;captureScreenshot(null);}}><Icon name="image" size={15}/>{t('composer.screenshot')}</button><button type="button" role="menuitem" data-upload-image disabled={paperContext||paperDraftState.enabled||!isDesktop||attachmentState.pending||attachmentState.items.length>=attachmentState.max} onclick={()=>{attachMenuOpen=false;chooseImageAttachment();}}><Icon name="image" size={15}/>{t('composer.uploadImage')}</button><button type="button" role="menuitem" data-upload-file disabled={!draft.loaded||closing} onclick={()=>{attachMenuOpen=false;fileInput?.click();}}><Icon name="paperclip" size={15}/>{t('composer.uploadFile')}</button><button type="button" role="menuitem" data-upload-paper disabled={!isDesktop||closing||chatState.running||chatState.stopping||actionBusy} onclick={()=>void uploadPaperFromMenu()}><Icon name="book" size={15}/>{t('composer.uploadPaper')}</button></div>{/if}<input bind:this={fileInput} type="file" class="sr-only" tabindex="-1" accept=".txt,.md,.markdown,.json,.csv,.ts,.js,.py,.rs,.c,.cpp,.h,.java,.go,.html,.css,.xml,.yaml,.yml,.toml,.log,.tex" onchange={e=>void handleTextFile(e)}/></div>{#if draft.text}<button class="text-button" onclick={()=>{cleared=draft.text;controller.edit('');}}>{t('composer.clear')}</button>{:else if cleared!==null}<button class="text-button" onclick={()=>{controller.edit(cleared!);cleared=null;}}>{t('composer.undoClear')}</button>{/if}</div><button class="primary-button" data-send title={generalPrefs.sendKey==='ctrl-enter'?t('composer.sendTipCtrl'):t('composer.sendTipEnter')} disabled={selectionState.busy||attachmentState.pending||(!paperContext&&!pendingPaper&&attachmentState.items.length>0&&!imageModelOf(settings.config))||!isDesktop||!draft.loaded||!chatState.loaded||settings.status==='loading'||chatState.running||chatState.stopping||(!!chatState.reply&&!chatState.reply.saved)||paperDraftState.importing||paperDraftState.restoring||(paperContext&&!pendingPaper&&!paperScope)||(paperDraftState.enabled&&!paperDraftState.loaded)||(paperDraftState.enabled&&!pendingPaper&&!paperContext)||(!draft.text.trim()&&!pendingPaper)} onclick={()=>void send()}><span class="sr-only">{chatState.stopping?t('composer.saving'):t('composer.send')}</span><Icon name="send"/><kbd>{generalPrefs.sendKey==='ctrl-enter'?'Ctrl+↵':'Enter ↵'}</kbd></button></div>
     </section>
     {/if}
     {#if draft.status!=='saved'||notice}<footer><span class:error-status={draft.status==='error'}><i class:saved={draft.status==='saved'}></i>{draft.status!=='saved'?statusText:''}</span><span role="status">{notice}</span></footer>{/if}

@@ -1,5 +1,5 @@
 export type ColorPalette='monochrome'|'slate'|'paper';
-export type FontPreset='default'|'noto-sans'|'noto-serif'|'open-sans'|'mono';
+export type FontPreset='default'|'noto-sans'|'open-sans'|'humanist'|'noto-serif'|'mono';
 export type FontSizePreset='compact'|'normal'|'comfortable'|'large';
 export type RadiusPreset='sharp'|'normal'|'soft';
 export type WidthPreset='focused'|'normal'|'wide';
@@ -34,7 +34,7 @@ export function parseCustomAppearance(value:unknown):CustomAppearance{
  const v=value as Record<string,unknown>;
  return{
   accent:typeof v.accent==='string'&&HEX_COLOR.test(v.accent)?v.accent:null,
-  font:v.font==='noto-sans'||v.font==='noto-serif'||v.font==='open-sans'||v.font==='mono'?v.font:'default',
+  font:v.font==='noto-sans'||v.font==='noto-serif'||v.font==='open-sans'||v.font==='humanist'||v.font==='mono'?v.font:'default',
   fontSize:v.fontSize==='compact'||v.fontSize==='comfortable'||v.fontSize==='large'?v.fontSize:'normal',
   radius:v.radius==='sharp'||v.radius==='soft'?v.radius:'normal',
   readingWidth:v.readingWidth==='focused'||v.readingWidth==='wide'?v.readingWidth:'normal',
@@ -54,16 +54,24 @@ export function applyCustomAppearance(custom:CustomAppearance){
  const fonts:Record<FontPreset,string>={
   default:'"Red Hat Text","Noto Sans","Noto Sans CJK SC","Microsoft YaHei UI",system-ui,sans-serif',
   'noto-sans':'"Noto Sans","Noto Sans CJK SC","Microsoft YaHei UI",system-ui,sans-serif',
-  'noto-serif':'"Noto Serif CJK SC",Georgia,serif',
   'open-sans':'"Open Sans","Noto Sans CJK SC","Microsoft YaHei UI",system-ui,sans-serif',
-  mono:'"Source Code Pro","Noto Sans Mono CJK SC","Consolas",ui-monospace,monospace',
+  humanist:'"Cantarell","Inter","Ubuntu","Noto Sans CJK SC","Microsoft YaHei UI",system-ui,sans-serif',
+  'noto-serif':'"Noto Serif","Noto Serif CJK SC","Source Han Serif SC",Georgia,serif',
+  mono:'"Source Code Pro","JetBrains Mono","Noto Sans Mono CJK SC","Consolas",ui-monospace,monospace',
  };
- const sizes:Record<FontSizePreset,[string,string]>={compact:['13px','13.5px'],normal:['14px','15px'],comfortable:['14.5px','16.5px'],large:['15.5px','18px']};
+ const sizes:Record<FontSizePreset,{scale:string;ui:string;prose:string}>={
+  compact:{scale:'0.94',ui:'14.5px',prose:'15.5px'},
+  normal:{scale:'1',ui:'16px',prose:'17.5px'},
+  comfortable:{scale:'1.07',ui:'17px',prose:'19px'},
+  large:{scale:'1.15',ui:'18.5px',prose:'20.5px'},
+ };
  const radii:Record<RadiusPreset,[string,string]>={sharp:['5px','10px'],normal:['8px','16px'],soft:['12px','22px']};
- const widths:Record<WidthPreset,string>={focused:'680px',normal:'760px',wide:'920px'};
+ const widths:Record<WidthPreset,string>={focused:'680px',normal:'780px',wide:'940px'};
+ root.dataset.fontSize=custom.fontSize;
  s.setProperty('--font-sans',fonts[custom.font]);
- s.setProperty('--ui-size',sizes[custom.fontSize][0]);
- s.setProperty('--prose-size',sizes[custom.fontSize][1]);
+ s.setProperty('--font-scale',sizes[custom.fontSize].scale);
+ s.setProperty('--ui-size',sizes[custom.fontSize].ui);
+ s.setProperty('--prose-size',sizes[custom.fontSize].prose);
  s.setProperty('--radius-control',radii[custom.radius][0]);
  s.setProperty('--radius-card',radii[custom.radius][1]);
  s.setProperty('--reading-width',widths[custom.readingWidth]);
