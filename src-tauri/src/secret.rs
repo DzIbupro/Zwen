@@ -13,11 +13,11 @@ const COLLECTION_IFACE:&str="org.freedesktop.Secret.Collection";
 const ITEM_IFACE:&str="org.freedesktop.Secret.Item";
 const SCHEMA:&str="xdg:schema";
 #[cfg(not(any(test,feature="desktop-smoke")))]
-const SCHEMA_VALUE:&str="io.zwen.desktop";
+const SCHEMA_VALUE:&str="io.github.dzibupro.zwen";
 // Every test binary, including ignored integration tests, has a separate
 // identity. CreateItem(replace=true) can never match the production credential.
 #[cfg(any(test,feature="desktop-smoke"))]
-const SCHEMA_VALUE:&str="io.zwen.desktop.test-only";
+const SCHEMA_VALUE:&str="io.github.dzibupro.zwen.test-only";
 const ROLE:&str="zwen-role";
 const ROLE_VALUE:&str="model-key";
 const LABEL:&str="Zwen 模型密钥";
@@ -154,7 +154,7 @@ mod tests{
   assert!(!valid_secret("中文密钥"));
   assert!(valid_secret("ascii-graphic-key-123"));
  }
- #[test] fn test_identity_cannot_match_production(){assert_ne!(SCHEMA_VALUE,"io.zwen.desktop");}
+ #[test] fn test_identity_cannot_match_production(){assert_ne!(SCHEMA_VALUE,"io.github.dzibupro.zwen");}
  #[test] fn attributes_are_stable_for_lookup(){
   let attrs=attributes();
   assert_eq!(attrs.get(SCHEMA).map(String::as_str),Some(SCHEMA_VALUE));

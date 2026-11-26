@@ -1,4 +1,4 @@
-import type { Summary } from './history';
+import type { InactiveConversation, Summary } from './history';
 import { summarizeTitle } from './title-summary';
 
 export const HISTORY_ORG_STORAGE_KEY = 'zwen.historyOrg.v1';
@@ -17,6 +17,7 @@ export interface ArchivedRecord {
   createdAt: number;
   archivedAt: number;
   projectId: string | null;
+  automatic?: true;
 }
 
 export interface ProjectItemSnapshot {
@@ -27,11 +28,21 @@ export interface ProjectItemSnapshot {
   createdAt: number;
 }
 
+export const AUTO_ARCHIVE_INTERVALS = [0, 30, 90, 180] as const;
+export type AutoArchiveDays = typeof AUTO_ARCHIVE_INTERVALS[number];
+interface AutomaticArchive {
+  record: ArchivedRecord;
+  memberIds: string[];
+}
+
 interface PersistedHistoryOrg {
   version: 1;
   customTitles: Record<string, string>;
   pinnedOrder: string[];
   archived: Record<string, ArchivedRecord>;
+  autoArchiveDays: AutoArchiveDays;
+  automaticArchives: Record<string, AutomaticArchive>;
+  archiveRestoredAt: Record<string, number>;
   projects: ChatProject[];
   itemProjects: Record<string, string>;
   conversationProjects: Record<string, string>;
@@ -44,6 +55,9 @@ const EMPTY_STATE: PersistedHistoryOrg = {
   customTitles: {},
   pinnedOrder: [],
   archived: {},
+  autoArchiveDays: 0,
+  automaticArchives: {},
+  archiveRestoredAt: {},
   projects: [],
   itemProjects: {},
   conversationProjects: {},
@@ -130,6 +144,25 @@ function sanitize(raw: unknown): PersistedHistoryOrg {
     }
   }
 
+  const automaticArchives: Record<string, AutomaticArchive> = {};
+  for (const [id, entry] of Object.entries(obj.automaticArchives ?? {})) {
+    const r = entry?.record;
+    if (!r || r.conversationId !== id || typeof r.requestId !== 'string' || !Array.isArray(entry.memberIds)) continue;
+    const memberIds = entry.memberIds.filter((member): member is string => typeof member === 'string');
+    if (!memberIds.length) continue;
+    automaticArchives[id] = {memberIds, record: {
+      requestId: r.requestId, conversationId: id,
+      title: typeof r.title === 'string' ? r.title : '',
+      model: typeof r.model === 'string' ? r.model : '',
+      createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0,
+      archivedAt: typeof r.archivedAt === 'number' ? r.archivedAt : Date.now(),
+      projectId: null, automatic: true,
+    }};
+  }
+  const archiveRestoredAt = Object.fromEntries(Object.entries(obj.archiveRestoredAt ?? {})
+    .filter(([, at]) => typeof at === 'number' && Number.isFinite(at)));
+  const autoArchiveDays = AUTO_ARCHIVE_INTERVALS.find(days => days === obj.autoArchiveDays) ?? 0;
+
   const activeProjectId =
     typeof obj.activeProjectId === 'string' && validProjectIds.has(obj.activeProjectId)
       ? obj.activeProjectId
@@ -140,6 +173,9 @@ function sanitize(raw: unknown): PersistedHistoryOrg {
     customTitles,
     pinnedOrder,
     archived,
+    autoArchiveDays,
+    automaticArchives,
+    archiveRestoredAt,
     projects,
     itemProjects,
     conversationProjects,
@@ -161,6 +197,7 @@ function readFromStorage(): PersistedHistoryOrg {
 }
 
 let state = $state<PersistedHistoryOrg>(readFromStorage());
+const automaticMemberIds = $derived(new Set(Object.values(state.automaticArchives).flatMap(item => item.memberIds)));
 
 function persist() {
   try {
@@ -235,12 +272,73 @@ export function setPinned(ids: string[], pinned: boolean): void {
 }
 
 // --- Archiving ---
-export function isArchived(requestId: string): boolean {
-  return Boolean(state.archived[requestId]);
+export function isArchived(requestId: string, conversationId?: string): boolean {
+  return Boolean(state.archived[requestId]) || (conversationId
+    ? (state.automaticArchives[conversationId]?.memberIds.includes(requestId) ?? false)
+    : automaticMemberIds.has(requestId));
 }
 
 export function getArchivedList(): ArchivedRecord[] {
-  return Object.values(state.archived).sort((a, b) => b.archivedAt - a.archivedAt);
+  const manual = Object.values(state.archived).filter(item => !state.automaticArchives[item.conversationId]);
+  return [...manual, ...Object.values(state.automaticArchives).map(group => group.record)]
+    .sort((a, b) => b.archivedAt - a.archivedAt);
+}
+
+export function getAutoArchiveDays(): AutoArchiveDays {
+  return state.autoArchiveDays;
+}
+
+export function setAutoArchiveDays(days: AutoArchiveDays): void {
+  if (state.autoArchiveDays === days || !AUTO_ARCHIVE_INTERVALS.includes(days)) return;
+  state = {...state, autoArchiveDays: days};
+  persist();
+}
+
+export function autoArchiveCutoff(days: AutoArchiveDays, now: number): number {
+  return now - days * 86_400_000;
+}
+
+export function applyAutoArchive(
+  candidates: InactiveConversation[], days: AutoArchiveDays, now: number, activeConversation: string | null,
+): number {
+  if (!days) return 0;
+  const cutoff = autoArchiveCutoff(days, now);
+  const automaticArchives = {...state.automaticArchives};
+  const archiveRestoredAt = {...state.archiveRestoredAt};
+  const pinned = new Set(state.pinnedOrder);
+  let added = 0;
+  for (const {latest, memberIds} of candidates) {
+    const id = latest.conversationId;
+    if (automaticArchives[id] || id === activeConversation || latest.state === 'streaming' || !memberIds.length) continue;
+    if (latest.createdAt * 1000 > cutoff || (archiveRestoredAt[id] ?? 0) > cutoff) continue;
+    if (state.conversationProjects[id] || memberIds.some(member => pinned.has(member) || state.itemProjects[member])) continue;
+    automaticArchives[id] = {memberIds, record: {
+      requestId: latest.requestId,
+      conversationId: id, title: latest.title, model: latest.model,
+      createdAt: latest.createdAt, archivedAt: now, projectId: null, automatic: true,
+    }};
+    delete archiveRestoredAt[id];
+    added++;
+  }
+  if (added) {
+    state = {...state, automaticArchives, archiveRestoredAt};
+    persist();
+  }
+  return added;
+}
+
+export function restoreArchiveForNewTurn(reply: Pick<Summary, 'conversationId' | 'requestId' | 'createdAt'>): void {
+  const archived = state.automaticArchives[reply.conversationId];
+  if (archived && reply.createdAt > archived.record.createdAt && !archived.memberIds.includes(reply.requestId)) {
+    restoreAutomaticArchive(reply.conversationId);
+  }
+}
+
+function restoreAutomaticArchive(conversationId: string): void {
+  const automaticArchives = {...state.automaticArchives};
+  delete automaticArchives[conversationId];
+  state = {...state, automaticArchives, archiveRestoredAt: {...state.archiveRestoredAt, [conversationId]: Date.now()}};
+  persist();
 }
 
 export function archiveRecords(
@@ -271,17 +369,28 @@ export function archiveRecords(
 }
 
 export function unarchiveRecord(requestId: string): void {
+  const group = Object.values(state.automaticArchives).find(item => item.record.requestId === requestId);
+  if (group) {
+    restoreAutomaticArchive(group.record.conversationId);
+    return;
+  }
   if (!state.archived[requestId]) return;
   const archived = { ...state.archived };
+  const conversationId = archived[requestId].conversationId;
   delete archived[requestId];
-  state = { ...state, archived };
+  state = { ...state, archived, archiveRestoredAt: {...state.archiveRestoredAt, [conversationId]: Date.now()} };
   persist();
 }
 
 export function unarchiveAll(): number {
-  const count = Object.keys(state.archived).length;
+  const groups = Object.keys(state.automaticArchives);
+  const count = getArchivedList().length;
   if (!count) return 0;
-  state = { ...state, archived: {} };
+  const archiveRestoredAt = {...state.archiveRestoredAt};
+  const now = Date.now();
+  for (const id of groups) archiveRestoredAt[id] = now;
+  for (const item of Object.values(state.archived)) archiveRestoredAt[item.conversationId] = now;
+  state = { ...state, archived: {}, automaticArchives: {}, archiveRestoredAt };
   persist();
   return count;
 }
@@ -425,12 +534,12 @@ export function getProjectConversations(
 ): ProjectItemSnapshot[] {
   const byId = new Map<string, ProjectItemSnapshot>();
   for (const [reqId, pid] of Object.entries(state.itemProjects)) {
-    if (pid !== projectId || state.archived[reqId]) continue;
+    if (pid !== projectId || isArchived(reqId)) continue;
     const snap = state.projectSnapshots[reqId];
     if (snap) byId.set(reqId, snap);
   }
   for (const item of recentSummaries) {
-    if (state.archived[item.requestId]) continue;
+    if (isArchived(item.requestId, item.conversationId)) continue;
     if (getProjectIdFor(item.requestId, item.conversationId) !== projectId) continue;
     byId.set(item.requestId, {
       requestId: item.requestId,
@@ -457,6 +566,8 @@ export function cleanupDeletedRecords(ids: string[] | null): void {
       customTitles: {},
       pinnedOrder: [],
       archived: {},
+      automaticArchives: {},
+      archiveRestoredAt: {},
       itemProjects: {},
       conversationProjects: {},
       projectSnapshots: {},
@@ -477,6 +588,13 @@ export function cleanupDeletedRecords(ids: string[] | null): void {
     delete projectSnapshots[id];
   }
   const pinnedOrder = state.pinnedOrder.filter(id => !set.has(id));
-  state = { ...state, customTitles, archived, itemProjects, projectSnapshots, pinnedOrder };
+  const automaticArchives: Record<string, AutomaticArchive> = {};
+  for (const [id, item] of Object.entries(state.automaticArchives)) {
+    const memberIds = item.memberIds.filter(member => !set.has(member));
+    if (!memberIds.length) continue;
+    const record = set.has(item.record.requestId) ? {...item.record, requestId: memberIds[memberIds.length - 1]} : item.record;
+    automaticArchives[id] = {memberIds, record};
+  }
+  state = { ...state, customTitles, archived, itemProjects, projectSnapshots, pinnedOrder, automaticArchives };
   persist();
 }

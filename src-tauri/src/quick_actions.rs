@@ -2,7 +2,7 @@
 use crate::{ClientError,SharedStorage};
 use rusqlite::{Connection,OptionalExtension,params,TransactionBehavior};
 use serde::{Deserialize,Serialize};
-use std::{fs,io::{Read,Write},path::{Path,Component},sync::Mutex};
+use std::{fs,io::{Read,Write},path::{Path, PathBuf, Component},sync::Mutex};
 use zwen_core::{journal::{Journal,TurnState},notes::NoteStore};
 static LOCK:Mutex<()>=Mutex::new(());
 fn error(code:&'static str,message:&str)->ClientError{ClientError{code,message:message.into()}}
@@ -37,7 +37,7 @@ fn read_config(c:&Connection,default_dir:&str)->Result<QuickActionConfig,ClientE
  let raw:Option<String>=c.query_row("SELECT CASE WHEN length(CAST(json AS BLOB))<=600000 THEN json END FROM config WHERE id=1",[],|r|r.get(0)).optional().map_err(|_|invalid())?;
  let value=match raw{Some(s)=>serde_json::from_str(&s).map_err(|_|invalid())?,None=>defaults(default_dir.into())};validate(&value)?;Ok(value)
 }
-fn default_directory()->Result<String,ClientError>{let home=std::env::var_os("HOME").ok_or_else(ClientError::storage)?;Ok(Path::new(&home).join("Documents/Zwen").to_string_lossy().into_owned())}
+fn default_directory()->Result<String,ClientError>{let home=std::env::var_os("HOME").ok_or_else(ClientError::storage)?;Ok(Path::new(&home).join("Downloads").join("Zwen导出").to_string_lossy().into_owned())}
 fn save_config(dir:&Path,default_dir:&str,expected:u64,actions:Vec<QuickAction>,output_directory:String)->Result<QuickActionConfig,ClientError>{
  let _lock=LOCK.lock().map_err(|_|ClientError::storage())?;let mut c=connection(dir)?;let tx=c.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|_|ClientError::storage())?;let old=read_config(&tx,default_dir)?;
  if old.revision!=expected{return Err(error("quick_actions_conflict","快捷提示词已被其他窗口修改；当前编辑已保留，请重新读取后合并"));}
@@ -51,6 +51,85 @@ pub fn config_for_bar(storage:&SharedStorage)->Result<QuickActionConfig,ClientEr
  let dir=storage.directory.as_ref().map_err(Clone::clone)?;
  read_config(&connection(dir)?,&default_directory()?)
 }
+pub fn export_directory(data_dir:&Path)->Result<PathBuf,ClientError>{
+ Ok(PathBuf::from(read_config(&connection(data_dir)?,&default_directory()?)?.output_directory))
+}
+
+fn change_export_directory(data_dir:&Path,expected:u64,path:PathBuf)->Result<QuickActionConfig,ClientError>{
+ let path=path.canonicalize().map_err(|_|export_error())?;
+ if !path.is_dir(){return Err(export_error());}
+ let directory=path.into_os_string().into_string().map_err(|_|invalid())?;
+ let default=default_directory()?;
+ let current=read_config(&connection(data_dir)?,&default)?;
+ if current.revision==expected&&current.output_directory==directory{return Ok(current);}
+ save_config(data_dir,&default,expected,current.actions,directory)
+}
+
+#[tauri::command]
+pub async fn choose_export_directory(app:tauri::AppHandle,storage:tauri::State<'_,SharedStorage>,expected_revision:u64)->Result<Option<QuickActionConfig>,ClientError>{
+ let storage=storage.inner().clone();
+ let base=storage.directory.as_ref().map_err(Clone::clone)?.clone();
+ let current=tauri::async_runtime::spawn_blocking(move||export_directory(&base)).await.map_err(|_|ClientError::storage())??;
+ let (tx,rx)=tokio::sync::oneshot::channel();
+ app.run_on_main_thread(move||{
+  use gtk::prelude::*;
+  let dialog=gtk::FileChooserNative::new(None,None::<&gtk::Window>,gtk::FileChooserAction::SelectFolder,None,None);
+  dialog.set_modal(true);
+  dialog.set_current_folder(&current);
+  let keeper=std::rc::Rc::new(std::cell::RefCell::new(Some(dialog.clone())));
+  let tx=std::cell::RefCell::new(Some(tx));
+  dialog.connect_response(move|d,response|{
+   if let Some(tx)=tx.borrow_mut().take(){let _=tx.send(if response==gtk::ResponseType::Accept{d.filename()}else{None});}
+   d.destroy();
+   keeper.borrow_mut().take();
+  });
+  dialog.show();
+ }).map_err(|_|ClientError::window())?;
+ let Some(path)=rx.await.map_err(|_|ClientError::window())? else{return Ok(None);};
+ tauri::async_runtime::spawn_blocking(move||change_export_directory(storage.directory.as_ref().map_err(Clone::clone)?,expected_revision,path).map(Some)).await.map_err(|_|ClientError::storage())?
+}
+
+#[tauri::command]
+pub async fn open_local_directory(storage:tauri::State<'_,SharedStorage>,exports:bool)->Result<(),ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||{
+  let data=storage.directory.as_ref().map_err(Clone::clone)?;
+  let path=if exports{export_directory(data)?}else{data.clone()};
+  ensure_export_directory(&path)?;
+  let path=path.canonicalize().map_err(|_|ClientError::storage())?;
+  use gtk::gio;
+  use gtk::gio::prelude::FileExt;
+  let uri=gio::File::for_path(path).uri();
+  gio::AppInfo::launch_default_for_uri(&uri,None::<&gio::AppLaunchContext>)
+   .map_err(|_|error("open_failed","无法打开文件夹，请检查系统默认文件管理器"))?;
+  Ok(())
+ }).await.map_err(|_|ClientError::storage())?
+}
+
+pub fn ensure_export_directory(path:&Path)->Result<(),ClientError>{
+ let mut builder=fs::DirBuilder::new();
+ builder.recursive(true);
+ #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
+ builder.create(path).map_err(|_|export_error())
+}
+
+/// Write through a directory descriptor so an export cannot follow target symlinks.
+pub fn write_export_file(target:&Path,bytes:&[u8],replace:bool)->Result<(),ClientError>{
+ let parent=target.parent().ok_or_else(export_error)?;
+ let name=target.file_name().and_then(|name|name.to_str()).ok_or_else(export_error)?;
+ let directory=safe_directory(parent)?;
+ let filename=if replace{format!(".zwen-{}.tmp",zwen_core::notes::generate_id())}else{name.into()};
+ let mut file=create_output(&directory,&filename).map_err(|_|export_error())?;
+ let result:Result<(),ClientError>=(||{
+  file.write_all(bytes).and_then(|_|file.sync_all()).map_err(|_|export_error())?;
+  if replace{replace_output(&directory,&filename,name).map_err(|_|export_error())?;}
+  Ok(())
+ })();
+ if result.is_err(){unlink_output(&directory,&filename);}
+ result?;
+ directory.sync_all().map_err(|_|export_error())
+}
+
 /// Called only by the independent selection request path, before Journal::begin.
 pub fn prepare_request(storage:&SharedStorage,request_id:&str,selection:&str,action_id:&str,expected_revision:u64)->Result<String,ClientError>{
  let dir=storage.directory.as_ref().map_err(Clone::clone)?;prepare_checked(dir,&default_directory()?,request_id,selection,action_id,Some(expected_revision))
@@ -121,6 +200,15 @@ fn safe_directory(path:&Path)->Result<fs::File,ClientError>{use std::os::fd::{As
 }
 #[cfg(unix)]fn create_output(dir:&fs::File,name:&str)->std::io::Result<fs::File>{use std::os::fd::{AsRawFd,FromRawFd};let name=std::ffi::CString::new(name)?;let fd=unsafe{libc::openat(dir.as_raw_fd(),name.as_ptr(),libc::O_WRONLY|libc::O_CREAT|libc::O_EXCL|libc::O_NOFOLLOW|libc::O_CLOEXEC,0o600)};if fd<0{Err(std::io::Error::last_os_error())}else{Ok(unsafe{fs::File::from_raw_fd(fd)})}}
 #[cfg(unix)]fn promote_output(dir:&fs::File,stage:&str,name:&str)->std::io::Result<()>{use std::os::fd::AsRawFd;let stage=std::ffi::CString::new(stage)?;let name=std::ffi::CString::new(name)?;let result=unsafe{libc::linkat(dir.as_raw_fd(),stage.as_ptr(),dir.as_raw_fd(),name.as_ptr(),0)};if result<0{Err(std::io::Error::last_os_error())}else{Ok(())}}
+#[cfg(unix)]
+fn replace_output(dir:&fs::File,stage:&str,name:&str)->std::io::Result<()>{
+ use std::os::fd::AsRawFd;
+ let stage=std::ffi::CString::new(stage)?;
+ let name=std::ffi::CString::new(name)?;
+ if unsafe{libc::renameat(dir.as_raw_fd(),stage.as_ptr(),dir.as_raw_fd(),name.as_ptr())}<0{
+  Err(std::io::Error::last_os_error())
+ }else{Ok(())}
+}
 #[cfg(unix)]fn unlink_output(dir:&fs::File,name:&str){use std::os::fd::AsRawFd;if let Ok(name)=std::ffi::CString::new(name){unsafe{libc::unlinkat(dir.as_raw_fd(),name.as_ptr(),0)};}}
 
 #[cfg(unix)]fn open_existing(dir:&fs::File,name:&std::ffi::OsStr)->Result<fs::File,ClientError>{use std::os::fd::{AsRawFd,FromRawFd};use std::os::unix::ffi::OsStrExt;let name=std::ffi::CString::new(name.as_bytes()).map_err(|_|invalid())?;let fd=unsafe{libc::openat(dir.as_raw_fd(),name.as_ptr(),libc::O_RDONLY|libc::O_NOFOLLOW|libc::O_CLOEXEC|libc::O_NONBLOCK)};if fd<0{return Err(export_error());}let file=unsafe{fs::File::from_raw_fd(fd)};if !file.metadata().map_err(|_|export_error())?.is_file(){return Err(export_error());}Ok(file)}
@@ -130,6 +218,40 @@ fn safe_directory(path:&Path)->Result<fs::File,ClientError>{use std::os::fd::{As
  fn temp()->std::path::PathBuf{let dir=std::env::temp_dir().join(format!("zwen-actions-{}",zwen_core::notes::generate_id()));fs::create_dir_all(&dir).unwrap();dir}
  fn configured(dir:&Path,out:&Path){let c=defaults(out.to_string_lossy().into());save_config(dir,"/tmp/unused",0,c.actions,c.output_directory).unwrap();}
  fn request(dir:&Path,selection:&str,id:&str,state:TurnState)->String{let prompt=prepare(dir,"/tmp/unused",id,selection,"document").unwrap();let mut j=Journal::open(&dir.join("chat.sqlite3")).unwrap();let mut t=j.begin(id,&prompt,"isolated-test-model").unwrap();t.answer="完整回答".into();t.state=state;t.revision=1;j.checkpoint(&t).unwrap();prompt}
+ #[test]
+ fn shared_export_directory_reuses_existing_config_and_rejects_stale_changes(){
+  let dir=temp();
+  let old=dir.join("old");
+  configured(&dir,&old);
+  assert_eq!(export_directory(&dir).unwrap(),old);
+  let new=dir.join("new");
+  fs::create_dir(&new).unwrap();
+  let config=change_export_directory(&dir,1,new.clone()).unwrap();
+  assert_eq!(config.revision,2);
+  assert_eq!(export_directory(&dir).unwrap(),new);
+  assert!(change_export_directory(&dir,1,old).is_err());
+  fs::remove_dir_all(dir).unwrap();
+ }
+ #[test]
+ fn shared_exports_do_not_write_through_links_or_replace_create_only_targets(){
+  use std::os::unix::fs::symlink;
+  let dir=temp();
+  let outside=dir.join("outside");
+  fs::write(&outside,"unchanged").unwrap();
+  let out=dir.join("export").join("file.md");
+  write_export_file(&out,b"first",false).unwrap();
+  assert!(write_export_file(&out,b"second",false).is_err());
+  assert_eq!(fs::read(&out).unwrap(),b"first");
+  fs::remove_file(&out).unwrap();
+  symlink(&outside,&out).unwrap();
+  write_export_file(&out,b"new document",true).unwrap();
+  assert_eq!(fs::read(&outside).unwrap(),b"unchanged");
+  assert_eq!(fs::read(&out).unwrap(),b"new document");
+  let alias=dir.join("alias");
+  symlink(dir.join("export"),&alias).unwrap();
+  assert!(write_export_file(&alias.join("redirected.md"),b"data",false).is_err());
+  fs::remove_dir_all(dir).unwrap();
+ }
  #[test]fn stale_action_revision_cannot_bind_a_different_prompt(){let dir=temp();let out=dir.join("out");configured(&dir,&out);assert!(prepare_checked(&dir,"/tmp/unused","revision-test","text","document",Some(0)).is_err());let c=connection(&dir).unwrap();let count:i64=c.query_row("SELECT count(*) FROM bindings",[],|r|r.get(0)).unwrap();assert_eq!(count,0);assert!(prepare_checked(&dir,"/tmp/unused","revision-test","text","document",Some(1)).is_ok());fs::remove_dir_all(dir).unwrap();}
  #[test]fn config_bounds_conflicts_and_corruption(){let dir=temp();let c=defaults("/tmp/out".into());assert!(save_config(&dir,"/tmp/out",1,c.actions.clone(),c.output_directory.clone()).is_err());save_config(&dir,"/tmp/out",0,c.actions.clone(),c.output_directory.clone()).unwrap();assert!(save_config(&dir,"/tmp/out",0,c.actions,"/tmp/out".into()).is_err());connection(&dir).unwrap().execute("UPDATE config SET json='broken'",[]).unwrap();assert!(read_config(&connection(&dir).unwrap(),"/tmp/out").is_err());fs::remove_dir_all(dir).unwrap();}
  #[test]fn incomplete_or_unbound_requests_cannot_export(){let dir=temp();let out=dir.join("out");configured(&dir,&out);request(&dir,"选区","stopped",TurnState::Stopped);assert!(save_document(&dir,"stopped","选区","document","整理成文档",out.to_str().unwrap()).is_err());assert!(save_document(&dir,"other","选区","document","整理成文档",out.to_str().unwrap()).is_err());assert!(NoteStore::open(&dir).unwrap().all_ids().unwrap().is_empty());fs::remove_dir_all(dir).unwrap();}

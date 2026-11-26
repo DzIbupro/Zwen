@@ -7,6 +7,7 @@ import Sidebar from '../Sidebar.svelte';
 import App from '../App.svelte';
 import { summarizeTitle } from '../lib/title-summary';
 import {
+  applyAutoArchive,
   archiveRecords,
   assignToProject,
   bindReplyToActiveProject,
@@ -40,6 +41,27 @@ describe('title summarization & history organization', () => {
   beforeEach(() => {
     localStorage.clear();
     resetHistoryOrgForTest();
+  });
+
+  it('archives whole conversations, skips protected members, and respects a restore', () => {
+    const now = Date.now();
+    const old = Math.floor((now - 40 * 86_400_000) / 1000);
+    const candidate = (id: string) => ({
+      latest: {requestId: id + '-latest', conversationId: id, title: id, model: 'm', createdAt: old, state: 'complete' as const},
+      memberIds: [id + '-first', id + '-latest'],
+    });
+    const project = createProject('论文')!;
+    assignToProject([{requestId: 'project-first'}], project.id);
+    togglePin('pinned-first');
+    expect(applyAutoArchive(
+      ['old', 'project', 'pinned', 'running'].map(candidate), 30, now, 'running',
+    )).toBe(1);
+    expect(isArchived('old-first', 'old')).toBe(true);
+    expect(isArchived('old-latest', 'old')).toBe(true);
+    expect(getArchivedList().map(r => r.requestId)).toEqual(['old-latest']);
+    unarchiveRecord('old-latest');
+    expect(isArchived('old-first', 'old')).toBe(false);
+    expect(applyAutoArchive([candidate('old')], 30, now + 20_000, null)).toBe(0);
   });
 
   it('summarizes prompts cleanly without calling a model and supports custom renaming', () => {

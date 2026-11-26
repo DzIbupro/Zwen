@@ -1,4 +1,5 @@
 export type Locale = 'zh-CN' | 'en' | 'ja' | 'ko' | 'es';
+export type LocaleChoice = Locale | 'system';
 
 export const LOCALE_STORAGE_KEY = 'zwen.locale.v1';
 
@@ -11,6 +12,52 @@ export const LOCALES: readonly { id: Locale; label: string }[] = [
 ] as const;
 
 const zhCN = {
+  'general.followSystem': "跟随系统",
+  'general.confirmRiskyClose': "停止任务或丢弃草稿前确认",
+  'general.homeSuggestions': "显示首页研究入口",
+  'general.quickSurface': "快捷唤出的窗口",
+  'general.quickCapsule': "胶囊窗口",
+  'general.quickFull': "完整窗口",
+  'general.keepAwake': "长任务运行时防止系统休眠",
+  'general.keepAwakeHint': "论文分析或批量知识整理期间生效。系统的手动休眠也可能被暂缓。",
+  'window.leaveQuitTitle': "退出知问？",
+  'window.leaveQuickTitle': "关闭胶囊？",
+  'window.leaveStopsTask': "正在运行的任务会停止。",
+  'window.leaveDiscards': "未发送的胶囊草稿和附件会被清除。",
+  'window.leavePaperDraft': "待发送的论文和本次阅读设置会从草稿中清除，已导入的 PDF 仍在资料库。",
+  'window.leaveProceed': "继续",
+  'settings.shortcuts': "键盘快捷键",
+  'settings.shortcutsDetail': "应用快捷键和 Niri 全局绑定",
+  'settings.search': "搜索设置",
+  'settings.noMatches': "没有匹配的设置",
+  'settings.notices': "第三方许可证",
+  'settings.reasoning': "推理级别",
+  'shortcuts.application': "应用内快捷键",
+  'shortcuts.global': "全局入口",
+  'shortcuts.saveDraft': "保存草稿",
+  'shortcuts.hide': "收起窗口",
+  'shortcuts.disabled': "已关闭",
+  'shortcuts.quick': "快捷唤出",
+  'shortcuts.selection': "导入选区",
+  'shortcuts.explain': "解释选区",
+  'shortcuts.translate': "翻译选区",
+  'shortcuts.screenshot': "截图问答",
+  'shortcuts.niriHint': "在 Niri 的 binds 中加入所需绑定，按键可自行选择。",
+  'welcome.readPdf': "读一篇 PDF",
+  'welcome.resumePaper': "继续上次论文阅读",
+  'welcome.openKnowledge': "打开知识库",
+  'general.storageGroup': "文件与存储",
+  'general.exportDirectory': "默认导出目录",
+  'general.changeDirectory': "更改",
+  'general.openExportDirectory': "打开导出目录",
+  'general.openDataDirectory': "打开应用数据目录",
+  'general.backgroundNotifications': "后台任务通知",
+  'general.backgroundNotificationsHint': "窗口收起时通知论文分析和知识整理的结果。",
+  'archive.inactive': "不活跃的对话归档时间",
+  'archive.off': "关闭",
+  'archive.days': "{days} 天",
+  'archive.autoHint': "跳过置顶、项目内、正在查看或运行的对话。",
+  'archive.automatic': "已自动归档",
   // Navigation & Titlebar
   'nav.main': '主要导航',
   'nav.newChat': '新对话',
@@ -312,6 +359,8 @@ const zhCN = {
   'knowledge.rebuild': '重建索引',
   'knowledge.columns': '知识栏目',
   'knowledge.collapse': '收起',
+  'knowledge.notificationComplete': "知识整理已完成（{done}/{total} 篇）",
+  'knowledge.notificationIncomplete': "知识整理未完成（已整理 {done}/{total} 篇）",
   'knowledge.close': '关闭',
   'knowledge.emptySearch': '没有匹配的笔记。',
   'knowledge.empty': '还没有收藏。在模型回答下点「收藏到知识库」，问答与截图就会保存在这里。',
@@ -382,6 +431,52 @@ export type I18nKey = keyof typeof zhCN;
 type Dict = Record<I18nKey, string>;
 
 const en: Dict = {
+  'general.followSystem': "Follow system",
+  'general.confirmRiskyClose': "Confirm before stopping tasks or discarding drafts",
+  'general.homeSuggestions': "Show research shortcuts on the home screen",
+  'general.quickSurface': "Quick-launch window",
+  'general.quickCapsule': "Capsule window",
+  'general.quickFull': "Full window",
+  'general.keepAwake': "Prevent sleep during long tasks",
+  'general.keepAwakeHint': "Applies to paper analysis and batch knowledge organization. Manual sleep may also be delayed.",
+  'window.leaveQuitTitle': "Quit Zwen?",
+  'window.leaveQuickTitle': "Close the capsule?",
+  'window.leaveStopsTask': "Running tasks will stop.",
+  'window.leaveDiscards': "The unsent capsule draft and attachments will be cleared.",
+  'window.leavePaperDraft': "The pending paper and its reading settings will be cleared from the draft. The imported PDF stays in the library.",
+  'window.leaveProceed': "Continue",
+  'settings.shortcuts': "Keyboard shortcuts",
+  'settings.shortcutsDetail': "App shortcuts and Niri bindings",
+  'settings.search': "Search settings",
+  'settings.noMatches': "No matching settings",
+  'settings.notices': "Third-party licenses",
+  'settings.reasoning': "Reasoning effort",
+  'shortcuts.application': "App shortcuts",
+  'shortcuts.global': "Global commands",
+  'shortcuts.saveDraft': "Save draft",
+  'shortcuts.hide': "Hide window",
+  'shortcuts.disabled': "Off",
+  'shortcuts.quick': "Quick launch",
+  'shortcuts.selection': "Import selection",
+  'shortcuts.explain': "Explain selection",
+  'shortcuts.translate': "Translate selection",
+  'shortcuts.screenshot': "Ask about a screenshot",
+  'shortcuts.niriHint': "Add the bindings you want under binds in Niri. Choose whichever keys work for you.",
+  'welcome.readPdf': "Read a PDF",
+  'welcome.resumePaper': "Resume the last paper",
+  'welcome.openKnowledge': "Open Knowledge Base",
+  'general.storageGroup': "Files and storage",
+  'general.exportDirectory': "Default export folder",
+  'general.changeDirectory': "Change",
+  'general.openExportDirectory': "Open export folder",
+  'general.openDataDirectory': "Open app data folder",
+  'general.backgroundNotifications': "Background task notifications",
+  'general.backgroundNotificationsHint': "Notify when paper analysis or knowledge organization ends while the window is hidden.",
+  'archive.inactive': "Archive inactive conversations after",
+  'archive.off': "Off",
+  'archive.days': "{days} days",
+  'archive.autoHint': "Pinned conversations, project conversations, and chats being viewed or run are skipped.",
+  'archive.automatic': "Automatically archived",
   'nav.main': 'Main navigation',
   'nav.newChat': 'New Chat',
   'nav.chat': 'Chat',
@@ -672,6 +767,8 @@ const en: Dict = {
   'knowledge.rebuild': 'Rebuild Index',
   'knowledge.columns': 'Columns',
   'knowledge.collapse': 'Collapse',
+  'knowledge.notificationComplete': "Knowledge organization complete ({done}/{total} notes)",
+  'knowledge.notificationIncomplete': "Knowledge organization incomplete ({done}/{total} notes organized)",
   'knowledge.close': 'Close',
   'knowledge.emptySearch': 'No matching notes.',
   'knowledge.empty': 'No notes yet. Click "Save to Knowledge" under a model reply to keep it here.',
@@ -738,6 +835,52 @@ const en: Dict = {
 };
 
 const ja: Dict = {
+  'general.followSystem': "システムに従う",
+  'general.confirmRiskyClose': "タスクの停止や下書きの破棄の前に確認",
+  'general.homeSuggestions': "ホームに研究へのショートカットを表示",
+  'general.quickSurface': "すばやく開くウィンドウ",
+  'general.quickCapsule': "カプセルウィンドウ",
+  'general.quickFull': "フルウィンドウ",
+  'general.keepAwake': "長時間タスクの実行中にスリープを防ぐ",
+  'general.keepAwakeHint': "論文分析やナレッジの一括整理中に有効です。手動スリープも延期される場合があります。",
+  'window.leaveQuitTitle': "Zwen を終了しますか？",
+  'window.leaveQuickTitle': "カプセルを閉じますか？",
+  'window.leaveStopsTask': "実行中のタスクは停止します。",
+  'window.leaveDiscards': "未送信のカプセルの下書きと添付ファイルは消去されます。",
+  'window.leavePaperDraft': "未送信の論文と閲覧設定は下書きから削除されます。読み込んだ PDF はライブラリに残ります。",
+  'window.leaveProceed': "続行",
+  'settings.shortcuts': "キーボードショートカット",
+  'settings.shortcutsDetail': "アプリのショートカットと Niri のキーバインド",
+  'settings.search': "設定を検索",
+  'settings.noMatches': "一致する設定がありません",
+  'settings.notices': "サードパーティーライセンス",
+  'settings.reasoning': "推論レベル",
+  'shortcuts.application': "アプリ内ショートカット",
+  'shortcuts.global': "グローバルコマンド",
+  'shortcuts.saveDraft': "下書きを保存",
+  'shortcuts.hide': "ウィンドウを隠す",
+  'shortcuts.disabled': "オフ",
+  'shortcuts.quick': "すばやく開く",
+  'shortcuts.selection': "選択範囲を読み込む",
+  'shortcuts.explain': "選択範囲を解説",
+  'shortcuts.translate': "選択範囲を翻訳",
+  'shortcuts.screenshot': "スクリーンショットで質問",
+  'shortcuts.niriHint': "Niri の binds に必要なキーバインドを追加できます。キーは自由に選べます。",
+  'welcome.readPdf': "PDF を読む",
+  'welcome.resumePaper': "前回の論文を再開",
+  'welcome.openKnowledge': "ナレッジを開く",
+  'general.storageGroup': "ファイルとストレージ",
+  'general.exportDirectory': "既定の書き出し先",
+  'general.changeDirectory': "変更",
+  'general.openExportDirectory': "書き出し先を開く",
+  'general.openDataDirectory': "アプリデータを開く",
+  'general.backgroundNotifications': "バックグラウンド通知",
+  'general.backgroundNotificationsHint': "ウィンドウを隠しているときに論文分析やナレッジ整理の結果を通知します。",
+  'archive.inactive': "非アクティブな会話の保存期間",
+  'archive.off': "オフ",
+  'archive.days': "{days} 日",
+  'archive.autoHint': "固定中、プロジェクト内、表示中または実行中の会話は対象外です。",
+  'archive.automatic': "自動アーカイブ済み",
   'nav.main': 'メインナビゲーション',
   'nav.newChat': '新しい会話',
   'nav.chat': 'チャット',
@@ -1028,6 +1171,8 @@ const ja: Dict = {
   'knowledge.rebuild': '索引を再構築',
   'knowledge.columns': 'カテゴリ',
   'knowledge.collapse': '閉じる',
+  'knowledge.notificationComplete': "ナレッジ整理が完了しました（{done}/{total} 件）",
+  'knowledge.notificationIncomplete': "ナレッジ整理が完了しませんでした（整理済み {done}/{total} 件）",
   'knowledge.close': '閉じる',
   'knowledge.emptySearch': '一致するノートがありません。',
   'knowledge.empty': 'まだ保存されたノートがありません。応答下の「ナレッジに保存」から追加できます。',
@@ -1094,6 +1239,52 @@ const ja: Dict = {
 };
 
 const ko: Dict = {
+  'general.followSystem': "시스템 설정 따르기",
+  'general.confirmRiskyClose': "작업 중지 또는 초안 삭제 전에 확인",
+  'general.homeSuggestions': "홈에 연구 바로가기 표시",
+  'general.quickSurface': "빠른 열기 창",
+  'general.quickCapsule': "캡슐 창",
+  'general.quickFull': "전체 창",
+  'general.keepAwake': "장시간 작업 중 절전 방지",
+  'general.keepAwakeHint': "논문 분석과 지식 일괄 정리 중에 적용됩니다. 수동 절전도 지연될 수 있습니다.",
+  'window.leaveQuitTitle': "Zwen을 종료할까요?",
+  'window.leaveQuickTitle': "캡슐 창을 닫을까요?",
+  'window.leaveStopsTask': "진행 중인 작업이 중지됩니다.",
+  'window.leaveDiscards': "전송하지 않은 캡슐 초안과 첨부 파일이 지워집니다.",
+  'window.leavePaperDraft': "전송 대기 중인 논문과 읽기 설정이 초안에서 지워집니다. 가져온 PDF는 보관함에 남습니다.",
+  'window.leaveProceed': "계속",
+  'settings.shortcuts': "키보드 단축키",
+  'settings.shortcutsDetail': "앱 단축키와 Niri 키 설정",
+  'settings.search': "설정 검색",
+  'settings.noMatches': "일치하는 설정 없음",
+  'settings.notices': "타사 라이선스",
+  'settings.reasoning': "추론 수준",
+  'shortcuts.application': "앱 단축키",
+  'shortcuts.global': "전역 명령",
+  'shortcuts.saveDraft': "초안 저장",
+  'shortcuts.hide': "창 숨기기",
+  'shortcuts.disabled': "꺼짐",
+  'shortcuts.quick': "빠른 열기",
+  'shortcuts.selection': "선택 영역 가져오기",
+  'shortcuts.explain': "선택 영역 설명",
+  'shortcuts.translate': "선택 영역 번역",
+  'shortcuts.screenshot': "스크린샷으로 질문",
+  'shortcuts.niriHint': "Niri의 binds 항목에 원하는 키 조합을 추가하세요.",
+  'welcome.readPdf': "PDF 읽기",
+  'welcome.resumePaper': "마지막 논문 이어 읽기",
+  'welcome.openKnowledge': "지식 베이스 열기",
+  'general.storageGroup': "파일 및 저장 공간",
+  'general.exportDirectory': "기본 내보내기 폴더",
+  'general.changeDirectory': "변경",
+  'general.openExportDirectory': "내보내기 폴더 열기",
+  'general.openDataDirectory': "앱 데이터 폴더 열기",
+  'general.backgroundNotifications': "백그라운드 작업 알림",
+  'general.backgroundNotificationsHint': "창이 숨겨져 있을 때 논문 분석과 지식 정리 결과를 알립니다.",
+  'archive.inactive': "비활성 대화 자동 보관 기간",
+  'archive.off': "끄기",
+  'archive.days': "{days}일",
+  'archive.autoHint': "고정된 대화, 프로젝트 대화, 열어 둔 대화와 진행 중인 대화는 제외합니다.",
+  'archive.automatic': "자동 보관됨",
   'nav.main': '주요 탐색',
   'nav.newChat': '새 대화',
   'nav.chat': '대화',
@@ -1384,6 +1575,8 @@ const ko: Dict = {
   'knowledge.rebuild': '인덱스 재구축',
   'knowledge.columns': '분류',
   'knowledge.collapse': '접기',
+  'knowledge.notificationComplete': "지식 정리 완료 ({done}/{total}개)",
+  'knowledge.notificationIncomplete': "지식 정리 미완료 ({done}/{total}개 정리됨)",
   'knowledge.close': '닫기',
   'knowledge.emptySearch': '일치하는 노트가 없습니다.',
   'knowledge.empty': '저장된 노트가 없습니다. 모델 답변 아래의 "지식 베이스에 저장"을 눌러 추가하세요.',
@@ -1450,6 +1643,52 @@ const ko: Dict = {
 };
 
 const es: Dict = {
+  'general.followSystem': "Seguir el sistema",
+  'general.confirmRiskyClose': "Confirmar antes de detener tareas o descartar borradores",
+  'general.homeSuggestions': "Mostrar accesos de investigación en Inicio",
+  'general.quickSurface': "Ventana de apertura rápida",
+  'general.quickCapsule': "Ventana cápsula",
+  'general.quickFull': "Ventana completa",
+  'general.keepAwake': "Evitar la suspensión durante tareas largas",
+  'general.keepAwakeHint': "Se aplica al análisis de artículos y a la organización por lotes. La suspensión manual también puede aplazarse.",
+  'window.leaveQuitTitle': "¿Salir de Zwen?",
+  'window.leaveQuickTitle': "¿Cerrar la cápsula?",
+  'window.leaveStopsTask': "Se detendrán las tareas en curso.",
+  'window.leaveDiscards': "Se borrarán el borrador y los adjuntos sin enviar de la cápsula.",
+  'window.leavePaperDraft': "El artículo pendiente y sus ajustes de lectura se eliminarán del borrador. El PDF importado seguirá en la biblioteca.",
+  'window.leaveProceed': "Continuar",
+  'settings.shortcuts': "Atajos de teclado",
+  'settings.shortcutsDetail': "Atajos de la aplicación y enlaces de Niri",
+  'settings.search': "Buscar ajustes",
+  'settings.noMatches': "No hay ajustes coincidentes",
+  'settings.notices': "Licencias de terceros",
+  'settings.reasoning': "Nivel de razonamiento",
+  'shortcuts.application': "Atajos de la aplicación",
+  'shortcuts.global': "Comandos globales",
+  'shortcuts.saveDraft': "Guardar borrador",
+  'shortcuts.hide': "Ocultar ventana",
+  'shortcuts.disabled': "Desactivado",
+  'shortcuts.quick': "Apertura rápida",
+  'shortcuts.selection': "Importar selección",
+  'shortcuts.explain': "Explicar selección",
+  'shortcuts.translate': "Traducir selección",
+  'shortcuts.screenshot': "Preguntar por una captura",
+  'shortcuts.niriHint': "Añade las combinaciones que quieras al bloque binds de Niri. Puedes elegir las teclas.",
+  'welcome.readPdf': "Leer un PDF",
+  'welcome.resumePaper': "Retomar el último artículo",
+  'welcome.openKnowledge': "Abrir la base de conocimientos",
+  'general.storageGroup': "Archivos y almacenamiento",
+  'general.exportDirectory': "Carpeta de exportación predeterminada",
+  'general.changeDirectory': "Cambiar",
+  'general.openExportDirectory': "Abrir carpeta de exportación",
+  'general.openDataDirectory': "Abrir datos de la app",
+  'general.backgroundNotifications': "Avisos de tareas en segundo plano",
+  'general.backgroundNotificationsHint': "Avisa del resultado del análisis de artículos o de la organización de notas cuando la ventana está oculta.",
+  'archive.inactive': "Archivar conversaciones inactivas tras",
+  'archive.off': "Desactivado",
+  'archive.days': "{days} días",
+  'archive.autoHint': "Se omiten las conversaciones fijadas, de proyectos, abiertas y en curso.",
+  'archive.automatic': "Archivada automáticamente",
   'nav.main': 'Navegación principal',
   'nav.newChat': 'Nuevo chat',
   'nav.chat': 'Chat',
@@ -1740,6 +1979,8 @@ const es: Dict = {
   'knowledge.rebuild': 'Reconstruir índice',
   'knowledge.columns': 'Categorías',
   'knowledge.collapse': 'Contraer',
+  'knowledge.notificationComplete': "Organización completada ({done}/{total} notas)",
+  'knowledge.notificationIncomplete': "Organización incompleta ({done}/{total} notas organizadas)",
   'knowledge.close': 'Cerrar',
   'knowledge.emptySearch': 'No hay notas coincidentes.',
   'knowledge.empty': 'Aún no hay notas. Pulsa «Guardar en conocimiento» bajo una respuesta para guardarla aquí.',
@@ -1817,43 +2058,103 @@ export function isLocale(value: unknown): value is Locale {
   return value === 'zh-CN' || value === 'en' || value === 'ja' || value === 'ko' || value === 'es';
 }
 
-function readStoredLocale(): Locale {
+function isLocaleChoice(value: unknown): value is LocaleChoice {
+  return value === 'system' || isLocale(value);
+}
+
+function readStoredLocale(): LocaleChoice | null {
   try {
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
-      if (isLocale(saved)) return saved;
-    }
+    const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+    return isLocaleChoice(saved) ? saved : null;
   } catch {
-    // Ignore storage unavailability in tests/sandboxed frames
+    return null;
   }
-  return 'zh-CN';
+}
+
+export function resolveSystemLocale(languages: readonly string[]): Locale {
+  for (const value of languages) {
+    const language = value.trim().toLowerCase().split(/[-_.@]/)[0];
+    if (language === 'zh') return 'zh-CN';
+    if (isLocale(language)) return language;
+  }
+  return 'en';
 }
 
 function syncHtmlLang(locale: Locale) {
-  if (typeof document !== 'undefined') {
-    document.documentElement.lang = locale;
+  if (typeof document !== 'undefined') document.documentElement.lang = locale;
+}
+
+interface NativeLocalePreference {choice: LocaleChoice; systemLocale: Locale; saved: boolean}
+const desktopWindow = typeof window === 'undefined' ? undefined
+  : window as Window & {__ZWEN_LOCALE__?: NativeLocalePreference; __ZWEN_RUN_ID__?: string};
+const nativePreference = desktopWindow?.__ZWEN_LOCALE__;
+const runId = nativePreference ? desktopWindow?.__ZWEN_RUN_ID__ : undefined;
+const runtimeChoiceKey = runId ? `zwen.locale.run.${runId}` : null;
+
+function readRuntimeChoice(): LocaleChoice | null {
+  if (!runtimeChoiceKey) return null;
+  try {
+    const choice = sessionStorage.getItem(runtimeChoiceKey);
+    return isLocaleChoice(choice) ? choice : null;
+  } catch {
+    return null;
   }
 }
 
-const initialLocale = readStoredLocale();
-syncHtmlLang(initialLocale);
-let currentLocale = $state<Locale>(initialLocale);
+// The native initialization script also runs on WebView reloads. A choice
+// saved successfully later in this process takes precedence over that snapshot.
+const runtimeChoice = readRuntimeChoice();
+const storedLocale = readStoredLocale();
+const initialChoice = runtimeChoice ?? (nativePreference?.saved ? nativePreference.choice
+  : storedLocale ?? nativePreference?.choice ?? 'zh-CN');
+
+function effectiveLocale(choice: LocaleChoice): Locale {
+  if (choice !== 'system') return choice;
+  return nativePreference?.systemLocale ?? resolveSystemLocale(globalThis.navigator?.languages ?? []);
+}
+
+let localeChoice = $state<LocaleChoice>(initialChoice);
+let currentLocale = $state<Locale>(effectiveLocale(initialChoice));
+syncHtmlLang(effectiveLocale(initialChoice));
 
 export function getLocale(): Locale {
   return currentLocale;
 }
 
-export function setLocale(next: Locale): void {
-  if (!isLocale(next)) return;
-  currentLocale = next;
-  syncHtmlLang(next);
+export function getLocaleChoice(): LocaleChoice {
+  return localeChoice;
+}
+
+export function pendingNativeLocaleMigration(): LocaleChoice | null {
+  return nativePreference && !nativePreference.saved && !runtimeChoice ? storedLocale : null;
+}
+
+export function setLocale(next: LocaleChoice): void {
+  if (!isLocaleChoice(next)) return;
+  localeChoice = next;
+  currentLocale = effectiveLocale(next);
+  syncHtmlLang(currentLocale);
   try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(LOCALE_STORAGE_KEY, next);
-    }
+    localStorage.setItem(LOCALE_STORAGE_KEY, next);
   } catch {
-    // Ignore storage failure
+    // The desktop preference is also saved by the native app.
   }
+  if (runtimeChoiceKey) {
+    try {
+      sessionStorage.setItem(runtimeChoiceKey, next);
+    } catch {
+      // Same-run reloads can fall back to the startup snapshot.
+    }
+  }
+}
+
+if (typeof window !== 'undefined' && !nativePreference) {
+  window.addEventListener('languagechange', () => {
+    if (localeChoice === 'system') {
+      currentLocale = effectiveLocale(localeChoice);
+      syncHtmlLang(currentLocale);
+    }
+  });
 }
 
 export function t(key: I18nKey, vars?: Record<string, string | number>): string {

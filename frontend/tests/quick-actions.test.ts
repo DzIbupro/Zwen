@@ -7,9 +7,27 @@ it('inserts selection literally without expanding embedded placeholders',()=>{ex
 it('rejects relative output directories and invalid outputs',()=>{const a=defaultQuickActions();expect(validateQuickActions(a,'../x')).toBeTruthy();a[0].output='shell' as never;expect(validateQuickActions(a,'/tmp')).toBeTruthy();});
 import {mount,unmount,flushSync} from 'svelte';
 import QuickActionSettings from '../QuickActionSettings.svelte';
-it('settings preserve entered prompt and directory after a CAS save error',async()=>{
- const target=document.createElement('div');document.body.append(target);const port={load:async()=>({revision:2,actions:defaultQuickActions(),outputDirectory:'/tmp/docs'}),save:async()=>{throw Error('版本冲突');}};
- const app=mount(QuickActionSettings,{target,props:{port,onChanged:()=>{}}});flushSync();await new Promise(r=>setTimeout(r,0));flushSync();
- const prompt=target.querySelector('textarea') as HTMLTextAreaElement;prompt.value='我修改的提示词 {{selection}}';prompt.dispatchEvent(new Event('input',{bubbles:true}));const directory=target.querySelector('[aria-label="文档输出目录"]') as HTMLInputElement;directory.value='/tmp/newdocs';directory.dispatchEvent(new Event('input',{bubbles:true}));flushSync();
- target.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await new Promise(r=>setTimeout(r,0));flushSync();expect(prompt.value).toBe('我修改的提示词 {{selection}}');expect(directory.value).toBe('/tmp/newdocs');expect(target.querySelector('[role="alert"]')?.textContent).toContain('版本冲突');await unmount(app);target.remove();
+it('preserves the edited prompt on conflict and saves against the shared directory', async () => {
+ const target = document.createElement('div');
+ document.body.append(target);
+ const config = {revision: 2, actions: defaultQuickActions(), outputDirectory: '/tmp/docs'};
+ const save = vi.fn(async () => { throw Error('版本冲突'); });
+ const port = {load: async () => config, save};
+ const directoryConfig = {...config, revision: 3, outputDirectory: '/tmp/newdocs'};
+ const app = mount(QuickActionSettings, {target, props: {port, directoryConfig, onChanged: () => {}}});
+ flushSync();
+ await new Promise(resolve => setTimeout(resolve, 0));
+ flushSync();
+ const prompt = target.querySelector('textarea')!;
+ prompt.value = '我修改的提示词 {{selection}}';
+ prompt.dispatchEvent(new Event('input', {bubbles: true}));
+ flushSync();
+ target.querySelector('form')!.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}));
+ await new Promise(resolve => setTimeout(resolve, 0));
+ flushSync();
+ expect(prompt.value).toBe('我修改的提示词 {{selection}}');
+ expect(save).toHaveBeenCalledWith(3, expect.any(Array), '/tmp/newdocs');
+ expect(target.querySelector('[role="alert"]')?.textContent).toContain('版本冲突');
+ await unmount(app);
+ target.remove();
 });

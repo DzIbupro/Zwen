@@ -1,6 +1,6 @@
 <script lang="ts">
   import {getLocale, t} from './lib/i18n.svelte';
-  import {getArchivedList, getDisplayTitle, getProjectById, unarchiveAll, unarchiveRecord} from './lib/history-org.svelte';
+  import {AUTO_ARCHIVE_INTERVALS, getAutoArchiveDays, getArchivedList, getDisplayTitle, getProjectById, setAutoArchiveDays, unarchiveAll, unarchiveRecord, type AutoArchiveDays} from './lib/history-org.svelte';
 
   let search = $state('');
   const allArchived = $derived(getArchivedList());
@@ -37,6 +37,21 @@
   </div>
 
   <div class="group-card">
+    <div class="archive-policy">
+      <div>
+        <label for="auto-archive-days">{t('archive.inactive')}</label>
+        <p id="auto-archive-hint">{t('archive.autoHint')}</p>
+      </div>
+      <select id="auto-archive-days" aria-describedby="auto-archive-hint" value={getAutoArchiveDays()}
+        onchange={event => setAutoArchiveDays(Number(event.currentTarget.value) as AutoArchiveDays)}>
+        {#each AUTO_ARCHIVE_INTERVALS as days}
+          <option value={days}>{days ? t('archive.days', {days}) : t('archive.off')}</option>
+        {/each}
+      </select>
+    </div>
+  </div>
+
+  <div class="group-card">
     {#if allArchived.length > 0}
       <div class="search-bar">
         <input
@@ -62,6 +77,7 @@
               <strong title={title}>{title}</strong>
               <span class="archived-meta">
                 {#if proj}<span class="archived-project">{proj.name}</span><span>·</span>{/if}
+                {#if item.automatic}<span>{t('archive.automatic')}</span><span>·</span>{/if}
                 <span>{item.model || 'Zwen'}</span>
                 <span>·</span>
                 <span>{formatArchivedDate(item.archivedAt)}</span>
@@ -90,6 +106,12 @@
   .count-pill{font-size:.82rem;font-weight:500;padding:2px 9px;border-radius:999px;background:var(--surface);border:1px solid var(--edge);color:var(--muted);font-variant-numeric:tabular-nums}
   .restore-all-btn{font-size:.88rem;padding:6px 12px}
   .group-card{background:var(--surface);border:1px solid var(--edge);border-radius:var(--radius-card);padding:14px 16px}
+  .group-card+.group-card{margin-top:14px}
+  .archive-policy{display:flex;justify-content:space-between;align-items:center;gap:14px}
+  .archive-policy label{font-size:.96rem;font-weight:500}
+  .archive-policy p{margin:3px 0 0;color:var(--muted);font-size:.85rem}
+  .archive-policy select{font:inherit;font-size:.92rem;flex-shrink:0;padding:6px 10px;color:var(--text);background:var(--surface-soft);border:1px solid var(--edge);border-radius:var(--radius-control)}
+  .archive-policy select:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
   .search-bar{margin-bottom:12px}
   .search-bar input{width:100%;padding:7px 11px;border:1px solid var(--edge);border-radius:var(--radius-control);background:var(--surface-soft);color:var(--text);font:inherit;font-size:.92rem}
   .search-bar input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px;background:var(--surface)}

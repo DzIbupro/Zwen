@@ -1,10 +1,13 @@
 export type SendKeyMode = 'enter' | 'ctrl-enter';
+export type QuickSurface = 'capsule' | 'full';
 export type MotionSpeed = 'expressive' | 'snappy' | 'off';
 
 export interface GeneralPreferences {
   sendKey: SendKeyMode;
   escToHide: boolean;
   showWelcomeMark: boolean;
+  showHomeSuggestions: boolean;
+  confirmRiskyClose: boolean;
   motionSpeed: MotionSpeed;
 }
 
@@ -12,6 +15,8 @@ export const DEFAULT_GENERAL_PREFERENCES: GeneralPreferences = {
   sendKey: 'enter',
   escToHide: true,
   showWelcomeMark: true,
+  showHomeSuggestions: true,
+  confirmRiskyClose: true,
   motionSpeed: 'expressive',
 };
 
@@ -24,6 +29,8 @@ export function parseGeneralPreferences(value: unknown): GeneralPreferences {
     sendKey: v.sendKey === 'ctrl-enter' ? 'ctrl-enter' : 'enter',
     escToHide: typeof v.escToHide === 'boolean' ? v.escToHide : true,
     showWelcomeMark: typeof v.showWelcomeMark === 'boolean' ? v.showWelcomeMark : true,
+    showHomeSuggestions: typeof v.showHomeSuggestions === 'boolean' ? v.showHomeSuggestions : true,
+    confirmRiskyClose: typeof v.confirmRiskyClose === 'boolean' ? v.confirmRiskyClose : true,
     motionSpeed: v.motionSpeed === 'snappy' || v.motionSpeed === 'off' ? v.motionSpeed : 'expressive',
   };
 }
@@ -46,4 +53,19 @@ export function saveGeneralPreferences(prefs: GeneralPreferences, storage: Pick<
 
 export function applyGeneralPreferences(prefs: GeneralPreferences) {
   document.documentElement.dataset.motion = prefs.motionSpeed;
+}
+
+
+export function leaveConsequences(options: {
+  quit: boolean;
+  endQuick: boolean;
+  chatActive: boolean;
+  organizeActive: boolean;
+  unsentMaterials: boolean;
+}) {
+  return {
+    stopsTask: ((options.quit || options.endQuick) && options.chatActive)
+      || (options.quit && options.organizeActive),
+    discardsMaterials: options.endQuick && options.unsentMaterials,
+  };
 }

@@ -17,6 +17,9 @@ pub struct Overview {reply:Option<Reply>,active_request_id:Option<String>}
 struct Active {id:String,cancel:watch::Sender<bool>,handle:Option<tauri::async_runtime::JoinHandle<Result<Reply,ClientError>>>}
 #[derive(Default)] pub struct State {active:Option<Active>,last:Option<Reply>,revoked:VecDeque<String>}
 pub type Shared=Arc<Mutex<State>>;
+pub fn has_active_request(state:&Shared)->Result<bool,ClientError>{
+ Ok(state.lock().map_err(|_|ClientError::storage())?.active.is_some())
+}
 fn error(code:&'static str,message:&str)->ClientError{ClientError{code,message:message.into()}}
 fn directory(storage:&SharedStorage)->Result<std::path::PathBuf,ClientError>{
  let dir=storage.directory.as_ref().map_err(Clone::clone)?.clone();let mut b=std::fs::DirBuilder::new();b.recursive(true);
@@ -28,7 +31,7 @@ fn publish(app:&tauri::AppHandle,state:&Shared,reply:Reply)->Result<(),()>{
  if s.active.as_ref().is_none_or(|a|a.id!=reply.turn.request_id){return Err(());}
  s.last=Some(reply.clone());app.emit("chat-update",reply).map_err(|_|())
 }
-fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,mut messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,attach_dir:std::path::PathBuf,media:Option<crate::paper_media::Request>,document:Option<zwen_core::paper::Document>,cancel:watch::Receiver<bool>)->Result<Reply,ClientError>{
+fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,config:zwen_core::provider::ProviderConfig,key:zwen_core::provider::ApiKey,mut messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,attach_dir:std::path::PathBuf,media:Option<crate::paper_media::Request>,document:Option<zwen_core::paper::Document>,cancel:watch::Receiver<bool>,sleep_inhibitor:Option<crate::keep_awake::Task>)->Result<Reply,ClientError>{
  let mut emit_at=Instant::now();let mut save_at=Instant::now();let mut first=true;
  let mut media_error=None;
  let result=(||{
@@ -77,9 +80,13 @@ fn run(app:tauri::AppHandle,state:Shared,mut journal:Journal,mut turn:Turn,confi
   let _=app.emit("attachments-changed",());
  }
  let reply=Reply{turn,saved,retry:None};
+ drop(sleep_inhibitor);
  {
   let mut s=state.lock().map_err(|_|ClientError::storage())?;
   if s.active.as_ref().is_some_and(|a|a.id==reply.turn.request_id){s.last=Some(reply.clone());s.active=None;let _=app.emit("chat-update",&reply);}
+ }
+ if let Some(success)=crate::task_notifications::paper_outcome(&reply.turn.conversation_id,&reply.turn.state,saved){
+  crate::task_notifications::send(&app,&attach_dir,crate::task_notifications::ResultTarget::Paper{id:reply.turn.request_id.clone()},success);
  }
  if saved{Ok(reply)}else{Err(error("chat_unsaved","回答尚未成功保存，请保留窗口并重试保存"))}
 }
@@ -88,7 +95,7 @@ struct Prepared {
  messages:Vec<zwen_core::completion::Message>,consume_ids:Vec<String>,media:Option<crate::paper_media::Request>,document:Option<zwen_core::paper::Document>,
 }
 fn prepare_turn(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core::provider::ProviderConfig,request_id:&str,prompt:String,conversation_id:Option<&str>,isolated:bool)->Result<Prepared,ClientError>{
- let profile=serde_json::to_string(&config).map_err(|_|ClientError::storage())?;
+ let profile=config.conversation_profile().map_err(|_|ClientError::storage())?;
   // Screenshot questions carry bounded base64 payloads to the configured vision
   // model. Preparation happens here, off the UI thread; a failed payload aborts
   // before the question is persisted so no half-attached turn is stored.
@@ -125,7 +132,7 @@ fn prepare_document(journal:&mut Journal,dir:&std::path::Path,config:&zwen_core:
  let request_config=if let Some(previous)=conversation.map(|id|journal.latest_in(id)).transpose()?.flatten(){config.with_model(&previous.model)?}else{config.clone()};
  let reading=source.prepare(options,&prompt).map_err(crate::paper::error)?;let full=reading.prompt;let document=reading.document;
  let media=if options.read_images{let end=if options.end_page==0{source.pages.len()}else{options.end_page};let pdf=zwen_core::paper::Library::open(dir).map_err(crate::paper::error)?.pdf_path(&source.meta.id).map_err(crate::paper::error)?;Some(crate::paper_media::Request{pdf,pages:(options.start_page..=end).collect()})}else{None};
- let profile=serde_json::to_string(config).map_err(|_|ClientError::storage())?;
+ let profile=config.conversation_profile().map_err(|_|ClientError::storage())?;
  let mut messages=match journal.context(conversation,&profile,full.len()){
   Ok(messages)=>messages,Err(zwen_core::Error::ContextTooLarge)=>Vec::new(),Err(e)=>return Err(e.into())
  };if document.is_some()&&serde_json::to_vec(&messages).map_or(true,|v|v.len()>24*1024){messages.clear();}let count=messages.len()/2;
@@ -179,6 +186,7 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
     _=>return Err(error("invalid_provider","未找到当前服务的密钥；请在模型设置中重新保存对应密钥，或用配置的环境变量提供")),
    },
   };
+  let is_paper=document.is_some();
   let prepared=if let Some((source,options))=document{prepare_document(&mut journal,&dir,&config,&request_id,prompt,conversation_id.as_deref(),&source,&options)?}else{prepare_turn(&mut journal,&dir,&config,&request_id,prompt,conversation_id.as_deref(),isolated)?};
   if let Some((id,options))=new_binding{
    if let Err(e)=crate::paper::library(&storage)?.bind(&prepared.turn.conversation_id,&id,&options){
@@ -187,7 +195,8 @@ async fn start(app:tauri::AppHandle,storage:SharedStorage,state:Shared,request_i
   }
   let reply=Reply{turn:prepared.turn.clone(),saved:true,retry:None};s.last=Some(reply.clone());
   let (cancel,rx)=watch::channel(false);let id=request_id;let worker=state.clone();
-  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,prepared.media,prepared.document,rx));
+  let sleep_inhibitor=if is_paper{crate::keep_awake::begin(&app)}else{None};
+  let handle=tauri::async_runtime::spawn_blocking(move||run(app,worker,journal,prepared.turn,prepared.config,key,prepared.messages,prepared.consume_ids,dir,prepared.media,prepared.document,rx,sleep_inhibitor));
   s.active=Some(Active{id,cancel,handle:Some(handle)});Ok(reply)
  }).await.map_err(|_|ClientError::storage())?
 }
@@ -253,6 +262,15 @@ pub async fn delete_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri:
 pub async fn get_chat_history(storage:tauri::State<'_,SharedStorage>,page:usize)->Result<Vec<zwen_core::journal::Summary>,ClientError>{
  let storage=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||{let offset=page.checked_mul(20).ok_or(zwen_core::Error::InvalidChat)?;let journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;journal.history(offset,21).map_err(Into::into)}).await.map_err(|_|ClientError::storage())?
 }
+#[tauri::command]
+pub async fn get_inactive_conversations(storage:tauri::State<'_,SharedStorage>,after:String,cutoff:i64)->Result<Vec<zwen_core::journal::InactiveConversation>,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||{
+  let journal=Journal::open(&directory(&storage)?.join("chat.sqlite3"))?;
+  journal.inactive_conversations(&after,cutoff,30).map_err(Into::into)
+ }).await.map_err(|_|ClientError::storage())?
+}
+
 #[tauri::command]
 pub async fn get_chat_turn(storage:tauri::State<'_,SharedStorage>,chat:tauri::State<'_,Shared>,request_id:String)->Result<Option<Reply>,ClientError>{
  let storage=storage.inner().clone();let state=chat.inner().clone();tauri::async_runtime::spawn_blocking(move||{
@@ -349,6 +367,24 @@ pub async fn get_conversation_turns(storage:tauri::State<'_,SharedStorage>,chat:
   assert_eq!(prepared.messages[0].content,"private old context");assert_eq!(prepared.messages[1].content,"old answer");
   assert_eq!(prepared.messages[2].content,"question");assert_eq!(prepared.messages[2].images.len(),1);
   assert_eq!(prepared.consume_ids,vec![attachment]);
+ }
+ #[test]fn changing_reasoning_level_preserves_existing_chat_and_paper_context(){
+  let old=ProviderConfig::new("https://api.openai.com/v1","gpt-5.4","ZWEN_TEST_NEVER_READ").unwrap();
+  let new:ProviderConfig=serde_json::from_str(r#"{"baseUrl":"https://api.openai.com/v1","model":"gpt-5.4","keyEnv":"ZWEN_TEST_NEVER_READ","reasoningEffort":"high"}"#).unwrap();
+  let source=zwen_core::paper::Source{meta:zwen_core::paper::Metadata{id:"0123456789abcdef0123456789abcdef".into(),name:"paper.pdf".into(),page_count:1,readable_pages:1},pages:vec!["evidence".into()]};
+  for paper in [false,true]{
+   let dir=Scratch::new();let mut journal=Journal::open(&dir.0.join("chat.sqlite3")).unwrap();
+   let mut turn=journal.begin_in("existing","q",old.model(),None,&serde_json::to_string(&old).unwrap(),0).unwrap();
+   turn.revision=1;turn.state=TurnState::Complete;turn.answer="saved".into();journal.checkpoint(&turn).unwrap();
+   let prepared=if paper{
+    prepare_document(&mut journal,&dir.0,&new,"next","followup".into(),Some("existing"),&source,&zwen_core::paper::ReadingOptions{read_images:false,..Default::default()})
+   }else{
+    prepare_turn(&mut journal,&dir.0,&new,"next","followup".into(),Some("existing"),false)
+   }.unwrap();
+   assert_eq!(prepared.turn.context_turns,1);
+   assert_eq!(prepared.messages[1].content,"saved");
+   assert!(prepared.config.reasoning_setting().is_some());
+  }
  }
  #[test]fn paper_context_resends_source_without_opening_draft_screenshots(){
   let dir=Scratch::new();let config=config();let mut journal=history(&dir.0,&config);

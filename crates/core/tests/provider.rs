@@ -31,3 +31,35 @@ fn path()->std::path::PathBuf{let p=std::env::temp_dir().join(format!("zwen-prov
  let roundtrip:ProviderConfig=serde_json::from_str(&serde_json::to_string(&good).unwrap()).unwrap();
  assert_eq!(roundtrip,good);
 }
+
+#[test]
+fn reasoning_preference_survives_storage_without_changing_conversation_binding() {
+ let original = ProviderConfig::new("https://api.openai.com/v1", "gpt-5.4", "KEY").unwrap();
+ let preferred: ProviderConfig = serde_json::from_value(serde_json::json!({
+  "baseUrl":"https://api.openai.com/v1", "model":"gpt-5.4", "keyEnv":"KEY", "reasoningEffort":"high"
+ })).unwrap();
+ let p = path();
+ ProviderStore::open(&p).unwrap().save(0, preferred).unwrap();
+ let actual = ProviderStore::open(&p).unwrap().load().unwrap().config.unwrap();
+ assert_eq!(serde_json::to_value(&actual).unwrap()["reasoningEffort"], "high");
+ assert_eq!(actual.conversation_profile().unwrap(), serde_json::to_string(&original).unwrap());
+ assert!(serde_json::to_value(actual.with_model("gpt-4o").unwrap()).unwrap().get("reasoningEffort").is_none());
+ assert_eq!(serde_json::to_value(actual.with_model("gpt-5.4").unwrap()).unwrap()["reasoningEffort"], "high");
+ std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn reasoning_requires_an_official_endpoint_and_documented_model_level() {
+ for (endpoint, model, effort) in [
+  ("https://api.openai.com/v1", "gpt-5.4-chat-latest", "high"),
+  ("https://proxy.example/v1", "gpt-5.4", "high"),
+  ("https://api.openai.com.example/v1", "gpt-5.4", "high"),
+  ("https://api.openai.com:8443/v1", "gpt-5.4", "high"),
+  ("https://api.openai.com/v1/other", "gpt-5.4", "high"),
+  ("https://api.openai.com/v1", "o3", "none"),
+  ("https://api.deepseek.com/v1", "deepseek-v4-pro", "medium"),
+ ] {
+  let input = serde_json::json!({"baseUrl":endpoint,"model":model,"keyEnv":"KEY","reasoningEffort":effort});
+  assert!(serde_json::from_value::<ProviderConfig>(input).is_err(), "{endpoint} / {model} / {effort}");
+ }
+}

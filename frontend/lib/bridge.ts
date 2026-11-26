@@ -23,13 +23,22 @@ export const draftPort: DraftPort = isDesktop ? {
 };
 export const hideWindow = ()=>command<void>('hide_window');
 export const quitApp = ()=>command<void>('quit_app');
+import type {QuickSurface} from './preferences';
+export const loadQuickSurface = () => command<QuickSurface>('load_quick_surface');
+export const saveQuickSurface = (surface: QuickSurface) => command<QuickSurface>('save_quick_surface', {surface});
+export const getActiveTasks = () =>
+  command<{chatActive: boolean; organizeActive: boolean}>('get_active_tasks');
+export const confirmAppLeave = (title: string, detail: string, accept: string, cancel: string) =>
+  command<boolean>('confirm_app_leave', {title, detail, accept, cancel});
+export const loadKeepAwake = () => command<boolean>('load_keep_awake');
+export const saveKeepAwake = (enabled: boolean) => command<boolean>('save_keep_awake', {enabled});
 export const loadAutostart = ()=>command<boolean>('load_autostart');
 export const saveAutostart = (enabled: boolean)=>command<boolean>('save_autostart', {enabled});
 export const setAppLocale = (locale: string): Promise<void> => isDesktop
   ? command<void>('set_app_locale', {locale})
   : Promise.resolve();
 
-export const APP_VERSION = '0.0.2';
+export const APP_VERSION = '0.0.3';
 export const GITHUB_REPO_URL = 'https://github.com/DzIbupro/Zwen';
 export interface ReleaseCheck {
   status: 'update_available' | 'up_to_date' | 'no_release';
@@ -82,8 +91,11 @@ export const chatPort:ChatPort=isDesktop?{
  stop:requestId=>command<ChatReply|null>('stop_chat',{requestId}),settle:()=>command<ChatReply|null>('settle_chat'),
 }:{listen:async()=>()=>{},load:async()=>({reply:null,activeRequestId:null}),start:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中发送');},stop:async()=>null,settle:async()=>null};
 
-import type {HistoryPort,Summary} from './history';
+import type {HistoryPort,InactiveConversation,Summary} from './history';
 export const historyPort:HistoryPort=isDesktop?{list:page=>command<Summary[]>('get_chat_history',{page}),get:requestId=>command<ChatReply|null>('get_chat_turn',{requestId}),thread:conversationId=>command<ChatReply[]>('get_conversation_turns',{conversationId}),remove:requestId=>command<void>('delete_chat_turn',{requestId}),removeMany:requestIds=>command<number>('delete_chat_history',{scope:{kind:'selected',requestIds}}),clear:()=>command<number>('delete_chat_history',{scope:{kind:'all'}})}:{list:async()=>[],get:async()=>null,thread:async()=>[]};
+
+export const getInactiveConversations = (after: string, cutoff: number) =>
+ command<InactiveConversation[]>('get_inactive_conversations', {after, cutoff});
 
 import type {KnowledgePort,KnowledgeState} from './knowledge';
 import type {SaveNoteInput,Note,NoteMeta,TopicView,OrganizeSummaryView,SourceMetaInput,RelationView} from './knowledge';
@@ -130,12 +142,20 @@ export const attachmentPort:AttachmentPort=isDesktop?{
  listen:cb=>listen('attachments-changed',()=>cb()),
 }:{list:async()=>({items:[],capture:{state:'idle',requestId:null,replaceId:null},notice:null,max:3}),capture:async()=>{throw Error('浏览器仅用于预览，请在桌面应用中截图');},cancel:async()=>{},remove:async()=>{},listen:async()=>()=>{}};
 
-import type {QuickActionPort} from './quick-actions';
+import type {QuickActionConfig,QuickActionPort} from './quick-actions';
 import type {ActionOutputPort} from './action-output';
 export const quickActionPort:QuickActionPort={
  load:()=>command('load_quick_actions'),
  save:(expectedRevision,actions,outputDirectory)=>command('save_quick_actions',{expectedRevision,actions,outputDirectory}),
 };
+export const chooseExportDirectory = (expectedRevision: number) =>
+ command<QuickActionConfig | null>('choose_export_directory', {expectedRevision});
+export const openLocalDirectory = (exports: boolean) =>
+ command<void>('open_local_directory', {exports});
+export const loadBackgroundNotifications = () => command<boolean>('load_background_notifications');
+export const saveBackgroundNotifications = (enabled: boolean) =>
+ command<boolean>('save_background_notifications', {enabled});
+
 export const actionOutputPort:ActionOutputPort={save:({requestId,selection,actionId,actionName,outputDirectory})=>command('save_action_document',{requestId,selection,actionId,actionName,outputDirectory})};
 
 import {APPEARANCE_KEY,DEFAULT_APPEARANCE,parseAppearance,type Appearance,type AppearancePort} from './appearance';
@@ -145,6 +165,7 @@ export const appearancePort:AppearancePort=isDesktop?{load:()=>command<Appearanc
 };
 
 export const paperPort={
+ recentTurn:()=>command<string|null>('paper_recent_turn'),
  importPdf:(path:string)=>command<PaperMetadata>('paper_import_pdf',{path}),
  open:(paperId:string)=>command<void>('paper_open',{paperId}),
  get:(paperId:string)=>command<PaperMetadata>('paper_metadata',{paperId}),

@@ -2,7 +2,7 @@
 use crate::Error;
 use serde_json::{Value,json};
 use tokio::sync::watch;
-use zwen_core::{completion::{Message,FinishReason},paper::{Document,TOOL_TEXT_BUDGET},provider::{ProviderConfig,ApiKey},tool_completion::ToolDecoder};
+use zwen_core::{completion::{Message,FinishReason},paper::{Document,TOOL_TEXT_BUDGET},provider::{ProviderConfig,ApiKey,ReasoningProtocol},tool_completion::ToolDecoder};
 pub const MAX_REQUESTS:usize=6;
 pub async fn read(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,messages:&[Message],mut document:Document,cancel:watch::Receiver<bool>,mut text:impl FnMut(&str)->Result<(),()>)->Result<FinishReason,Error>{
  let mut used=0usize;
@@ -20,7 +20,7 @@ async fn run(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,messages
  for round in 0..MAX_REQUESTS{
   if *cancel.borrow()||cancel.has_changed().is_err(){return Err(Error::Cancelled);}
   let allow=round+1<MAX_REQUESTS&&budget>2048;
-  let body=json!({"model":config.model(),"messages":history,"stream":true,"tools":tools,"tool_choice":if allow{"auto"}else{"none"}});
+  let body=tool_request(config,&history,&tools,allow);
   if serde_json::to_vec(&body).map_err(|_|Error::InvalidInput)?.len()>256*1024{return Err(Error::DocumentBudget);}
   let mut decoder=ToolDecoder::default();let mut shown=0usize;let mut output_started=false;let can_show=document.has_read();
   let request_cancel=cancel.clone();
@@ -50,6 +50,34 @@ async fn run(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,messages
  Err(Error::DocumentTools)
 }
 
+fn tool_request(config:&ProviderConfig,history:&[Value],tools:&Value,allow:bool)->Value{
+ let mut body=json!({"model":config.model(),"messages":history,"stream":true,"tools":tools,"tool_choice":if allow{"auto"}else{"none"}});
+ // DeepSeek tool-mode reasoning requires replaying reasoning_content from
+ // previous assistant turns. The chat journal stores only final answer text.
+ let setting=config.reasoning_setting().filter(|(protocol,_)|*protocol!=ReasoningProtocol::DeepSeek);
+ crate::apply_reasoning(setting,&mut body);
+ body
+}
+
 fn emit(text:&mut impl FnMut(&str)->Result<(),()>,used:&mut usize,part:&str)->Result<(),Error>{
  if part.len()>(crate::MAX_RESPONSE_BYTES-8192).saturating_sub(*used){return Err(Error::TooLarge);}*used+=part.len();text(part).map_err(|_|Error::Delivery)
+}
+
+#[cfg(test)]
+mod tests {
+ use super::*;
+
+ #[test]
+ fn paper_tool_requests_keep_tools_and_use_supported_reasoning_parameters() {
+  let config = serde_json::from_value(json!({
+   "baseUrl":"https://trial.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+   "model":"qwen3.7-flash", "keyEnv":"KEY", "reasoningEffort":"low"
+  })).unwrap();
+  let tools = zwen_core::paper::tools();
+  let body = tool_request(&config, &[], &tools, true);
+  assert_eq!(body["tools"], tools);
+  assert_eq!(body["tool_choice"], "auto");
+  assert_eq!(body["enable_thinking"], true);
+  assert_eq!(body["thinking_budget"], 4096);
+ }
 }

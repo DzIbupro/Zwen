@@ -77,7 +77,7 @@
  </div>
 
  <div class="group-card">
-  <fieldset disabled={!state.loaded}><legend>{t('appearance.themeLegend')}</legend><div class="theme-options">
+  <fieldset id="theme-setting" tabindex="-1" disabled={!state.loaded}><legend>{t('appearance.themeLegend')}</legend><div class="theme-options">
    <label class:selected={state.theme==='light'}><input type="radio" name="interface-theme" value="light" checked={state.theme==='light'} onchange={()=>onTheme('light')}/><Icon name="sun" size={15}/><span>{t('appearance.light')}</span></label>
    <label class:selected={state.theme==='dark'}><input type="radio" name="interface-theme" value="dark" checked={state.theme==='dark'} onchange={()=>onTheme('dark')}/><Icon name="moon" size={15}/><span>{t('appearance.dark')}</span></label>
    <label class:selected={state.theme==='system'}><input type="radio" name="interface-theme" value="system" checked={state.theme==='system'} onchange={()=>onTheme('system')}/><Icon name="settings" size={15}/><span>{t('appearance.system')}</span></label>
@@ -115,7 +115,7 @@
    </select>
   </div>
 
-  <div class="custom-row">
+  <div class="custom-row" id="font-size-setting" tabindex="-1">
    <span class="custom-label">{t('appearance.fontSize')}</span>
    <div class="segmented" role="radiogroup" aria-label={t('appearance.fontSize')}>
     {#each fontSizes as item}
@@ -133,7 +133,7 @@
    </div>
   </div>
 
-  <div class="custom-row">
+  <div class="custom-row" id="reading-width-setting" tabindex="-1">
    <span class="custom-label">{t('appearance.readingWidth')}</span>
    <div class="segmented" role="radiogroup" aria-label={t('appearance.readingWidth')}>
     {#each widths as item}

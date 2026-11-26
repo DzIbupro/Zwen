@@ -28,7 +28,7 @@ pub fn refresh_locale(_app: &tauri::AppHandle) {
 pub fn dispatch(app:&tauri::AppHandle,id:&str){
  match action(id){
   Some(Action::Open)=>crate::launch(app,LaunchAction::Show,None),
-  Some(Action::Capsule)=>crate::launch(app,LaunchAction::Capsule,None),
+  Some(Action::Capsule)=>crate::launch(app,LaunchAction::Quick,None),
   Some(Action::Screenshot)=>crate::launch(app,LaunchAction::Screenshot,None),
   Some(Action::Settings)=>{
    let app=app.clone();let activate=crate::windows::activate(app.clone(),false);

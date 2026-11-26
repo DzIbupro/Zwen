@@ -133,12 +133,13 @@ it('organize flow: select, confirm gate, run, and undo refresh topics',async()=>
  expect(f.controller.state.lastBatch).toBeNull();
  expect(f.controller.state.notice).toContain('已撤销');
 });
-it('selection is capped at 8 and requires the confirm gate',async()=>{
+it('selection allows more than 8 notes and still requires the confirm gate',async()=>{
  const many=[...Array(10).keys()].map(i=>meta(String(i).padStart(32,'0')));
  const f=fixture(many);await f.controller.refresh();f.controller.enterOrganize();
  for(const n of many)f.controller.toggleSelect(n.id);
- expect(Object.keys(f.controller.state.selected).length).toBe(8);
+ expect(Object.keys(f.controller.state.selected).length).toBe(10);
  f.controller.toggleSelect(many[0].id);
+ expect(Object.keys(f.controller.state.selected).length).toBe(9);
  expect(f.controller.state.confirming).toBe(false);
  await f.controller.runOrganize('m');
  expect(f.controller.state.lastSummary).toBeNull(),"confirm gate blocks direct run";
@@ -225,10 +226,27 @@ it('deletion refreshes a shared topic count and removes deleted evidence from it
  await f.controller.loadTopics();await f.controller.openTopic('shared');await f.controller.remove(a.id);
  expect(f.controller.state.topics[0].count).toBe(1);expect(f.controller.state.topicView?.notes.map(n=>n.meta.id)).toEqual([b.id]);
 });
-it('explains the eight-note selection cap, preserves selected materials and clears only its own limit notice',async()=>{
- const notes=Array.from({length:9},(_,i)=>meta(i.toString(16).padStart(32,'0')));const f=fixture(notes);let calls=0;f.port.run=async ids=>{calls++;return{batchId:'fixture',topics:ids.length,assignments:ids.length};};await f.controller.refresh();f.controller.enterOrganize();
- for(const n of notes)f.controller.toggleSelect(n.id);
- expect(Object.keys(f.controller.state.selected)).toHaveLength(8);expect(f.controller.state.selected[notes[8].id]).toBeUndefined();expect(f.controller.state.notice).toContain('最多整理 8 篇');expect(calls).toBe(0);
- f.controller.toggleSelect(notes[0].id);expect(f.controller.state.notice).toBe('');f.controller.toggleSelect(notes[8].id);expect(Object.keys(f.controller.state.selected)).toHaveLength(8);
- f.controller.state.notice='合成保存失败';f.controller.toggleSelect(notes[1].id);expect(f.controller.state.notice).toBe('合成保存失败');
+it('selectAll and clearSelection manage arbitrary uncategorized note counts',async()=>{
+ const notes=Array.from({length:12},(_,i)=>meta(i.toString(16).padStart(32,'0')));
+ const f=fixture(notes);await f.controller.refresh();f.controller.enterOrganize();
+ f.controller.selectAll(notes.map(n=>n.id));
+ expect(Object.keys(f.controller.state.selected)).toHaveLength(12);
+ expect(f.controller.state.notice).toBe('');
+ f.controller.clearSelection();
+ expect(Object.keys(f.controller.state.selected)).toHaveLength(0);
+});
+
+it('rebuild reloads topics and relations and closes vanished topics',async()=>{
+ const a=meta('a'.repeat(32)),b=meta('b'.repeat(32));
+ const f=fixture([a,b]);
+ await f.controller.refresh();await f.controller.loadTopics();
+ await f.controller.openTopic('t-'+a.id);
+ let topicsCalls=0,relationsCalls=0;
+ f.port.topics=async()=>{topicsCalls++;return [{topic:{id:'t-'+b.id,name:'主题-b',column:'',createdBy:'ai',batchId:'b1',createdAt:1,locked:false},noteIds:[b.id],count:1}];};
+ f.port.listRelations=async()=>{relationsCalls++;return [];};
+ await f.controller.rebuild();
+ expect(topicsCalls).toBe(1);
+ expect(relationsCalls).toBe(1);
+ expect(f.controller.state.topicView).toBeNull();
+ expect(f.controller.state.topics).toHaveLength(1);
 });

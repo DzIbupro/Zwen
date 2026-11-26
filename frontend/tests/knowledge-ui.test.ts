@@ -56,3 +56,20 @@ it('a pending edit save locks fields until completion',async()=>{
  expect((target.querySelector('[data-note-body-input]') as HTMLTextAreaElement).disabled).toBe(false);
  await unmount(app);target.remove();controller.dispose();
 });
+
+it('organize panel only shows uncategorized notes and skips already organized ones',async()=>{
+ const n1={id:'a'.repeat(32),title:'已归类笔记',createdAt:1,source:'chat',model:'m',attachments:[]};
+ const n2={id:'b'.repeat(32),title:'未归类笔记',createdAt:2,source:'chat',model:'m',attachments:[]};
+ const controller=new KnowledgeController({} as KnowledgePort,()=>{});
+ controller.state.notes=[n1,n2];
+ controller.state.topics=[{topic:{id:'t1',name:'主题A',column:'',createdBy:'ai',batchId:'b1',createdAt:1,locked:false},noteIds:[n1.id],count:1}];
+ controller.state.organizeMode=true;
+ const target=document.createElement('div');document.body.append(target);
+ const app=mount(KnowledgePanel,{target,props:{controller,info:controller.state,onTrace:()=>{},onSaveEdit:async()=>null,modelLabel:'测试模型'}});
+ flushSync();
+ expect(target.querySelector(`[data-select="${n1.id}"]`)).toBeNull();
+ expect(target.querySelector(`[data-select="${n2.id}"]`)).not.toBeNull();
+ expect(target.textContent).toContain('未归类 1 篇');
+ expect(target.textContent).toContain('已归类 1 篇');
+ await unmount(app);target.remove();controller.dispose();
+});

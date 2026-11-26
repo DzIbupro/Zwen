@@ -1,5 +1,8 @@
-import {it,expect} from 'vitest';
-import {ProviderController,type ProviderView,type ProviderConfig} from '../lib/provider';
+import {it,expect,vi} from 'vitest';
+import {mount,unmount,flushSync} from 'svelte';
+vi.mock('svelte',()=>vi.importActual<typeof import('svelte')>('../../node_modules/svelte/src/index-client.js'));
+import ProviderSettings from '../ProviderSettings.svelte';
+import {ProviderController,reasoningLevelsOf,type ProviderView,type ProviderConfig,type SettingsState} from '../lib/provider';
 const config:ProviderConfig={baseUrl:'https://models.example/v1',model:'a',keyEnv:'KEY'};
 function port(load:()=>Promise<ProviderView>,save:(r:number,c:ProviderConfig)=>Promise<ProviderView>,secret:{save?:boolean;clear?:boolean}={}){
  return {
@@ -56,4 +59,60 @@ it('a failed secret clear reports and keeps the stored keySource',async()=>{
 });
 it('refuses saving a secret while provider fields are dirty',async()=>{
  let writes=0;const p=port(async()=>({config,revision:3,keyAvailable:false}),async()=>({config,revision:4,keyAvailable:false}));p.saveSecret=async()=>{writes++;};const c=new ProviderController(p,()=>{});await c.load();c.edit('baseUrl','https://other.example/v1');await c.saveSecret('other-key');expect(writes).toBe(0);expect(c.state.fields.baseUrl).toBe('https://other.example/v1');expect(c.state.secretNotice).toContain('先保存');
+});
+
+it('offers only the configured pair’s levels and sends the selected preference', async()=>{
+ const model:ProviderConfig={baseUrl:'https://api.openai.com/v1',model:'gpt-5.4',keyEnv:'KEY'};
+ let sent:ProviderConfig|undefined;
+ const c=new ProviderController(port(
+  async()=>({config:model,revision:1,keyAvailable:true,reasoningLevels:['low','high']}),
+  async(_r,next)=>{sent=next;return {config:next,revision:2,keyAvailable:true,reasoningLevels:['low','high']};}
+ ),()=>{});
+ await c.load();
+ expect(reasoningLevelsOf(c.state)).toEqual(['low','high']);
+ expect(c.state.fields.reasoningEffort).toBeUndefined();
+ c.edit('reasoningEffort','high');
+ await c.save();
+ expect(sent?.reasoningEffort).toBe('high');
+ c.edit('reasoningEffort','');
+ await c.save();
+ expect(sent?.reasoningEffort).toBeUndefined();
+});
+
+it('does not carry a selected level to an edited endpoint', async()=>{
+ const model:ProviderConfig={baseUrl:'https://api.openai.com/v1',model:'gpt-5.4',keyEnv:'KEY',reasoningEffort:'high'};
+ let sent:ProviderConfig|undefined;
+ const c=new ProviderController(port(
+  async()=>({config:model,revision:1,keyAvailable:true,reasoningLevels:['low','high']}),
+  async(_r,next)=>{sent=next;return {config:next,revision:2,keyAvailable:true,reasoningLevels:[]};}
+ ),()=>{});
+ await c.load();
+ c.edit('baseUrl','https://proxy.example/v1');
+ expect(reasoningLevelsOf(c.state)).toEqual([]);
+ await c.save();
+ expect(sent?.reasoningEffort).toBeUndefined();
+ expect(c.state.status).toBe('saved');
+});
+
+it('renders service default alongside only the available levels', async()=>{
+ const target=document.createElement('div');
+ document.body.append(target);
+ const onEdit=vi.fn();
+ const model:ProviderConfig={baseUrl:'https://api.openai.com/v1',model:'gpt-5.4',keyEnv:'KEY'};
+ const settings:SettingsState={
+  config:model,fields:model,revision:1,reasoningLevels:['low','high'],keyAvailable:true,
+  status:'saved',loaded:true,error:null,secretSaving:false,secretNotice:null,
+ };
+ const app=mount(ProviderSettings,{target,props:{
+  settings,desktop:true,onEdit,onSave:()=>{},onReload:()=>{},onSaveSecret:async()=>{},onClearSecret:async()=>{},
+ }});
+ try{
+  flushSync();
+  const select=target.querySelector<HTMLSelectElement>('#reasoning-effort')!;
+  expect([...select.options].map(option=>option.value)).toEqual(['','low','high']);
+  expect(select.value).toBe('');
+  select.value='low';
+  select.dispatchEvent(new Event('change',{bubbles:true}));
+  expect(onEdit).toHaveBeenCalledWith('reasoningEffort','low');
+ }finally{await unmount(app);target.remove();}
 });

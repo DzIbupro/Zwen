@@ -41,7 +41,6 @@ export interface KnowledgeState {notes:NoteMeta[];query:string;current:Note|null
 
 export interface NoteEditDraft {title:string;body:string;sourceTitle:string;sourceUrl:string;sourceLoc:string}
 
-const ORGANIZE_LIMIT_NOTICE='每次最多整理 8 篇笔记；请先整理当前所选，再选择其他笔记。';
 export class KnowledgeController {
  private navigation=0;
  private editorDrafts=new Map<string,NoteEditDraft>();
@@ -165,18 +164,29 @@ export class KnowledgeController {
  }
  enterOrganize(){
   if(this.disposed||this.state.busy)return;
+  this.rounds?.dismissResult();
   this.publish({organizeMode:true,selected:{},confirming:false,lastSummary:null,notice:''});
  }
- exitOrganize():void{this.publish({organizeMode:false,selected:{},confirming:false});}
+ exitOrganize():void{
+  this.rounds?.dismissResult();
+  this.publish({organizeMode:false,selected:{},confirming:false});
+ }
  toggleSelect(id:string){
   if(this.disposed)return;
   const selected={...this.state.selected};
   if(selected[id])delete selected[id];
-  else{
-   if(!this.rounds&&Object.keys(selected).length>=8){this.publish({notice:ORGANIZE_LIMIT_NOTICE});return;}
-   selected[id]=true;
-  }
-  this.publish({selected,...(this.state.notice===ORGANIZE_LIMIT_NOTICE?{notice:''}:{})});
+  else selected[id]=true;
+  this.publish({selected});
+ }
+ selectAll(ids:string[]){
+  if(this.disposed)return;
+  const selected:Record<string,boolean>={};
+  for(const id of ids)selected[id]=true;
+  this.publish({selected});
+ }
+ clearSelection(){
+  if(this.disposed)return;
+  this.publish({selected:{}});
  }
  async runOrganize(modelLabel:string){
   if(this.disposed||this.state.organizeBusy)return;
@@ -296,6 +306,14 @@ export class KnowledgeController {
   }
   this.publish({busy:false});
   await this.refresh();
+  await this.loadTopics();
+  await this.loadRelations();
+  if(this.state.topicView&&!this.state.topics.some(topic=>topic.topic.id===this.state.topicView!.id)){
+   this.publish({topicView:null});
+  }
+  if(!this.state.query&&this.state.current&&!this.state.notes.some(note=>note.id===this.state.current!.meta.id)){
+   this.publish({current:null});
+  }
  }
  dispose():void{this.disposed=true;this.rounds?.dispose();}
 }

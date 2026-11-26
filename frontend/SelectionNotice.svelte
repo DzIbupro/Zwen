@@ -2,32 +2,32 @@
   import type {SelectionState} from './lib/selection';
  import type {QuickAction} from './lib/quick-actions';
  import {t} from './lib/i18n.svelte';
- let {state,onRetry,onDiscard,onAction,onSettings,actions=[],actionBusy=false}:{state:SelectionState;onRetry:()=>void;onDiscard:()=>void;onReload:()=>void;onAction?:(id:string)=>void;onSettings?:()=>void;actions?:QuickAction[];actionBusy?:boolean}=$props();
+ let {state:selState,onRetry,onDiscard,onAction,onSettings,actions=[],actionBusy=false}:{state:SelectionState;onRetry:()=>void;onDiscard:()=>void;onReload:()=>void;onAction?:(id:string)=>void;onSettings?:()=>void;actions?:QuickAction[];actionBusy?:boolean}=$props();
  const translateLabel=$derived(actions.find(a=>a.id==='translate')?.name||'翻译');
  const explainLabel=$derived(actions.find(a=>a.id==='explain')?.name||'详细解释');
- let noticeEl:HTMLDivElement|undefined;
+ let noticeEl=$state<HTMLDivElement|undefined>(undefined);
  function handleOutsidePointer(event:PointerEvent){
-  if(!state.pending||state.busy||actionBusy||!noticeEl)return;
+  if(!selState.pending||selState.busy||actionBusy||!noticeEl)return;
   if(event.target instanceof Node&&!noticeEl.contains(event.target)){onDiscard();}
  }
 </script>
 <svelte:window onpointerdown={handleOutsidePointer}/>
-{#if state.busy||state.notice||state.pending}
+{#if selState.busy||selState.notice||selState.pending}
  <div bind:this={noticeEl} class="selection-notice" role="status" data-selection-state>
-  <span>{state.busy?'正在处理选区…':state.notice}</span>
-  {#if state.pending}
-   <details><summary>查看待处理选区</summary><pre>{state.pending.text||state.pending.error}</pre></details>
-   {#if state.pending.text&&state.pending.mode==='candidate'&&onAction}
+  <span>{selState.busy?'正在处理选区…':selState.notice}</span>
+  {#if selState.pending}
+   <details><summary>查看待处理选区</summary><pre>{selState.pending.text||selState.pending.error}</pre></details>
+   {#if selState.pending.text&&selState.pending.mode==='candidate'&&onAction}
     <div class="selection-actions" aria-label="划词操作" data-selection-menu>
-     <button data-selection-action="ask" disabled={state.busy||actionBusy} onclick={()=>onAction?.('ask')}>{t('selection.askZwen')}</button>
-     <button data-selection-action="translate" disabled={state.busy||actionBusy||!actions.some(a=>a.id==='translate'&&a.enabled)} onclick={()=>onAction?.('translate')}>{translateLabel}</button>
-     <button data-selection-action="explain" disabled={state.busy||actionBusy||!actions.some(a=>a.id==='explain'&&a.enabled)} onclick={()=>onAction?.('explain')}>{explainLabel}</button>
+     <button data-selection-action="ask" disabled={selState.busy||actionBusy} onclick={()=>onAction?.('ask')}>{t('selection.askZwen')}</button>
+     <button data-selection-action="translate" disabled={selState.busy||actionBusy||!actions.some(a=>a.id==='translate'&&a.enabled)} onclick={()=>onAction?.('translate')}>{translateLabel}</button>
+     <button data-selection-action="explain" disabled={selState.busy||actionBusy||!actions.some(a=>a.id==='explain'&&a.enabled)} onclick={()=>onAction?.('explain')}>{explainLabel}</button>
      <details class="other-actions"><summary>{t('selection.more')}</summary><div>
-      {#each actions.filter(a=>a.enabled&&a.id!=='translate'&&a.id!=='explain') as action(action.id)}<button data-selection-action={action.id} disabled={state.busy||actionBusy} onclick={()=>onAction?.(action.id)}>{action.name}{action.output==='document'?' · 保存文档':''}</button>{/each}
+      {#each actions.filter(a=>a.enabled&&a.id!=='translate'&&a.id!=='explain') as action(action.id)}<button data-selection-action={action.id} disabled={selState.busy||actionBusy} onclick={()=>onAction?.(action.id)}>{action.name}{action.output==='document'?' · 保存文档':''}</button>{/each}
       <button data-selection-settings onclick={onSettings}>{t('selection.manage')}</button>
      </div></details>
     </div>
-   {:else if state.pending.text}<button disabled={state.busy} onclick={onRetry}>{state.inserted?'重试保存并确认':state.pending.mode==='candidate'?'添加到草稿':'已检查草稿，重新添加'}</button>{/if}
+   {:else if selState.pending.text}<button disabled={selState.busy} onclick={onRetry}>{selState.inserted?'重试保存并确认':selState.pending.mode==='candidate'?'添加到草稿':'已检查草稿，重新添加'}</button>{/if}
   {/if}
  </div>
 {/if}

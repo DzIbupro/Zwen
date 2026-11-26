@@ -1,11 +1,12 @@
 <script lang="ts">
  import {knowledgeColumns} from './lib/knowledge-columns';
  import OrganizeRoundPanel from './OrganizeRoundPanel.svelte';
+ import type {OrganizeResultNotice} from './lib/organize-round';
  import {untrack} from 'svelte';
  import {renderMarkdown} from './lib/render';import {proseLinkClick} from './lib/links';import {openExternal} from './lib/bridge';
  import type {KnowledgeController,KnowledgeState,NoteMeta} from './lib/knowledge';
  import {getLocale,t} from './lib/i18n.svelte';
- let {controller,info,onTrace,onSaveEdit,modelLabel}:{controller:KnowledgeController;info:KnowledgeState;onTrace:(requestId:string)=>void;onSaveEdit:(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null})=>Promise<NoteMeta|null>;modelLabel:string}=$props();
+ let {controller,info,onTrace,onSaveEdit,modelLabel,notificationResult,onDismissResult}:{controller:KnowledgeController;info:KnowledgeState;onTrace:(requestId:string)=>void;onSaveEdit:(id:string,title:string,body:string,source:{sourceTitle?:string|null;sourceUrl?:string|null;sourceLoc?:string|null})=>Promise<NoteMeta|null>;modelLabel:string;notificationResult?:OrganizeResultNotice|null;onDismissResult?:()=>void}=$props();
  let selectedColumn=$state<string|null>(null);
  const columns=$derived(knowledgeColumns(info.topics));
  const columnTopics=$derived(columns.find(c=>c.name===selectedColumn)?.topics??[]);
@@ -28,9 +29,19 @@
  let govArmed: boolean = $state(false);
  function remember(){if(info.current)controller.rememberEditorDraft(info.current.meta.id,{title:editTitle,body:editBody,sourceTitle:srcTitle,sourceUrl:srcUrl,sourceLoc:srcLoc});}
  const dateText=(value:number)=>new Date(value*1000).toLocaleString(getLocale(),{dateStyle:'short',timeStyle:'short'});
- const selectedCount=$derived(Object.keys(info.selected).length);
+ const organizedIds=$derived(new Set(info.topics.flatMap(topic=>topic.noteIds)));
+ const uncategorizedNotes=$derived(info.notes.filter(note=>!organizedIds.has(note.id)));
+ const organizedCount=$derived(info.notes.length-uncategorizedNotes.length);
+ const selectedUncategorizedIds=$derived(uncategorizedNotes.filter(note=>info.selected[note.id]===true).map(note=>note.id));
+ const selectedCount=$derived(selectedUncategorizedIds.length);
 </script>
 <section class="knowledge" data-knowledge aria-label={t('title.knowledge')}>
+ {#if notificationResult}
+  <div class="knowledge-notice notification-result" role="status" data-organize-notification-result>
+   <span>{t(notificationResult.success?'knowledge.notificationComplete':'knowledge.notificationIncomplete',{done:notificationResult.completed,total:notificationResult.total})}</span>
+   <button onclick={onDismissResult}>{t('knowledge.close')}</button>
+  </div>
+ {/if}
  {#if info.current}
   <div class="note-detail" data-note-detail>
    {#if info.notice}<div class="knowledge-notice" role="status">{info.notice}</div>{/if}
@@ -55,16 +66,33 @@
   </div>
  {:else if info.organizeMode}
   <div class="organize" data-organize-panel>
-   <div class="knowledge-bar organize-toolbar"><button onclick={()=>controller.exitOrganize()}>← 返回列表</button><strong class="organize-title">AI 整理</strong></div>
+   <div class="knowledge-bar organize-toolbar">
+    <button onclick={()=>controller.exitOrganize()}>← 返回列表</button>
+    <strong class="organize-title">AI 整理</strong>
+    <span class="organize-stat">未归类 {uncategorizedNotes.length} 篇 · 已归类 {organizedCount} 篇</span>
+   </div>
    {#if controller.rounds}
-    <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏（开启即同意将以后新收藏的标题与正文及已有主题目录发送给当前模型 {modelLabel}；更换模型后需重新开启）</label>
-    <OrganizeRoundPanel controller={controller.rounds} state={info.roundState??controller.rounds.state} notes={info.notes} selected={info.selected} onToggle={id=>controller.toggleSelect(id)}/>
+    <div class="auto-row-wrap">
+     <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏</label>
+     <details class="hint-disclosure inline-hint"><summary>说明</summary><div class="hint-disclosure-body"><p>开启后，以后新收藏的笔记会自动发送给当前模型（{modelLabel}）归纳主题；更换模型后需重新开启。</p></div></details>
+    </div>
+    <OrganizeRoundPanel
+     controller={controller.rounds}
+     state={info.roundState??controller.rounds.state}
+     {uncategorizedNotes}
+     {organizedCount}
+     selected={info.selected}
+     onToggle={id=>controller.toggleSelect(id)}
+     onSelectAll={ids=>controller.selectAll(ids)}
+     onClearSelection={()=>controller.clearSelection()}
+     onDone={()=>{controller.exitOrganize();void controller.loadTopics();}}
+    />
    {:else if info.confirming}
     <div class="organize-confirm" data-organize-confirm-view>
-     <p><strong>确认整理</strong> — 本次将把 <b>{selectedCount} 篇</b>笔记的标题与正文、已有主题目录发送给模型 <b>{modelLabel}</b> 进行主题归纳。</p>
-     <ul class="confirm-list">{#each Object.keys(info.selected) as id}{#if info.notes.find(n=>n.id===id)}<li>{info.notes.find(n=>n.id===id)!.title}</li>{/if}{/each}</ul>
-     <details class="hint-disclosure"><summary>整理规则说明</summary><div class="hint-disclosure-body"><p>整理结果带 AI 标记并可整批撤销；不会修改笔记原文。</p></div></details>
-     <div class="editor-actions"><button disabled={info.organizeBusy} onclick={()=>controller.cancelConfirm()}>返回</button><button class="primary-edit" data-organize-go disabled={info.organizeBusy} onclick={()=>void controller.runOrganize(modelLabel)}>{info.organizeBusy?'正在整理…':'确认整理'}</button></div>
+     <p><strong>确认整理</strong> — 本次将把 <b>{selectedCount} 篇</b>未归类笔记发送给模型 <b>{modelLabel}</b> 进行主题归纳。</p>
+     <ul class="confirm-list">{#each selectedUncategorizedIds as id}{#if info.notes.find(n=>n.id===id)}<li>{info.notes.find(n=>n.id===id)!.title}</li>{/if}{/each}</ul>
+     <details class="hint-disclosure"><summary>整理说明</summary><div class="hint-disclosure-body"><p>仅整理未归类笔记，不会修改原文，完成后可随时撤销。</p></div></details>
+     <div class="editor-actions"><button disabled={info.organizeBusy} onclick={()=>controller.cancelConfirm()}>取消</button><button class="primary-edit" data-organize-go disabled={info.organizeBusy} onclick={()=>void controller.runOrganize(modelLabel)}>{info.organizeBusy?'正在整理…':'开始整理'}</button></div>
     </div>
    {:else if info.lastSummary}
     <div class="organize-result" data-organize-result>
@@ -72,14 +100,20 @@
      <div class="editor-actions"><button data-organize-undo disabled={info.organizeBusy} onclick={()=>void controller.undoLast()}>{info.organizeBusy?'正在撤销…':'撤销本次整理'}</button><button class="primary-edit" onclick={()=>{controller.exitOrganize();void controller.loadTopics();}}>完成</button></div>
     </div>
    {:else}
-    <label class="auto-row" title={`开启即同意将以后新收藏的标题与正文及已有主题目录发送给当前模型 ${modelLabel} 归纳主题；更换模型后需重新开启`}><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏</label>
-    <details class="hint-disclosure"><summary>手动与自动整理说明</summary><div class="hint-disclosure-body"><p>勾选 1–8 篇笔记后将发送给 {modelLabel} 归纳主题；开启自动整理后，新收藏的笔记也会自动归纳（更换模型后需重新开启）。</p></div></details>
-    <ul class="note-list organize-select">
-     {#each info.notes as note (note.id)}
-      <li><label class="organize-row"><input type="checkbox" data-select={note.id} checked={info.selected[note.id]===true} onchange={()=>controller.toggleSelect(note.id)}/><span><strong>{note.title}</strong><small>{dateText(note.createdAt)}</small></span></label></li>
-     {/each}
-    </ul>
-    <div class="editor-actions"><span class="organize-hint">已选 {selectedCount}/8</span><button disabled={selectedCount===0} onclick={()=>controller.startConfirm()} data-organize-confirm>发起整理</button></div>
+    <div class="auto-row-wrap">
+     <label class="auto-row"><input type="checkbox" data-auto-toggle checked={info.auto} onchange={e=>void controller.setAuto(e.currentTarget.checked)}/>自动整理新收藏</label>
+     <details class="hint-disclosure inline-hint"><summary>说明</summary><div class="hint-disclosure-body"><p>仅整理未归类的笔记；开启自动整理后，新收藏的笔记也会自动发送给 {modelLabel} 归纳主题（更换模型后需重新开启）。</p></div></details>
+    </div>
+    {#if uncategorizedNotes.length===0}
+     <p class="knowledge-empty">所有笔记均已归类，暂无需要整理的新笔记。</p>
+    {:else}
+     <ul class="note-list organize-select">
+      {#each uncategorizedNotes as note (note.id)}
+       <li><label class="organize-row"><input type="checkbox" data-select={note.id} checked={info.selected[note.id]===true} onchange={()=>controller.toggleSelect(note.id)}/><span><strong>{note.title}</strong><small>{dateText(note.createdAt)}</small></span></label></li>
+      {/each}
+     </ul>
+     <div class="editor-actions"><span class="organize-hint">已选 {selectedCount} / {uncategorizedNotes.length} 篇</span><button disabled={selectedCount===0} onclick={()=>controller.startConfirm()} data-organize-confirm>整理已选</button></div>
+    {/if}
    {/if}
    {#if info.notice}<div class="knowledge-notice" role="status">{info.notice}</div>{/if}
   </div>
@@ -89,7 +123,7 @@
    <input aria-label={t('knowledge.searchPlaceholder')} data-knowledge-search type="search" placeholder={t('knowledge.searchPlaceholder')} value={info.query} oninput={e=>{void controller.refresh(e.currentTarget.value);}}/>
    <button data-export-all disabled={info.busy} onclick={()=>void controller.exportAll().then(path=>{if(path)exportMsg=`已导出全部笔记到 ${path}`;})}>{t('knowledge.exportAll')}</button>
    <button data-organize-start disabled={info.busy} onclick={()=>{controller.enterOrganize();void controller.loadTopics();}}>{t('knowledge.aiOrganize')}</button>
-   <button data-knowledge-rebuild disabled={info.busy} title={t('knowledge.rebuild')} onclick={()=>void controller.rebuild()}>{t('knowledge.rebuild')}</button>
+   <button data-knowledge-rebuild disabled={info.busy} title="从本地 Markdown 文件重新同步笔记与主题索引" onclick={()=>void controller.rebuild()}>{t('knowledge.rebuild')}</button>
   </div>
   {#if info.topics.length>0&&!info.query}
    <div class="column-heading"><p class="topics-label">{t('knowledge.columns')}</p></div>
@@ -135,6 +169,7 @@
  .knowledge-functions button{min-height:36px;padding:6px 12px;font-size:13px;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
  .knowledge-functions [data-organize-start]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
  @media(hover:hover) and (pointer:fine){.knowledge-functions [data-organize-start]:hover:not(:disabled){background:var(--accent);opacity:.9;color:var(--on-accent)}}
+ .notification-result{display:flex;justify-content:space-between;align-items:center;gap:12px}
  .knowledge-notice{font-size:13px;color:var(--muted);background:var(--surface-soft);border:1px solid var(--edge);border-radius:var(--radius-control);padding:8px 12px;margin-bottom:12px}
  .knowledge-empty{color:var(--muted);font-size:13.5px;line-height:1.7;text-align:center;padding:42px 16px;border:1px dashed var(--edge);border-radius:var(--radius-card);background:var(--surface)}
 
@@ -173,12 +208,14 @@
 
  .organize-toolbar{gap:10px;padding-bottom:12px;border-bottom:1px solid var(--edge);margin-bottom:14px}
  .organize-title{margin:0;font-size:16px;font-weight:600}
+ .organize-stat{margin-left:auto;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
  .organize-hint{font-size:12.5px;color:var(--muted)}
  .organize-row{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--edge);border-radius:var(--radius-control);background:var(--surface);cursor:pointer}
  .organize-confirm,.organize-result{border:1px solid var(--edge);border-radius:var(--radius-card);background:var(--surface);padding:16px}
  .organize-confirm p,.organize-result p{font-size:13.5px;line-height:1.65;margin:0 0 10px}
  .confirm-list{margin:8px 0;padding-left:20px;font-size:13px;color:var(--muted);line-height:1.7}
- .auto-row{display:flex;gap:8px;align-items:center;font-size:13.5px;font-weight:500;color:var(--text);margin-bottom:8px;cursor:pointer}
+ .auto-row-wrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+ .auto-row{display:inline-flex;gap:8px;align-items:center;font-size:13.5px;font-weight:500;color:var(--text);cursor:pointer}
 
  .topic-view{background:var(--surface);border:1px solid var(--edge);border-radius:var(--radius-card);padding:16px}
  .gov{margin-top:14px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--edge);padding-top:12px}

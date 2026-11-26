@@ -5040,7 +5040,7 @@ dependencies = [
 
 [[package]]
 name = "zwen-core"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "libc",
  "png",
@@ -5053,7 +5053,7 @@ dependencies = [
 
 [[package]]
 name = "zwen-desktop"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "base64 0.23.1",
  "gtk",
@@ -5075,7 +5075,7 @@ dependencies = [
 
 [[package]]
 name = "zwen-transport"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "chrono",
  "reqwest",

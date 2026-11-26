@@ -1,5 +1,6 @@
 import type {ChatReply} from './chat';
 export interface Summary {requestId:string;conversationId:string;title:string;model:string;state:ChatReply['state'];createdAt:number}
+export interface InactiveConversation {latest:Summary;memberIds:string[]}
 export interface HistoryPort {list(page:number):Promise<Summary[]>;get(id:string):Promise<ChatReply|null>;thread?(conversationId:string):Promise<ChatReply[]>;remove?(id:string):Promise<void>;removeMany?(ids:string[]):Promise<number>;clear?():Promise<number>}
 export interface HistoryState {items:Summary[];selected:ChatReply|null;page:number;hasMore:boolean;loading:boolean;deleting:boolean;checked:Record<string,boolean>;notice:string|null;error:string|null}
 export class HistoryController {

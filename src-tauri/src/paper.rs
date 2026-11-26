@@ -93,6 +93,16 @@ fn import(storage:&SharedStorage,path:PathBuf)->Result<Metadata,ClientError>{
  let name=path.file_name().and_then(|s|s.to_str()).unwrap_or("论文.pdf");lib.add(&id,name,&bytes,pages).map_err(error)
 }
 #[tauri::command]
+pub async fn paper_recent_turn(storage:tauri::State<'_,SharedStorage>)->Result<Option<String>,ClientError>{
+ let storage=storage.inner().clone();
+ tauri::async_runtime::spawn_blocking(move||{
+  let dir=storage.directory.as_ref().map_err(Clone::clone)?;
+  let path=dir.join("chat.sqlite3");
+  if !path.is_file(){return Ok(None);}
+  zwen_core::journal::Journal::open(&path)?.latest_paper_turn_id().map_err(Into::into)
+ }).await.map_err(|_|ClientError::storage())?
+}
+#[tauri::command]
 pub async fn paper_sessions(storage:tauri::State<'_,SharedStorage>,paper_id:String)->Result<Vec<zwen_core::journal::Turn>,ClientError>{
  let s=storage.inner().clone();tauri::async_runtime::spawn_blocking(move||{
   let lib=library(&s)?;let ids=lib.sessions(&paper_id).map_err(error)?;
@@ -117,14 +127,11 @@ pub async fn paper_export(storage:tauri::State<'_,SharedStorage>,request_id:Stri
   let turn=journal.find(&request_id)?.ok_or_else(ClientError::storage)?;
   let (source,options)=library(&s)?.session(&turn.conversation_id).map_err(error)?.ok_or_else(ClientError::storage)?;
   if turn.state==zwen_core::journal::TurnState::Streaming||turn.answer.is_empty(){return Err(ClientError{code:"paper_export",message:"请等待请求结束并保存后导出".into()});}
-  let home=std::env::var("HOME").map_err(|_|ClientError::storage())?;
-  let target=crate::notes::export_target(&source.meta.name,&random_id()?,std::path::Path::new(&home))?;
-  let mut opt=fs::OpenOptions::new();opt.write(true).create_new(true);
-  #[cfg(unix)]{use std::os::unix::fs::OpenOptionsExt;opt.mode(0o600);}
-  let mut f=opt.open(&target).map_err(|_|ClientError::storage())?;
+  let target=crate::notes::export_target(&source.meta.name,&random_id()?,dir)?;
   let media=if options.read_images{"已提交所选范围的每一页完整图像，含原版面、图表与公式；识别及解释仍需原文核对。"}else{"仅提交提取文字，图表图像未读取，公式与引用需核对。"};
   let markdown=format!("# {}\n\n模型：{}；状态：{:?}；PDF物理页：{}–{} / {}\n\n{media}\n\n## 本轮问题\n\n{}\n\n{}",source.meta.name,turn.model,turn.state,options.start_page,if options.end_page==0{source.meta.page_count}else{options.end_page},source.meta.page_count,turn.prompt,turn.answer);
-  f.write_all(markdown.as_bytes()).and_then(|_|f.sync_all()).map_err(|_|ClientError::storage())?;Ok(target.to_string_lossy().into_owned())
+  crate::quick_actions::write_export_file(&target,markdown.as_bytes(),false)?;
+  Ok(target.to_string_lossy().into_owned())
  }).await.map_err(|_|ClientError::storage())?
 }
 

@@ -5,15 +5,33 @@ use serde::{Deserialize,Serialize};
 use std::{fmt,path::Path};
 use url::{Url,Host};
 
+#[derive(Clone,Copy,Debug,PartialEq,Eq,Serialize,Deserialize)]
+#[serde(rename_all="lowercase")]
+pub enum ReasoningEffort { None, Minimal, Low, Medium, High, XHigh, Max }
+
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum ReasoningProtocol { Effort, DeepSeek, QwenBudget }
+
 #[derive(Clone,Debug,PartialEq,Serialize,Deserialize)]
 #[serde(rename_all="camelCase",try_from="Input")]
-pub struct ProviderConfig {base_url:String,model:String,key_env:String,#[serde(skip_serializing_if="Option::is_none")] image_model:Option<String>}
+pub struct ProviderConfig {
+ base_url:String,model:String,key_env:String,
+ #[serde(skip_serializing_if="Option::is_none")] image_model:Option<String>,
+ #[serde(skip_serializing_if="Option::is_none")] reasoning_effort:Option<ReasoningEffort>,
+}
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct Input {base_url:String,model:String,key_env:String,#[serde(default)] image_model:Option<String>}
+struct Input {base_url:String,model:String,key_env:String,image_model:Option<String>,reasoning_effort:Option<ReasoningEffort>}
 impl TryFrom<Input> for ProviderConfig {
  type Error=Error;
- fn try_from(v:Input)->Result<Self,Error>{Self::build(&v.base_url,&v.model,&v.key_env,v.image_model.as_deref())}
+ fn try_from(v:Input)->Result<Self,Error>{
+  let mut config=Self::build(&v.base_url,&v.model,&v.key_env,v.image_model.as_deref())?;
+  if let Some(effort)=v.reasoning_effort {
+   if !config.reasoning_levels().contains(&effort){return Err(Error::InvalidProvider);}
+   config.reasoning_effort=Some(effort);
+  }
+  Ok(config)
+ }
 }
 fn clean_model_name(value:&str)->Result<Option<String>,Error>{
  let model=value.trim();
@@ -33,7 +51,7 @@ impl ProviderConfig {
   if !(url.scheme()=="https"||(url.scheme()=="http"&&loopback))||url.host().is_none()||!url.username().is_empty()||url.password().is_some()||url.query().is_some()||url.fragment().is_some(){return Err(Error::InvalidProvider);}
   let model=model.trim();let key_env=key_env.trim();
   if model.is_empty()||model.len()>200||model.chars().any(char::is_control)||key_env.is_empty()||key_env.len()>128||!key_env.bytes().all(|b|b.is_ascii_uppercase()||b.is_ascii_digit()||b==b'_')||key_env.as_bytes()[0].is_ascii_digit(){return Err(Error::InvalidProvider);}
-  Ok(Self{base_url:url.as_str().trim_end_matches('/').into(),model:model.into(),key_env:key_env.into(),image_model:clean_model_name(image_model.unwrap_or(""))?})
+  Ok(Self{base_url:url.as_str().trim_end_matches('/').into(),model:model.into(),key_env:key_env.into(),image_model:clean_model_name(image_model.unwrap_or(""))?,reasoning_effort:None})
  }
  pub fn base_url(&self)->&str{&self.base_url}
  pub fn model(&self)->&str{&self.model}
@@ -41,7 +59,56 @@ impl ProviderConfig {
  pub fn key_env(&self)->&str{&self.key_env}
  /// Same service and key, a different request model. Used to route screenshot
  /// questions to the configured vision model without touching the stored config.
- pub fn with_model(&self,model:&str)->Result<Self,Error>{Self::build(&self.base_url,model,&self.key_env,self.image_model.as_deref())}
+ pub fn with_model(&self,model:&str)->Result<Self,Error>{
+  let mut routed=Self::build(&self.base_url,model,&self.key_env,self.image_model.as_deref())?;
+  if routed.model==self.model {routed.reasoning_effort=self.reasoning_effort;}
+  Ok(routed)
+ }
+ /// Only service, model and credential routing bind saved conversations.
+ pub fn conversation_profile(&self)->serde_json::Result<String>{
+  serde_json::to_string(&self.without_reasoning_effort())
+ }
+ pub fn without_reasoning_effort(&self)->Self{
+  Self{reasoning_effort:None,..self.clone()}
+ }
+ pub fn reasoning_levels(&self)->&'static [ReasoningEffort]{self.reasoning_support().map_or(&[],|(_,levels)|levels)}
+ pub fn reasoning_setting(&self)->Option<(ReasoningProtocol,ReasoningEffort)>{
+  let effort=self.reasoning_effort?;
+  self.reasoning_support().map(|(protocol,_)|(protocol,effort))
+ }
+ fn reasoning_support(&self)->Option<(ReasoningProtocol,&'static [ReasoningEffort])>{
+  use ReasoningEffort::{None as Off,Minimal,Low,Medium,High,XHigh,Max};
+  use ReasoningProtocol::{DeepSeek,Effort,QwenBudget};
+  // Check the documented Chat Completions endpoint and model together. A
+  // compatible third-party endpoint need not implement the vendor extensions.
+  let model=self.model();
+  match self.base_url() {
+   // https://developers.openai.com/api/docs/guides/deployment-checklist
+   "https://api.openai.com/v1"=>{
+    let levels: &'static [ReasoningEffort]=match model {
+     "gpt-6.2-astra"|"gpt-6.2-sol"|"gpt-6.1-terra"|"gpt-6-luna"|"gpt-6-astra"=>&[Low,Medium,High,XHigh,Max],
+     "gpt-6-sol"|"gpt-5.6"|"gpt-5.6-sol"=>&[Off,Low,Medium,High,XHigh,Max],
+     "gpt-5.5"|"gpt-5.4"|"gpt-5.4-2026-03-05"|"gpt-5.2"|"gpt-5.2-2025-12-11"=>&[Off,Low,Medium,High,XHigh],
+     "gpt-5.1"|"gpt-5.1-2025-11-13"=>&[Off,Low,Medium,High],
+     "gpt-5"|"gpt-5-mini"|"gpt-5-nano"|"gpt-5-2025-08-07"|"gpt-5-mini-2025-08-07"|"gpt-5-nano-2025-08-07"=>&[Minimal,Low,Medium,High],
+     "o1"|"o1-2024-12-17"|"o3"|"o3-2025-04-16"|"o3-mini"|"o3-mini-2025-01-31"|"o4-mini"|"o4-mini-2025-04-16"=>&[Low,Medium,High],
+     _=>return None,
+    };
+    Some((Effort,levels))
+   },
+   // https://api-docs.deepseek.com/api/list-models/
+   "https://api.deepseek.com"|"https://api.deepseek.com/v1" if matches!(model,"deepseek-flash"|"deepseek-v4-pro")=>{
+    Some((DeepSeek,&[Off,Low,High,Max]))
+   },
+   // https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions
+   "https://trial.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"|
+   "https://dashscope.aliyuncs.com/compatible-mode/v1"|
+   "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" if matches!(model,"qwen3.7-flash"|"qwen3.7-flash-2026-07-15")=>{
+    Some((QwenBudget,&[Off,Low,Medium,High]))
+   },
+   _=>None,
+  }
+ }
  pub fn read_key(&self)->Result<ApiKey,Error>{let value=std::env::var(&self.key_env).map_err(|_|Error::InvalidProvider)?;ApiKey::new(&value)}
 }
 pub struct ApiKey(String);

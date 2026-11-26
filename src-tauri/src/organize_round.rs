@@ -29,10 +29,17 @@ pub async fn organize_prepare(app:AppHandle,storage:tauri::State<'_,SharedStorag
   if session.as_ref().is_some_and(|s|running(&s.view.status)){return Err(busy());}
   let config=provider::configured(&storage)?;
   let path=dir(&storage)?;let notes=NoteStore::open(&path)?;
-  let ids=match note_ids{Some(ids)=>ids,None=>notes.all_ids()?};
+  let mut store=OrganizeStore::open(&path)?;
+  let organized=store.organized_note_ids()?;
+  let raw_ids=match note_ids{Some(ids)=>ids,None=>notes.all_ids()?};
+  // Only uncategorized notes are eligible; already-organized notes are skipped.
+  let ids:Vec<String>=raw_ids.into_iter().filter(|id|!organized.contains(id)).collect();
+  if ids.is_empty(){
+   return Err(ClientError{code:"organize_empty",message:"所有笔记均已归类，暂无需要整理的新笔记".into()});
+  }
   // Only IDs are collected here. No body/key/model call before confirmation.
   let profile=serde_json::to_string(&config).map_err(|_|ClientError::storage())?;
-  let round=OrganizeStore::open(&path)?.create_round(&ids,&profile)?;
+  let round=store.create_round(&ids,&profile)?;
   let mut view=stopped(round,&config);view.status="prepared".into();
   *session=Some(Session{view:view.clone(),config,cancel:None});Ok(view)
  }).await.map_err(|_|ClientError::storage())?
@@ -73,6 +80,7 @@ pub async fn organize_round_start(app:AppHandle,storage:tauri::State<'_,SharedSt
 }
 
 fn run(app:AppHandle,storage:SharedStorage,id:String,config:ProviderConfig,rx:watch::Receiver<bool>){
+ let sleep_inhibitor=crate::keep_awake::begin(&app);
  let result=(||->Result<(),ClientError>{
   let path=dir(&storage)?;let key=organize_job::model_key(&config)?;
   loop{
@@ -90,12 +98,20 @@ fn run(app:AppHandle,storage:SharedStorage,id:String,config:ProviderConfig,rx:wa
    s.view.round=OrganizeStore::open(&path)?.round(&id)?;
   }
  })();
+ drop(sleep_inhibitor);
+ let mut outcome=None;
  if let Ok(mut guard)=app.state::<State>().0.lock(){if let Some(s)=guard.as_mut(){if s.view.round.id==id{
   if let Ok(path)=dir(&storage){if let Ok(store)=OrganizeStore::open(&path){if let Ok(round)=store.round(&id){s.view.round=round;}}}
   s.view.status=if s.view.round.completed==s.view.round.note_ids.len(){"complete"}else if *rx.borrow(){"stopped"}else{"failed"}.into();
   s.view.error=result.err().map(|e|e.message).unwrap_or_default();s.cancel=None;
+  if matches!(s.view.status.as_str(),"complete"|"failed"){
+   outcome=Some((s.view.status=="complete",s.view.round.completed,s.view.round.note_ids.len()));
+  }
  }}}
  if let Ok(mut guard)=app.state::<JobState>().0.lock(){*guard=false;}
+ if let (Some((success,completed,total)),Ok(path))=(outcome,dir(&storage)){
+  crate::task_notifications::send(&app,&path,crate::task_notifications::ResultTarget::Organize{id,completed,total,success},success);
+ }
 }
 
 #[tauri::command]

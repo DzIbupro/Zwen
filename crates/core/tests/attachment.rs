@@ -103,7 +103,7 @@ fn import_png(store:&mut AttachmentStore,scratch:&Scratch,id:&str,width:u32,heig
  let original=std::fs::read(&image_path).unwrap();
  let payload=store.model_payload(&id).unwrap();
  assert!(payload.len() as u64<=MAX_REQUEST_IMAGE_BYTES);
- let decoder=png::Decoder::new(std::io::Cursor::new(&payload));
+ let mut decoder=png::Decoder::new(std::io::Cursor::new(&payload));
  let reader=decoder.read_info().unwrap();
  assert!(reader.info().width<=MAX_REQUEST_IMAGE_DIM);
  assert!(reader.info().height<=MAX_REQUEST_IMAGE_DIM);

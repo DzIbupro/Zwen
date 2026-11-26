@@ -18,6 +18,9 @@
   let config=await invoke('load_quick_actions');config.outputDirectory=window.__ZWEN_ACTION_OUTPUT_DIR__;
   await invoke('save_quick_actions',{expectedRevision:config.revision,actions:config.actions,outputDirectory:config.outputDirectory});
   clickTab('模型设置');await wait(()=>document.querySelector('[data-quick-action-settings] form'));
+  // This suite exercises quick-session cleanup after the user has chosen to skip confirmation.
+  const confirmClose=document.querySelector('#confirm-close-toggle');
+  if(confirmClose?.checked)confirmClose.click();
   [...document.querySelectorAll('.settings button')].find(b=>b.textContent==='重新读取').click();
   await wait(()=>document.querySelector('#model-name')?.value==='fixture-model');
   document.querySelector('#candidate-toggle').click();await wait(async()=>await invoke('candidate_get_enabled'));

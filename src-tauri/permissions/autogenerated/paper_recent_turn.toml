@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paper-recent-turn"
+description = "Enables the paper_recent_turn command without any pre-configured scope."
+commands.allow = ["paper_recent_turn"]
+
+[[permission]]
+identifier = "deny-paper-recent-turn"
+description = "Denies the paper_recent_turn command without any pre-configured scope."
+commands.deny = ["paper_recent_turn"]

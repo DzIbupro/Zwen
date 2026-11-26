@@ -14,3 +14,10 @@ fn background_start_is_distinct_from_opening_a_window() {
     assert_ne!(background, parse_action(&["capsule"]).unwrap());
     assert_eq!(parse_action(&["--background"]).unwrap(), background);
 }
+
+#[test]
+fn quick_launch_can_respect_preferences_without_changing_explicit_modes() {
+    assert_eq!(parse_action(&["quick"]).unwrap(), LaunchAction::Quick);
+    assert_eq!(parse_action(&["capsule"]).unwrap(), LaunchAction::Capsule);
+    assert_eq!(parse_action(&[]).unwrap(), LaunchAction::Show);
+}

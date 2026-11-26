@@ -11,7 +11,7 @@ use zwen_core::{notes::NoteStore,organize::{OrganizeStore,Batch,MAX_BATCH_ASSIGN
 const SNIPPET_CHARS:usize=4000;
 /// Scope version invalidates old opt-ins before sending the existing topic directory.
 pub fn auto_consent_profile(config:&ProviderConfig)->Result<String,ClientError>{
- serde_json::to_string(&("notes-and-topic-catalog-v1",config)).map_err(|_|ClientError::storage())
+ serde_json::to_string(&("notes-and-topic-catalog-v1",config.without_reasoning_effort())).map_err(|_|ClientError::storage())
 }
 /// One organizing job at a time, per design.
 pub struct JobState(pub Mutex<bool>);
@@ -204,6 +204,13 @@ mod tests{
   store.set_auto_organize_for(true,&current).unwrap();assert!(store.auto_organize_for(&current).unwrap());
   drop(store);std::fs::remove_dir_all(dir).unwrap();
  }
+ #[test]fn reasoning_preference_does_not_change_auto_organize_consent(){
+  let config=ProviderConfig::new("https://api.openai.com/v1","gpt-5.4","FIXTURE_KEY").unwrap();
+  let mut preferred=serde_json::to_value(&config).unwrap();
+  preferred["reasoningEffort"]="high".into();
+  let preferred=serde_json::from_value(preferred).unwrap();
+  assert_eq!(auto_consent_profile(&config).unwrap(),auto_consent_profile(&preferred).unwrap());
+ }
  fn note(id:&str,body:&str)->OrganizeNote{OrganizeNote{id:id.to_string(),title:format!("标题{}",id),body:body.to_string()}}
  #[test] fn prompt_lists_notes_and_respects_bounds(){
   let notes=vec![note(&"a".repeat(32),"L1 让参数变零。")];
@@ -224,6 +231,7 @@ mod tests{
  }
  #[test] fn parser_extracts_valid_assignments_and_drops_noise(){
   let scope=vec![note(&"a".repeat(32),"L1 正文"),note(&"b".repeat(32),"无关正文")];
+  let text="好的，以下是整理结果：\n```json\n{\"topics\":[{\"name\":\"正则化\",\"column\":\"机器学习\"},{\"name\":\"  \",\"column\":\"x\"}],\"assign\":[{\"note\":\"a".to_string()+&"a".repeat(32).as_str()[..0].to_string()+"\",\"topics\":[\"正则化\",\"未知主题\"]},{\"note\":\"zz\",\"topics\":[\"正则化\"]}]}";
   let text=format!("好的，以下是整理结果：\n```json\n{{\"topics\":[{{\"name\":\"正则化\",\"column\":\"机器学习\"}},{{\"name\":\"  \",\"column\":\"x\"}}],\"assign\":[{{\"note\":\"{}\",\"topics\":[\"正则化\",\"未知主题\"]}},{{\"note\":\"zz\",\"topics\":[\"正则化\"]}}]}}\n```\n希望有帮助","a".repeat(32));
   let parsed=parse_model_output(&text,&scope).unwrap();
   assert_eq!(parsed.len(),1);

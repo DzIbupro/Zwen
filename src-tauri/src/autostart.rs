@@ -8,7 +8,7 @@ use tauri::Manager;
 
 use crate::ClientError;
 
-const ENTRY_NAME: &str = "io.zwen.desktop.desktop";
+const ENTRY_NAME: &str = "io.github.dzibupro.zwen.desktop";
 
 fn entry_path(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app.path().config_dir()?.join("autostart").join(ENTRY_NAME))
@@ -56,7 +56,7 @@ fn desktop_entry(executable: &Path) -> io::Result<String> {
         }
     }
     Ok(format!(
-        "[Desktop Entry]\nType=Application\nName=Zwen\nExec=/usr/bin/env -- \"{quoted}\" background\nIcon=io.zwen.desktop\nTerminal=false\n"
+        "[Desktop Entry]\nType=Application\nName=Zwen\nExec=/usr/bin/env -- \"{quoted}\" background\nIcon=io.github.dzibupro.zwen\nTerminal=false\n"
     ))
 }
 

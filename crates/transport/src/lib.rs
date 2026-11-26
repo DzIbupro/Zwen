@@ -1,7 +1,7 @@
 //! Compatible text and image provider HTTP transport. No body/key/URL is included in errors.
 use std::{fmt,time::Duration};
 use tokio::sync::watch;
-use zwen_core::{provider::{ProviderConfig,ApiKey},completion::{CompletionDecoder,FinishReason},stream::{Decoder,MAX_CHUNK_BYTES}};
+use zwen_core::{provider::{ProviderConfig,ApiKey,ReasoningEffort,ReasoningProtocol},completion::{CompletionDecoder,FinishReason},stream::{Decoder,MAX_CHUNK_BYTES}};
 pub mod retry;
 pub mod paper_agent;
 pub mod update;
@@ -66,7 +66,30 @@ fn message_body(config:&ProviderConfig,messages:&[zwen_core::completion::Message
  let mut body=serde_json::json!({"model":config.model(),"messages":messages,"stream":true});
  let host=reqwest::Url::parse(config.base_url()).ok().and_then(|u|u.host_str().map(str::to_owned)).unwrap_or_default();
  let bailian=["maas.aliyuncs.com","dashscope.aliyuncs.com"].iter().any(|suffix|host==*suffix||host.ends_with(&format!(".{suffix}")));
- if bailian&&config.model().to_ascii_lowercase().starts_with("qwen3.7")&&messages.iter().flat_map(|m|&m.images).any(|s|s.starts_with("data:image/png;base64,")){body["vl_high_resolution_images"]=true.into();}body
+ if bailian&&config.model().to_ascii_lowercase().starts_with("qwen3.7")&&messages.iter().flat_map(|m|&m.images).any(|s|s.starts_with("data:image/png;base64,")){body["vl_high_resolution_images"]=true.into();}
+ apply_reasoning(config.reasoning_setting(),&mut body);
+ body
+}
+
+fn apply_reasoning(setting:Option<(ReasoningProtocol,ReasoningEffort)>, body:&mut serde_json::Value){
+ use ReasoningEffort::{None as Off,Low,Medium,High};
+ use ReasoningProtocol::{DeepSeek,Effort,QwenBudget};
+ let Some((protocol,effort))=setting else{return;};
+ match (protocol,effort){
+  (Effort,effort)=>body["reasoning_effort"]=serde_json::json!(effort),
+  (DeepSeek,Off)=>body["thinking"]=serde_json::json!({"type":"disabled"}),
+  (DeepSeek,effort)=>{
+   body["thinking"]=serde_json::json!({"type":"enabled"});
+   body["reasoning_effort"]=serde_json::json!(effort);
+  },
+  (QwenBudget,Off)=>body["enable_thinking"]=false.into(),
+  (QwenBudget,effort)=>{
+   // Model Studio takes a ceiling for Qwen 3.7, in place of a native level.
+   let budget=match effort{Low=>4096,Medium=>16384,High=>65536,_=>return};
+   body["enable_thinking"]=true.into();
+   body["thinking_budget"]=budget.into();
+  },
+ }
 }
 #[cfg(test)]mod visual_request_tests{
  use super::*;
@@ -75,6 +98,47 @@ fn message_body(config:&ProviderConfig,messages:&[zwen_core::completion::Message
   let official=ProviderConfig::new("https://trial.cn-beijing.maas.aliyuncs.com/compatible-mode/v1","qwen3.7-flash","KEY").unwrap();assert_eq!(message_body(&official,&messages)["vl_high_resolution_images"],true);
   let other=ProviderConfig::new("https://example.com/v1","qwen3.7-flash","KEY").unwrap();assert!(message_body(&other,&messages).get("vl_high_resolution_images").is_none());
   assert!(message_body(&official,&[]).get("vl_high_resolution_images").is_none());
+ }
+}
+#[cfg(test)]
+mod reasoning_request_tests {
+ use super::*;
+ use serde_json::{Value,json};
+
+ fn request(endpoint: &str, model: &str, effort: Option<&str>) -> Value {
+  let mut config = json!({"baseUrl":endpoint,"model":model,"keyEnv":"KEY"});
+  if let Some(effort) = effort { config["reasoningEffort"] = effort.into(); }
+  message_body(&serde_json::from_value(config).unwrap(), &[])
+ }
+
+ #[test]
+ fn sends_the_selected_level_using_each_service_protocol() {
+  let openai = request("https://api.openai.com/v1", "gpt-5.4", Some("xhigh"));
+  assert_eq!(openai["reasoning_effort"], "xhigh");
+  let deepseek = request("https://api.deepseek.com/v1", "deepseek-v4-pro", Some("max"));
+  assert_eq!(deepseek["reasoning_effort"], "max");
+  assert_eq!(deepseek["thinking"], json!({"type":"enabled"}));
+  let qwen = request("https://trial.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.7-flash", Some("medium"));
+  assert_eq!(qwen["enable_thinking"], true);
+  assert_eq!(qwen["thinking_budget"], 16384);
+  assert!(qwen.get("reasoning_effort").is_none());
+ }
+
+ #[test]
+ fn service_default_omits_parameters_and_explicit_off_uses_the_provider_switch() {
+  for (endpoint, model, key) in [
+   ("https://api.openai.com/v1", "gpt-5.4", "reasoning_effort"),
+   ("https://api.deepseek.com", "deepseek-flash", "thinking"),
+   ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.7-flash", "enable_thinking"),
+  ]{
+   assert!(request(endpoint, model, None).get(key).is_none());
+  }
+  let deepseek = request("https://api.deepseek.com", "deepseek-flash", Some("none"));
+  assert_eq!(deepseek["thinking"], json!({"type":"disabled"}));
+  assert!(deepseek.get("reasoning_effort").is_none());
+  let qwen = request("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.7-flash", Some("none"));
+  assert_eq!(qwen["enable_thinking"], false);
+  assert!(qwen.get("thinking_budget").is_none());
  }
 }
 pub(crate) async fn stream_events(client:&reqwest::Client,config:&ProviderConfig,key:&ApiKey,body:&serde_json::Value,mut cancel:watch::Receiver<bool>,mut on_data:impl FnMut(&str)->Result<bool,Error>)->Result<(),Error>{

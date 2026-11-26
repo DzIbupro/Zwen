@@ -1,5 +1,5 @@
 use std::{path::PathBuf,sync::atomic::{AtomicU64,Ordering}};
-use zwen_core::notes::{NoteStore,MAX_NOTE_ATTACHMENTS,MAX_NOTE_BYTES};
+use zwen_core::notes::{NoteStore,MAX_NOTE_ATTACHMENTS,MAX_NOTE_BYTES,NoteMeta};
 use zwen_core::Error;
 
 static NEXT:AtomicU64=AtomicU64::new(0);
@@ -8,6 +8,8 @@ impl Scratch{
  fn new()->Self{let path=std::env::temp_dir().join(format!("zwen-notes-{}-{}",std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed)));std::fs::create_dir(&path).unwrap();Self(path)}
 }
 impl Drop for Scratch{fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0);}}
+
+fn meta_from(list:&[NoteMeta],index:usize)->NoteMeta{list[list.len()-1-index].clone()}
 
 #[test] fn create_read_roundtrip_keeps_chinese_and_metadata(){
  let scratch=Scratch::new();let mut store=NoteStore::open(&scratch.0).unwrap();
@@ -89,7 +91,7 @@ impl Drop for Scratch{fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0);
 #[test] fn limits_reject_without_writing(){
  let scratch=Scratch::new();let mut store=NoteStore::open(&scratch.0).unwrap();
  assert!(matches!(store.create("t",&"x".repeat(MAX_NOTE_BYTES+1),"chat","",&[],None),Err(Error::InvalidNote)));
- assert!(matches!(store.create("t","b","chat","",&(0..=MAX_NOTE_ATTACHMENTS).map(|_|("a.png".to_string(),vec![0u8])).collect::<Vec<_>>(),None),Err(Error::InvalidNote)));
+ assert!(matches!(store.create("t","b","chat","",&(0..=MAX_NOTE_ATTACHMENTS).map(|i|("a.png".to_string(),vec![0u8])).collect::<Vec<_>>(),None),Err(Error::InvalidNote)));
  assert!(matches!(store.create(&"t".repeat(300),"b","chat","",&[],None),Err(Error::InvalidNote)));
  assert!(matches!(store.list(&"q".repeat(300)),Err(Error::InvalidNote)));
  assert!(matches!(store.read("short"),Err(Error::NoteMissing)));

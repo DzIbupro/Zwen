@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-load-quick-surface"
+description = "Enables the load_quick_surface command without any pre-configured scope."
+commands.allow = ["load_quick_surface"]
+
+[[permission]]
+identifier = "deny-load-quick-surface"
+description = "Denies the load_quick_surface command without any pre-configured scope."
+commands.deny = ["load_quick_surface"]

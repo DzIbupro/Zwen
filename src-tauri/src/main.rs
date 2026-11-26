@@ -8,6 +8,7 @@ mod paper_process;
 mod paper_media;
 mod provider;
 mod windows;
+mod window_settings;
 mod attachment;
 mod capture_frame;
 mod wayland_ack;
@@ -16,6 +17,8 @@ mod notes;
 mod organize_job;
 mod organize_round;
 mod quick_actions;
+mod task_notifications;
+mod keep_awake;
 mod tray;
 mod selection_bar;
 mod i18n;
@@ -69,7 +72,7 @@ fn quit_app(app:tauri::AppHandle) -> Result<(),ClientError> {
     if app.state::<selection::Shared>().lock().map_err(|_|ClientError::window())?.is_pending() {
         return Err(ClientError{code:"selection_pending",message:"有待处理选区；请先检查草稿并确认或丢弃，再退出".into()});
     }
-    attachment::shutdown(&app);organize_round::cancel_all(&app);selection::stop_candidate_watcher();app.exit(0);Ok(())
+    attachment::shutdown(&app);organize_round::cancel_all(&app);selection::stop_candidate_watcher();keep_awake::shutdown(&app);app.exit(0);Ok(())
 }
 #[tauri::command]
 async fn get_surface(app:tauri::AppHandle)->Result<windows::Snapshot,ClientError>{tauri::async_runtime::spawn_blocking(move||windows::snapshot(&app)).await.map_err(|_|ClientError::window())?}
@@ -86,8 +89,22 @@ async fn check_github_update()->Result<zwen_transport::update::ReleaseCheck,Clie
         .await
         .map_err(|message| ClientError { code: "update_check_failed", message })
 }
+// A second instance can forward Quick before the first WebView is built.
+const QUICK_PENDING: u8 = 1;
+const QUICK_READY: u8 = 2;
+static QUICK_STARTUP: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn queue_startup_quick() -> bool {
+    use std::sync::atomic::Ordering;
+    match QUICK_STARTUP.compare_exchange(0, QUICK_PENDING, Ordering::AcqRel, Ordering::Acquire) {
+        Ok(_) | Err(QUICK_PENDING) => true,
+        Err(_) => false,
+    }
+}
+
 fn launch(app:&tauri::AppHandle, action:LaunchAction,token:Option<&str>) {
     if action == LaunchAction::Background { return; }
+    if action == LaunchAction::Quick && queue_startup_quick() { return; }
     if let LaunchAction::Selection(mode)=action {selection::capture(app.clone(),mode);return;}
     if let LaunchAction::CandidateCallback=action {selection::candidate_callback(app.clone(),token);return;}
     if action==LaunchAction::Screenshot {selection::dismiss_bar(app);attachment::start_from_app(app,None);return;}
@@ -100,18 +117,26 @@ fn launch(app:&tauri::AppHandle, action:LaunchAction,token:Option<&str>) {
     if action==LaunchAction::Recover {
         let recover=windows::recover(app.clone());tauri::async_runtime::spawn(async move{let _=recover.await;});
     } else {
-        let activate=windows::activate(app.clone(),capsule_surface(action));tauri::async_runtime::spawn(async move{let _=activate.await;});
+        let activate=windows::activate(app.clone(),capsule_surface(app,action));tauri::async_runtime::spawn(async move{let _=activate.await;});
     }
 }
 
-fn capsule_surface(action:LaunchAction)->bool{matches!(action,LaunchAction::Capsule|LaunchAction::Selection(_)|LaunchAction::Screenshot)}
+fn capsule_surface(app:&tauri::AppHandle,action:LaunchAction)->bool{
+    match action {
+        LaunchAction::Quick => window_settings::quick_capsule(app),
+        LaunchAction::Capsule | LaunchAction::Selection(_) | LaunchAction::Screenshot => true,
+        _ => false,
+    }
+}
 
 #[cfg(feature="desktop-smoke")]
 mod smoke;
 
 fn startup_script(preferences:appearance::Preferences)->String{
  let run=format!("{:x}-{:x}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
- format!("window.__ZWEN_RUN_ID__={};{}",serde_json::to_string(&run).expect("launch identifier"),appearance::initialization_script(preferences))
+ let executable=std::env::current_exe().ok().and_then(|path|path.into_os_string().into_string().ok());
+ let executable=serde_json::to_string(&executable).expect("executable path");
+ format!("window.__ZWEN_RUN_ID__={};window.__ZWEN_EXECUTABLE__={executable};{}{}",serde_json::to_string(&run).expect("launch identifier"),i18n::initialization_script(),appearance::initialization_script(preferences))
 }
 fn main() {
     let args:Vec<String>=std::env::args().skip(1).collect();
@@ -123,7 +148,7 @@ fn main() {
             let refs:Vec<&str>=args.iter().skip(1).map(String::as_str).collect();
             if let Ok(action)=parse_action(&refs) { launch(app,action,refs.get(1).copied()); }
         }))
-        .invoke_handler(tauri::generate_handler![paper::paper_import_pdf,paper::paper_open,paper::paper_list_page,paper::paper_metadata,paper::paper_defaults,paper::paper_legacy_papers,paper::paper_legacy_open,paper::paper_session_info,paper::paper_export,paper::paper_legacy,paper::paper_legacy_report,paper::paper_list,paper::paper_choose,paper::paper_sessions,paper::paper_source,paper::paper_start,organize_round::organize_prepare,organize_round::organize_round_status,organize_round::organize_round_start,organize_round::organize_round_stop,organize_round::organize_round_undo,appearance::load_appearance,appearance::save_appearance,autostart::load_autostart,autostart::save_autostart,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,chat::get_conversation_turns,i18n::set_app_locale,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::choose_image_attachment,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document,check_github_update])
+        .invoke_handler(tauri::generate_handler![paper::paper_import_pdf,paper::paper_open,paper::paper_list_page,paper::paper_metadata,paper::paper_defaults,paper::paper_legacy_papers,paper::paper_legacy_open,paper::paper_session_info,paper::paper_export,paper::paper_legacy,paper::paper_legacy_report,paper::paper_list,paper::paper_choose,paper::paper_sessions,paper::paper_recent_turn,paper::paper_source,paper::paper_start,organize_round::organize_prepare,organize_round::organize_round_status,organize_round::organize_round_start,organize_round::organize_round_stop,organize_round::organize_round_undo,appearance::load_appearance,appearance::save_appearance,autostart::load_autostart,autostart::save_autostart,load_draft,save_draft,hide_window,quit_app,get_surface,set_surface,resize_capsule,provider::load_provider,provider::save_provider,chat::start_chat,chat::get_chat,chat::stop_chat,chat::settle_chat,chat::get_chat_history,chat::get_inactive_conversations,chat::delete_chat_turn,chat::delete_chat_history,chat::get_chat_turn,chat::get_conversation_turns,i18n::set_app_locale,selection::claim_selection,selection::acknowledge_selection,attachment::get_attachments,attachment::capture_screenshot,attachment::cancel_screenshot,attachment::choose_image_attachment,attachment::remove_attachment,secret::save_model_secret,secret::clear_model_secret,notes::notes_save,notes::notes_list,notes::notes_read,notes::notes_delete,notes::notes_update,notes::notes_update_source,notes::notes_rebuild,organize_job::organize_run,notes::organize_topics,notes::organize_topic_notes,notes::organize_undo,notes::note_export,notes::notes_export_all,notes::open_external,notes::organize_rename,notes::organize_set_column,notes::organize_merge,notes::organize_split,notes::organize_set_locked,notes::organize_delete_topic,notes::organize_add_relation,notes::organize_remove_relation,notes::organize_list_relations,notes::organize_set_auto,notes::organize_get_auto,selection::candidate_set_enabled,selection::candidate_get_enabled,selection::freeze_selection,chat::start_selection_chat,quick_actions::load_quick_actions,quick_actions::save_quick_actions,quick_actions::save_action_document,quick_actions::choose_export_directory,quick_actions::open_local_directory,task_notifications::load_background_notifications,task_notifications::save_background_notifications,window_settings::load_quick_surface,window_settings::save_quick_surface,window_settings::confirm_app_leave,window_settings::get_active_tasks,keep_awake::load_keep_awake,keep_awake::save_keep_awake,check_github_update])
         .on_window_event(|window,event| {
             if let tauri::WindowEvent::ScaleFactorChanged{..}=event {windows::refresh_scale(window.app_handle().clone());}
             if let tauri::WindowEvent::CloseRequested{api,..}=event {
@@ -135,7 +160,7 @@ fn main() {
             if action==LaunchAction::CandidateCallback {app.handle().exit(0);return Ok(());}
             let directory=std::env::var_os("ZWEN_DATA_DIR").or_else(||std::env::var_os("STUDY_ASSISTANT_DATA_DIR")).map(PathBuf::from)
                 .map(Ok).unwrap_or_else(|| app.path().app_data_dir().map(|preferred|{
-                    let legacy=preferred.parent().unwrap_or(&preferred).join("io.zwen.desktop.legacy");
+                    let legacy=preferred.parent().unwrap_or(&preferred).join("io.github.dzibupro.studyassistant");
                     zwen_core::paths::choose_data_directory(&preferred,&legacy,preferred.join("state.sqlite3").exists(),legacy.join("state.sqlite3").exists())
                 }).map_err(|_|ClientError::storage()));
             let appearance=appearance::initialize(&directory);
@@ -145,30 +170,36 @@ fn main() {
             app.manage(attachment::Shared::default());
             app.manage(organize_round::State::default());
             app.manage(organize_job::JobState(Mutex::new(false)));
+            app.manage(window_settings::State::new(directory.as_ref().ok().map(PathBuf::as_path)));
+            app.manage(keep_awake::State::new(directory.as_ref().ok().map(PathBuf::as_path)));
             app.manage(Arc::new(Storage { directory, connection:Mutex::new(None),provider:Mutex::new(None) }));
             selection::restore_candidate_watcher_if_enabled(app.handle());
-            app.manage(Arc::new(Mutex::new(windows::Controller::new(capsule_surface(action)))));
+            let start_capsule = capsule_surface(app.handle(),action);
+            app.manage(Arc::new(Mutex::new(windows::Controller::new(start_capsule))));
             #[cfg(feature="desktop-smoke")]
             smoke::setup(app);
             if action != LaunchAction::Quit {
                 let window=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                     .title("Zwen").transparent(true)
                     .theme(Some(appearance.theme.native())).initialization_script(startup_script(appearance))
-                    .inner_size(if capsule_surface(action){480.0}else{900.0},if capsule_surface(action){96.0}else{850.0})
-                    .resizable(true).min_inner_size(480.0,if capsule_surface(action){96.0}else{560.0}).decorations(!capsule_surface(action)).visible(false);
-                let window=if capsule_surface(action){window.max_inner_size(480.0,96.0)}else{window};
+                    .inner_size(if start_capsule{480.0}else{900.0},if start_capsule{96.0}else{850.0})
+                    .resizable(true).min_inner_size(480.0,if start_capsule{96.0}else{560.0}).decorations(!start_capsule).visible(false);
+                let window=if start_capsule{window.max_inner_size(480.0,96.0)}else{window};
                 window.on_navigation(|url| url.scheme()=="tauri" || url.host_str()==Some("tauri.localhost") || (cfg!(debug_assertions) && url.host_str()==Some("127.0.0.1") && url.port()==Some(1420)))
                     .build()?;
                 tray::initialize(app.handle());
             }
             appearance::watch_system(app.handle());
             launch(app.handle(), action,args.get(1).map(String::as_str));
+            if QUICK_STARTUP.swap(QUICK_READY, std::sync::atomic::Ordering::AcqRel) == QUICK_PENDING && action != LaunchAction::Quit {
+                launch(app.handle(), LaunchAction::Quick, None);
+            }
             Ok(())
         });
     #[cfg(feature="desktop-smoke")]
     let builder=builder.on_page_load(smoke::page_loaded);
     let result=builder.build(tauri::generate_context!());
-    if let Ok(app)=result {app.run(|handle,event|{if matches!(event,tauri::RunEvent::Exit|tauri::RunEvent::ExitRequested{..}){attachment::shutdown(handle);organize_round::cancel_all(handle);selection::stop_candidate_watcher();}});} else {
+    if let Ok(app)=result {app.run(|handle,event|{if matches!(event,tauri::RunEvent::Exit|tauri::RunEvent::ExitRequested{..}){attachment::shutdown(handle);organize_round::cancel_all(handle);selection::stop_candidate_watcher();keep_awake::shutdown(handle);}});} else {
         eprintln!("Zwen 启动失败；本地数据未被删除。请检查显示会话及系统依赖。");
         std::process::exit(1);
     }

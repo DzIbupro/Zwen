@@ -71,7 +71,14 @@ pub async fn notes_update_source(storage:tauri::State<'_,SharedStorage>,id:Strin
 #[tauri::command]
 pub async fn notes_rebuild(storage:tauri::State<'_,SharedStorage>)->Result<usize,ClientError>{
  let storage=storage.inner().clone();
- tauri::async_runtime::spawn_blocking(move||->Result<usize,ClientError>{Ok(NoteStore::rebuild_from_files(&dir_for(&storage)?)?)}).await.map_err(|_|ClientError::storage())?
+ tauri::async_runtime::spawn_blocking(move||->Result<usize,ClientError>{
+  let dir=dir_for(&storage)?;
+  let count=NoteStore::rebuild_from_files(&dir)?;
+  // Sync organize index with rebuilt notes: remove memberships/relations for deleted notes and prune empty topics.
+  let mut organize=OrganizeStore::open(&dir)?;
+  organize.prune_empty_topics()?;
+  Ok(count)
+ }).await.map_err(|_|ClientError::storage())?
 }
 
 pub fn organize_store(storage:&SharedStorage)->Result<OrganizeStore,ClientError>{
@@ -110,13 +117,10 @@ pub async fn organize_undo(storage:tauri::State<'_,SharedStorage>,batch_id:Strin
  tauri::async_runtime::spawn_blocking(move||->Result<(),ClientError>{Ok(organize_store(&storage)?.undo_batch(&batch_id)?)}).await.map_err(|_|ClientError::storage())?
 }
 
-/// Exports go to the user's Downloads folder; the .md is copied verbatim (the
-/// file is the authority). Returns the written path for the UI to display.
-pub fn export_target(stem:&str,id8:&str,home:&Path)->Result<PathBuf,ClientError>{
- let dir=home.join("Downloads").join("Zwen导出");
- let mut builder=fs::DirBuilder::new();builder.recursive(true);
- #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
- builder.create(&dir).map_err(|_|ClientError::storage())?;
+/// Returns a sanitized filename in the shared export directory.
+pub fn export_target(stem:&str,id8:&str,data_dir:&Path)->Result<PathBuf,ClientError>{
+ let dir=crate::quick_actions::export_directory(data_dir)?;
+ crate::quick_actions::ensure_export_directory(&dir)?;
  let name=zwen_core::notes::sanitize_filename_export(stem);
  Ok(dir.join(format!("{name}-{id8}.md")))
 }
@@ -125,13 +129,13 @@ pub fn export_target(stem:&str,id8:&str,home:&Path)->Result<PathBuf,ClientError>
 pub async fn note_export(storage:tauri::State<'_,SharedStorage>,id:String)->Result<String,ClientError>{
  let storage=storage.inner().clone();
  tauri::async_runtime::spawn_blocking(move||->Result<String,ClientError>{
-  let note_store=NoteStore::open(dir_for(&storage)?.as_path())?;
+  let data_dir=dir_for(&storage)?;
+  let note_store=NoteStore::open(&data_dir)?;
   let note=note_store.read(&id)?;
-  let home=std::env::var("HOME").map_err(|_|ClientError{code:"export_failed",message:"未找到用户主目录；无法导出".into()})?;
-  let target=export_target(&note.meta.title,&id,Path::new(&home))?;
+  let target=export_target(&note.meta.title,&id,&data_dir)?;
   let document=note_store.document(&note.meta.id)?;
-  fs::write(&target,document).map_err(|_|ClientError{code:"export_failed",message:"导出写入失败".into()})?;
-  copy_note_attachments(&dir_for(&storage)?,target.parent().ok_or_else(ClientError::storage)?,&note)?;
+  crate::quick_actions::write_export_file(&target,&document,true)?;
+  copy_note_attachments(&data_dir,target.parent().ok_or_else(ClientError::storage)?,&note)?;
   Ok(target.to_string_lossy().into_owned())
  }).await.map_err(|_|ClientError::storage())?
 }
@@ -142,9 +146,8 @@ pub async fn notes_export_all(storage:tauri::State<'_,SharedStorage>)->Result<St
  tauri::async_runtime::spawn_blocking(move||->Result<String,ClientError>{
   let data_dir=dir_for(&storage)?;
   let note_store=NoteStore::open(data_dir.as_path())?;
-  let home=std::env::var("HOME").map_err(|_|ClientError{code:"export_failed",message:"未找到用户主目录；无法导出".into()})?;
   let stamp=zwen_core::notes::generate_id();
-  let target=Path::new(&home).join("Downloads").join(format!("Zwen导出-{stamp}"));
+  let target=crate::quick_actions::export_directory(&data_dir)?.join(format!("Zwen导出-{stamp}"));
   let mut builder=fs::DirBuilder::new();builder.recursive(true);
   #[cfg(unix)]{use std::os::unix::fs::DirBuilderExt;builder.mode(0o700);}
   builder.create(&target).map_err(|_|ClientError::storage())?;
@@ -163,12 +166,12 @@ fn copy_note_attachments(data_dir:&Path,target:&Path,note:&Note)->Result<(),Clie
  let source=data_dir.join("notes/attachments");
  if fs::symlink_metadata(&source).map_err(|_|ClientError::storage())?.file_type().is_symlink(){return Err(ClientError::storage());}
  let dest=target.join("attachments");
- if !note.meta.attachments.is_empty(){fs::create_dir_all(&dest).map_err(|_|ClientError::storage())?;}
  for name in &note.meta.attachments{
   let path=source.join(name);
   let meta=fs::symlink_metadata(&path).map_err(|_|ClientError::storage())?;
   if !meta.is_file()||meta.file_type().is_symlink(){return Err(ClientError::storage());}
-  fs::copy(path,dest.join(name)).map_err(|_|ClientError::storage())?;
+  let bytes=fs::read(path).map_err(|_|ClientError::storage())?;
+  crate::quick_actions::write_export_file(&dest.join(name),&bytes,true)?;
  }
  Ok(())
 }

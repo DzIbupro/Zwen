@@ -1,9 +1,14 @@
 use crate::{SharedStorage,ClientError};
-use zwen_core::{Error,provider::{ProviderConfig,ProviderSnapshot,ProviderStore}};
+use zwen_core::{Error,provider::{ProviderConfig,ProviderSnapshot,ProviderStore,ReasoningEffort}};
 use serde::Serialize;
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct View {#[serde(flatten)] snapshot:ProviderSnapshot,key_available:bool,key_source:Option<&'static str>}
+pub struct View {
+ #[serde(flatten)] snapshot:ProviderSnapshot,
+ key_available:bool,
+ key_source:Option<&'static str>,
+ reasoning_levels:&'static [ReasoningEffort],
+}
 async fn work(storage:SharedStorage,op:impl FnOnce(&mut ProviderStore)->Result<ProviderSnapshot,Error>+Send+'static)->Result<View,ClientError>{
  tauri::async_runtime::spawn_blocking(move||{
   let dir=storage.directory.as_ref().map_err(Clone::clone)?;
@@ -21,7 +26,8 @@ async fn work(storage:SharedStorage,op:impl FnOnce(&mut ProviderStore)->Result<P
    Some(_) if crate::secret::has_model_key().unwrap_or(false)=>Some("keyring"),
    _=>None,
   };
-  Ok(View{snapshot,key_source,key_available:key_source.is_some()})
+  let reasoning_levels=snapshot.config.as_ref().map_or(&[][..],ProviderConfig::reasoning_levels);
+  Ok(View{snapshot,key_source,key_available:key_source.is_some(),reasoning_levels})
  }).await.map_err(|_|ClientError::storage())?
 }
 #[tauri::command]

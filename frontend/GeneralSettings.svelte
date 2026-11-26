@@ -1,9 +1,11 @@
 <script lang="ts">
+  import type {Snippet} from 'svelte';
+  import LicenseSettings from './LicenseSettings.svelte';
   import {DEFAULT_GENERAL_PREFERENCES, type GeneralPreferences} from './lib/preferences';
   import {APP_VERSION, GITHUB_REPO_URL, checkGithubUpdate, openExternal, setAppLocale, type ReleaseCheck} from './lib/bridge';
-  import {LOCALES, getLocale, setLocale, t, type Locale} from './lib/i18n.svelte';
+  import {LOCALES, getLocaleChoice, setLocale, t, type LocaleChoice} from './lib/i18n.svelte';
 
-  let {desktop, enabled, busy, error, prefs=DEFAULT_GENERAL_PREFERENCES, onToggle, onReload, onPrefsChange=()=>{}, onResetAll}: {
+  let {desktop, enabled, busy, error, prefs=DEFAULT_GENERAL_PREFERENCES, onToggle, onReload, onPrefsChange=()=>{}, onResetAll, desktopPanel}: {
     desktop: boolean;
     enabled: boolean | null;
     busy: boolean;
@@ -13,11 +15,31 @@
     onReload: () => void;
     onPrefsChange?: (patch: Partial<GeneralPreferences>) => void;
     onResetAll?: () => void;
+    desktopPanel?: Snippet;
   } = $props();
 
   let checkingUpdate = $state(false);
   let updateResult = $state<ReleaseCheck | null>(null);
   let updateError = $state<string | null>(null);
+
+  let localeBusy = $state(false);
+  let localeError = $state('');
+
+  async function changeLocale(select: HTMLSelectElement) {
+    if (localeBusy) return;
+    const choice = select.value as LocaleChoice;
+    localeBusy = true;
+    localeError = '';
+    try {
+      if (desktop) await setAppLocale(choice);
+      setLocale(choice);
+    } catch (error) {
+      select.value = getLocaleChoice();
+      localeError = error instanceof Error ? error.message : String(error);
+    } finally {
+      localeBusy = false;
+    }
+  }
 
   function toggleAutostart(event: Event & {currentTarget: HTMLInputElement}) {
     const requested = event.currentTarget.checked;
@@ -55,12 +77,14 @@
     <h2>{t('general.languageGroup')}</h2>
     <div class="setting-row">
       <label class="row-text" for="interface-locale">{t('general.language')}</label>
-      <select id="interface-locale" value={getLocale()} onchange={e => { const next = e.currentTarget.value as Locale; setLocale(next); void setAppLocale(next); }}>
+      <select id="interface-locale" value={getLocaleChoice()} disabled={localeBusy} onchange={event => void changeLocale(event.currentTarget)}>
+        <option value="system">{t('general.followSystem')}</option>
         {#each LOCALES as item}
           <option value={item.id}>{item.label}</option>
         {/each}
       </select>
     </div>
+    {#if localeError}<p class="row-alert" role="alert">{localeError}</p>{/if}
   </div>
 
   <div class="group-card">
@@ -85,6 +109,18 @@
       <input id="esc-hide-toggle" type="checkbox" class="toggle-check" checked={prefs.escToHide} onchange={e => onPrefsChange({escToHide: e.currentTarget.checked})} />
     </div>
 
+    {#if desktop}
+      <div class="setting-row">
+        <label class="row-text" for="confirm-close-toggle">{t('general.confirmRiskyClose')}</label>
+        <input id="confirm-close-toggle" type="checkbox" class="toggle-check" checked={prefs.confirmRiskyClose} onchange={event => onPrefsChange({confirmRiskyClose: event.currentTarget.checked})} />
+      </div>
+    {/if}
+
+    <div class="setting-row">
+      <label class="row-text" for="home-suggestions-toggle">{t('general.homeSuggestions')}</label>
+      <input id="home-suggestions-toggle" type="checkbox" class="toggle-check" checked={prefs.showHomeSuggestions} onchange={event => onPrefsChange({showHomeSuggestions: event.currentTarget.checked})} />
+    </div>
+
     <div class="setting-row">
       <label class="row-text" for="welcome-mark-toggle">{t('general.welcomeMark')}</label>
       <input id="welcome-mark-toggle" type="checkbox" class="toggle-check" checked={prefs.showWelcomeMark} onchange={e => onPrefsChange({showWelcomeMark: e.currentTarget.checked})} />
@@ -93,7 +129,7 @@
 
   <div class="group-card">
     <h2>{t('general.inputGroup')}</h2>
-    <div class="setting-row stacked">
+    <div class="setting-row stacked" id="send-key-setting" tabindex="-1">
       <span class="row-text">{t('general.sendKey')}</span>
       <div class="segmented" role="radiogroup" aria-label={t('general.sendKey')}>
         <label class:active={prefs.sendKey === 'enter'}><input type="radio" name="send-key" value="enter" checked={prefs.sendKey === 'enter'} onchange={() => onPrefsChange({sendKey: 'enter'})} /><span>{t('general.sendEnter')}</span></label>
@@ -101,7 +137,7 @@
       </div>
     </div>
 
-    <div class="setting-row stacked">
+    <div class="setting-row stacked" id="motion-setting" tabindex="-1">
       <span class="row-text">{t('general.motionSpeed')}</span>
       <div class="segmented" role="radiogroup" aria-label={t('general.motionSpeed')}>
         <label class:active={prefs.motionSpeed === 'expressive'}><input type="radio" name="motion-speed" value="expressive" checked={prefs.motionSpeed === 'expressive'} onchange={() => onPrefsChange({motionSpeed: 'expressive'})} /><span>{t('general.motionExpressive')}</span></label>
@@ -110,6 +146,8 @@
       </div>
     </div>
   </div>
+
+  {#if desktop && desktopPanel}{@render desktopPanel()}{/if}
 
   <div class="group-card">
     <h2>{t('general.aboutGroup')}</h2>
@@ -120,7 +158,7 @@
         <span class="stage-pill">{t('general.devStage')}</span>
       </div>
       <div class="update-actions">
-        <button type="button" class="check-btn" data-check-update disabled={checkingUpdate} onclick={() => void runUpdateCheck()}>
+        <button type="button" class="check-btn" id="check-update-setting" data-check-update disabled={checkingUpdate} onclick={() => void runUpdateCheck()}>
           {checkingUpdate ? t('general.checkingUpdate') : t('general.checkUpdate')}
         </button>
         <button type="button" class="repo-btn" onclick={() => openLink(GITHUB_REPO_URL)}>
@@ -150,6 +188,7 @@
     {:else if updateError}
       <div class="row-alert" role="alert"><span>{updateError}</span></div>
     {/if}
+    <div id="licenses-setting" tabindex="-1"><LicenseSettings /></div>
   </div>
 
   {#if onResetAll}

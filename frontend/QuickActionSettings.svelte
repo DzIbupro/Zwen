@@ -2,7 +2,7 @@
  import {onMount} from 'svelte';
  import {localizePresetQuickActions,validateQuickActions,type QuickAction,type QuickActionConfig,type QuickActionPort} from './lib/quick-actions';
  import {getLocale,t} from './lib/i18n.svelte';
- let {port,onChanged}:{port:QuickActionPort;onChanged:(config:QuickActionConfig)=>void}=$props();
+ let {port,onChanged,directoryConfig}:{port:QuickActionPort;onChanged:(config:QuickActionConfig)=>void;directoryConfig?:QuickActionConfig}=$props();
  let actions=$state<QuickAction[]>([]),directory=$state(''),revision=$state(0),loaded=$state(false),busy=$state(false),error=$state(''),notice=$state('');
  let expandedId=$state<string|null>(null);
  async function load(){
@@ -24,13 +24,18 @@
   const res=localizePresetQuickActions(actions,loc);
   if(res.changed)actions=res.actions;
  });
+ $effect(()=>{
+  if(!directoryConfig||!loaded||busy||directoryConfig.revision!==revision+1||directoryConfig.outputDirectory===directory)return;
+  directory=directoryConfig.outputDirectory;
+  revision=directoryConfig.revision;
+ });
  async function save(){error=validateQuickActions(actions,directory)??'';if(error)return;busy=true;notice='';try{const c=await port.save(revision,actions.map(a=>({...a})),directory);revision=c.revision;onChanged(c);notice=t('quick.saved');}catch(e){error=e instanceof Error?e.message:'保存失败，请保留修改并重试';}finally{busy=false;}}
  function move(i:number,d:number){const copy=[...actions];[copy[i],copy[i+d]]=[copy[i+d],copy[i]];actions=copy;}
  function add(){const id=`action_${crypto.randomUUID().replaceAll('-','')}`;actions=[...actions,{id,name:t('quick.newName'),prompt:'{{selection}}',output:'display',enabled:true}];expandedId=id;}
  onMount(()=>{void load();});
 </script>
 
-<section data-quick-action-settings class="quick-actions" aria-label={t('quick.aria')}>
+<section id="quick-actions-setting" tabindex="-1" data-quick-action-settings class="quick-actions" aria-label={t('quick.aria')}>
  {#if loaded}
   <form onsubmit={e=>{e.preventDefault();void save();}}>
    <fieldset disabled={busy}>
@@ -70,12 +75,6 @@
      </div>
     </div>
 
-    <div class="group-card">
-     <h2>{t('quick.exportGroup')}</h2>
-     <label class="field">
-      <span>{t('quick.outputDir')}</span>
-      <input aria-label={t('quick.outputDir')} bind:value={directory} maxlength="4096" placeholder="/home/user/Documents/Zwen"/>
-     </label>
      <details class="hint-disclosure">
       <summary>{t('quick.helpSummary')}</summary>
       <div class="hint-disclosure-body">
@@ -83,7 +82,6 @@
        <p>{t('quick.help2')}</p>
       </div>
      </details>
-    </div>
 
     {#if error}<p role="alert" class="error-msg">{error}</p>{/if}
     {#if notice}<p role="status" class="status-msg">{notice}</p>{/if}
@@ -126,7 +124,6 @@
  .action-body{padding:12px;border-top:1px solid var(--edge);display:flex;flex-direction:column;gap:10px}
  .field-row{display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:10px}
  .field{display:flex;flex-direction:column;gap:5px;margin:0}
- .group-card>h2+.field{margin-top:10px}
  .field>span{font-size:.86rem;font-weight:500;color:var(--muted)}
  input:not([type="checkbox"]),textarea,select{display:block;box-sizing:border-box;width:100%;padding:7px 10px;border:1px solid var(--edge);border-radius:var(--radius-control);font:inherit;font-size:.95rem;line-height:1.55;background:var(--surface);color:var(--text)}
  textarea{resize:vertical;min-height:84px;font-family:var(--font-mono);font-size:.88rem}

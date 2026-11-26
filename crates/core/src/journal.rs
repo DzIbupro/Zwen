@@ -53,6 +53,41 @@ impl Journal {
   rows.map(|row|{let(request_id,conversation_id,title,model,state,created_at)=row?;Ok(Summary{request_id,conversation_id,title,model,state:TurnState::parse(&state)?,created_at})}).collect()
  }
  /// Delete one terminal record; the independent Markdown library is untouched.
+ pub fn latest_paper_turn_id(&self)->Result<Option<String>,Error>{
+  let request=self.connection.query_row(
+   "SELECT request_id FROM turns WHERE conversation_id GLOB 'paper-*' AND state!='streaming' ORDER BY id DESC LIMIT 1",
+   [],|row|row.get(0),
+  ).optional()?;
+  Ok(request)
+ }
+
+ pub fn inactive_conversations(&self, after:&str, cutoff:i64, limit:usize)->Result<Vec<InactiveConversation>,Error>{
+  if after.len()>100 || limit==0 || limit>50 {return Err(Error::InvalidChat);}
+  let mut statement=self.connection.prepare(
+   "SELECT t.request_id, t.conversation_id, substr(t.prompt,1,240), t.model, t.state, t.created_at, eligible.members
+    FROM (
+     SELECT conversation_id, max(id) AS latest, json_group_array(request_id) AS members
+     FROM turns
+     WHERE conversation_id > ?1
+     GROUP BY conversation_id
+     HAVING max(created_at) <= ?2 AND max(state='streaming')=0
+     ORDER BY conversation_id
+     LIMIT ?3
+    ) AS eligible
+    JOIN turns AS t ON t.id=eligible.latest
+    ORDER BY eligible.conversation_id")?;
+  let rows=statement.query_map(params![after,cutoff,limit as i64],|row|Ok((
+   row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,
+   row.get::<_,String>(3)?,row.get::<_,String>(4)?,row.get::<_,i64>(5)?,row.get::<_,String>(6)?,
+  )))?;
+  rows.map(|row|{
+   let (request_id,conversation_id,title,model,state,created_at,members)=row?;
+   let member_ids=serde_json::from_str(&members).map_err(|_|Error::InvalidChat)?;
+   let latest=Summary{request_id,conversation_id,title,model,state:TurnState::parse(&state)?,created_at};
+   Ok(InactiveConversation{latest,member_ids})
+  }).collect()
+ }
+
  pub fn delete_completed(&mut self,id:&str)->Result<bool,Error>{self.delete_history(Some(&[id.to_owned()])).map(|n|n>0)}
  /// A selected set or all terminal history is removed atomically, across pages.
  pub fn delete_history(&mut self,ids:Option<&[String]>)->Result<usize,Error>{
@@ -106,3 +141,10 @@ impl Journal {
 #[derive(Clone,Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Summary {pub request_id:String,pub conversation_id:String,pub title:String,pub model:String,pub state:TurnState,pub created_at:i64}
+
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct InactiveConversation {
+ pub latest: Summary,
+ pub member_ids: Vec<String>,
+}

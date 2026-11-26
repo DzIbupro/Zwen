@@ -373,6 +373,13 @@ impl OrganizeStore{
   rows.collect::<Result<Vec<_>,_>>().map_err(Into::into)
  }
 
+ /// Returns all note IDs that already belong to at least one topic.
+ pub fn organized_note_ids(&self)->Result<std::collections::HashSet<String>,Error>{
+  let mut statement=self.connection.prepare("SELECT DISTINCT note_id FROM memberships")?;
+  let rows=statement.query_map([],|r|r.get::<_,String>(0))?;
+  rows.collect::<Result<std::collections::HashSet<_>,_>>().map_err(Into::into)
+ }
+
  /// AI assignments whose stored note hash no longer matches the note body are
  /// stale (the note was edited after organizing) and must be recomputed.
  /// Test/diagnostic escape hatch for direct row seeding. Not used by the app.

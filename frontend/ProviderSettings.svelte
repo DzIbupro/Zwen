@@ -1,8 +1,17 @@
 <script lang="ts">
- import type {SettingsState,ProviderConfig} from './lib/provider';
- import {t} from './lib/i18n.svelte';
+ import {reasoningLevelsOf,type SettingsState,type ProviderConfig,type ReasoningEffort} from './lib/provider';
+ import {getLocale,t,type Locale} from './lib/i18n.svelte';
  let {settings,desktop,onEdit,onSave,onReload,onSaveSecret,onClearSecret}:{settings:SettingsState;desktop:boolean;onEdit:(name:keyof ProviderConfig,value:string)=>void;onSave:()=>void;onReload:()=>void;onSaveSecret:(value:string)=>Promise<void>;onClearSecret:()=>Promise<void>}=$props();
  const busy=$derived(settings.status==='loading'||settings.status==='saving');
+ const levels=$derived(reasoningLevelsOf(settings));
+ const reasoningLabels:Record<Locale,Record<ReasoningEffort|'label'|'default',string>>={
+  'zh-CN':{label:'推理档位',default:'由服务决定',none:'关闭',minimal:'极低',low:'低',medium:'中',high:'高',xhigh:'极高',max:'最高'},
+  en:{label:'Reasoning effort',default:'Service default',none:'Off',minimal:'Minimal',low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',max:'Maximum'},
+  ja:{label:'推論レベル',default:'サービスの既定値',none:'オフ',minimal:'最小',low:'低',medium:'中',high:'高',xhigh:'非常に高い',max:'最大'},
+  ko:{label:'추론 수준',default:'서비스 기본값',none:'끔',minimal:'최소',low:'낮음',medium:'보통',high:'높음',xhigh:'매우 높음',max:'최대'},
+  es:{label:'Nivel de razonamiento',default:'Valor predeterminado del servicio',none:'Desactivado',minimal:'Mínimo',low:'Bajo',medium:'Medio',high:'Alto',xhigh:'Muy alto',max:'Máximo'},
+ };
+ const reasoningText=$derived(reasoningLabels[getLocale()]);
  let secretValue=$state('');
  const secretBusy=$derived(settings.secretSaving);
  const keyStateText=$derived(settings.keySource==='keyring'?t('provider.keyKeyring'):settings.keySource==='environment'?t('provider.keyEnvironment'):t('provider.keyNone'));
@@ -17,6 +26,13 @@
    <label for="api-root">{t('provider.apiRoot')}</label><input id="api-root" type="url" required maxlength="2048" value={settings.fields.baseUrl} disabled={busy||!settings.loaded} oninput={e=>onEdit('baseUrl',e.currentTarget.value)} placeholder={t('provider.apiRootPlaceholder')} title={t('provider.apiRootTitle')}/>
    <label for="model-name">{t('provider.modelName')}</label><input id="model-name" required maxlength="200" value={settings.fields.model} disabled={busy||!settings.loaded} oninput={e=>onEdit('model',e.currentTarget.value)} placeholder={t('provider.modelPlaceholder')}/>
    <label for="image-model">{t('provider.imageModel')}</label><input id="image-model" maxlength="200" value={settings.fields.imageModel??''} disabled={busy||!settings.loaded} oninput={e=>onEdit('imageModel',e.currentTarget.value)} placeholder={t('provider.imageModelPlaceholder')} title={t('provider.imageModelTitle')}/>
+   {#if levels.length}
+    <label for="reasoning-effort">{reasoningText.label}</label>
+    <select id="reasoning-effort" value={settings.fields.reasoningEffort??''} disabled={busy||!settings.loaded} onchange={e=>onEdit('reasoningEffort',e.currentTarget.value)}>
+     <option value="">{reasoningText.default}</option>
+     {#each levels as level (level)}<option value={level}>{reasoningText[level]}</option>{/each}
+    </select>
+   {/if}
   </div>
   <div class="group-card">
    <h2>{t('provider.credGroup')}</h2>
@@ -54,8 +70,8 @@
  form{display:flex;flex-direction:column}
  label{font-size:.88rem;font-weight:500;color:var(--muted);margin:10px 0 5px}
  .group-card h2+label{margin-top:2px}
- input{width:100%;box-sizing:border-box;border:1px solid var(--edge);border-radius:var(--radius-control);padding:8px 11px;background:var(--surface-soft);color:var(--text);font:inherit;font-size:.96rem;transition:border-color 140ms ease,background-color 140ms ease}
- input:focus{outline:2px solid var(--focus-ring);outline-offset:1px;border-color:var(--focus-ring);background:var(--surface)}
+ input,select{width:100%;box-sizing:border-box;border:1px solid var(--edge);border-radius:var(--radius-control);padding:8px 11px;background:var(--surface-soft);color:var(--text);font:inherit;font-size:.96rem;transition:border-color 140ms ease,background-color 140ms ease}
+ input:focus,select:focus{outline:2px solid var(--focus-ring);outline-offset:1px;border-color:var(--focus-ring);background:var(--surface)}
  .state{margin-top:2px;color:var(--muted);font-size:.86rem}
  .failure{color:var(--danger);font-size:.9rem;margin-top:8px}
  .hint{border-left:2px solid var(--edge-strong);padding-left:10px;margin:0 0 12px}
@@ -66,8 +82,8 @@
  button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
  @media(hover:hover) and (pointer:fine){button:hover:not(:disabled){background:var(--surface-hover);border-color:var(--edge-strong)}button.primary:hover:not(:disabled){background:var(--accent);opacity:.9;color:var(--on-accent)}}
  button:active:not(:disabled){transform:scale(0.96)}
- button:focus-visible,input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
- button:disabled,input:disabled{opacity:.45;cursor:default}
+ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+ button:disabled,input:disabled,select:disabled{opacity:.45;cursor:default}
  @media(prefers-reduced-motion:reduce){button{transition-property:background-color,color,opacity;transition-duration:120ms;transform:none}}
  @media(max-width:520px){.settings{padding-inline:0}.secret-row{gap:10px}.secret-state{overflow-wrap:anywhere}}
 </style>

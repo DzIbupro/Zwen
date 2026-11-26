@@ -30,3 +30,48 @@ fn path()->std::path::PathBuf{let p=std::env::temp_dir().join(format!("zwen-chat
  assert!(j.delete_history(Some(&[])).is_err());assert!(j.delete_history(Some(&["r-0".into(),"bad/id".into()])).is_err());assert!(j.find("r-0").unwrap().is_some());
  assert_eq!(j.delete_history(Some(&["r-0".into(),"r-0".into(),"missing".into(),"r-24".into()])).unwrap(),2);assert_eq!(j.delete_history(None).unwrap(),23);assert_eq!(j.delete_history(None).unwrap(),0);assert!(j.latest().unwrap().is_none());drop(j);let j=Journal::open(&p).unwrap();assert!(j.history(0,20).unwrap().is_empty());drop(j);std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn inactive_conversations_include_all_members_and_exclude_recent_or_running_turns() {
+    let p = path();
+    let mut journal = Journal::open(&p).unwrap();
+    for (id, thread, running) in [
+        ("a", None, false), ("a-follow", Some("a"), false),
+        ("b", None, false), ("b-recent", Some("b"), false),
+        ("c", None, false), ("c-running", Some("c"), true),
+        ("d", None, false),
+    ] {
+        let mut turn = journal.begin_in(id, "question", "model", thread, "", 0).unwrap();
+        if !running {
+            turn.state = TurnState::Complete;
+            turn.revision = 1;
+            journal.checkpoint(&turn).unwrap();
+        }
+    }
+    let db = rusqlite::Connection::open(&p).unwrap();
+    db.execute_batch("UPDATE turns SET created_at=100; UPDATE turns SET created_at=200 WHERE request_id='b-recent'").unwrap();
+    let first = journal.inactive_conversations("", 150, 1).unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].latest.request_id, "a-follow");
+    assert_eq!(first[0].member_ids, ["a", "a-follow"]);
+    let second = journal.inactive_conversations("a", 150, 20).unwrap();
+    assert_eq!(second.iter().map(|item| item.latest.conversation_id.as_str()).collect::<Vec<_>>(), ["d"]);
+    drop(db);
+    drop(journal);
+    std::fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn latest_paper_entry_skips_regular_chat_and_running_requests() {
+    let file = path();
+    let mut journal = Journal::open(&file).unwrap();
+    let mut paper = journal.begin("paper-saved", "PDF", "m").unwrap();
+    paper.state = TurnState::Complete;
+    paper.revision = 1;
+    journal.checkpoint(&paper).unwrap();
+    journal.begin("regular", "question", "m").unwrap();
+    journal.begin("paper-running", "next PDF", "m").unwrap();
+    assert_eq!(journal.latest_paper_turn_id().unwrap().as_deref(), Some("paper-saved"));
+    drop(journal);
+    std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
+}

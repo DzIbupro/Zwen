@@ -9,15 +9,17 @@
   import Icon from './Icon.svelte';
   import SettingsHub, {type SettingsCategory} from './SettingsHub.svelte';
   import GeneralSettings from './GeneralSettings.svelte';
+  import DesktopSettings from './DesktopSettings.svelte';
+  import ShortcutSettings from './ShortcutSettings.svelte';
   import SelectionSettings from './SelectionSettings.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
   import ArchiveSettings from './ArchiveSettings.svelte';
   import {AppearanceController,initialAppearance,applyAppearance,watchSystemTheme,loadPalette,savePalette,applyPalette,DEFAULT_CUSTOM_APPEARANCE,loadCustomAppearance,saveCustomAppearance,applyCustomAppearance,type AppearanceState,type ColorPalette,type CustomAppearance} from './lib/appearance';
-  import {DEFAULT_GENERAL_PREFERENCES,loadGeneralPreferences,saveGeneralPreferences,applyGeneralPreferences,type GeneralPreferences} from './lib/preferences';
-  import {getLocale,t,type Locale} from './lib/i18n.svelte';
-  import {assignToProject,bindReplyToActiveProject,cleanupDeletedRecords,createProject,detachFromProject,getActiveProjectId,getDisplayTitle,getProjectById,getProjectIdFor,getProjects,renameRecord,setActiveProjectId} from './lib/history-org.svelte';
+  import {DEFAULT_GENERAL_PREFERENCES,leaveConsequences,loadGeneralPreferences,saveGeneralPreferences,applyGeneralPreferences,type GeneralPreferences} from './lib/preferences';
+  import {getLocale,pendingNativeLocaleMigration,t,type Locale} from './lib/i18n.svelte';
+  import {applyAutoArchive,assignToProject,autoArchiveCutoff,bindReplyToActiveProject,getAutoArchiveDays,restoreArchiveForNewTurn,cleanupDeletedRecords,createProject,detachFromProject,getActiveProjectId,getDisplayTitle,getProjectById,getProjectIdFor,getProjects,renameRecord,setActiveProjectId} from './lib/history-org.svelte';
   import type {Summary} from './lib/history';
-  import {appearancePort,loadAutostart,saveAutostart,setAppLocale} from './lib/bridge';
+  import {appearancePort,confirmAppLeave,getActiveTasks,loadAutostart,saveAutostart,setAppLocale} from './lib/bridge';
   import RetryNotice from './RetryNotice.svelte';
   import ActionOutputNotice from './ActionOutputNotice.svelte';
   import QuickActionSettings from './QuickActionSettings.svelte';
@@ -38,7 +40,7 @@
   import {canApplySurface,ensureSurface,ResizeQueue,type SurfaceInfo} from './lib/surface';
   import {ChatController,type ChatState} from './lib/chat';
   import {StartupSession} from './lib/startup';
-  import {chatPort,historyPort} from './lib/bridge';
+  import {chatPort,getInactiveConversations,historyPort} from './lib/bridge';
   import HistoryPanel from './HistoryPanel.svelte';
   import type {ChatReply} from './lib/chat';
   import {shouldSendQuestion} from './lib/keyboard';
@@ -47,7 +49,7 @@
   import {SelectionController,type SelectionItem,type SelectionState} from './lib/selection';
   import {selectionPort} from './lib/bridge';
   import ProviderSettings from './ProviderSettings.svelte';
-  import {ProviderController,imageModelOf,type SettingsState} from './lib/provider';
+  import {ProviderController,imageModelOf,reasoningLevelsOf,type SettingsState} from './lib/provider';
   import {providerPort} from './lib/bridge';
   import Attachments from './Attachments.svelte';
   import {AttachmentController,type AttachmentState} from './lib/attachments';
@@ -55,6 +57,7 @@
   import KnowledgePanel from './KnowledgePanel.svelte';
   import KnowledgeGraph from './KnowledgeGraph.svelte';
   import {KnowledgeController,type KnowledgeState} from './lib/knowledge';
+  import type {OrganizeResultNotice} from './lib/organize-round';
   import {knowledgePort} from './lib/bridge';
   const initialUi=initialAppearance((window as Window & {__ZWEN_APPEARANCE__?:unknown}).__ZWEN_APPEARANCE__,{getItem:key=>localStorage.getItem(key)});
   let appearanceState=$state<AppearanceState>({...initialUi,loaded:false,status:'loading',error:null});
@@ -87,7 +90,7 @@
   function navigate(destination:'chat'|'history'|'knowledge'|'graph'|'settings'){
     if(closing)return;
     if(destination==='chat'){view=chatState.reply||chatState.running||chatState.error?'reply':'ask';}
-    else{view=destination;if(destination==='knowledge')void knowledge.refresh();if(destination==='graph'){void knowledge.refresh();void knowledge.loadTopics();void knowledge.loadRelations();}}
+    else{view=destination;if(destination==='knowledge'){void knowledge.refresh();void knowledge.loadTopics();void knowledge.loadRelations();}if(destination==='graph'){void knowledge.refresh();void knowledge.loadTopics();void knowledge.loadRelations();}}
   }
   let quickConfig=$state<QuickActionConfig>({revision:0,actions:defaultQuickActions(getLocale()),outputDirectory:''});
   let actionBusy=$state(false);
@@ -121,6 +124,7 @@
   const startupSession=new StartupSession((window as Window & {__ZWEN_RUN_ID__?:unknown}).__ZWEN_RUN_ID__,{getItem:key=>sessionStorage.getItem(key),setItem:(key,value)=>sessionStorage.setItem(key,value)});
   let chatState=$state<ChatState>({answer:'',running:false,stopping:false,loaded:false,error:null,reply:null});
   let sidebarHistory=$state<Summary[]>([]);
+  let archiveScanRevision=$state(0);
   async function refreshSidebarHistory(){
     if(!isDesktop)return;
     try{
@@ -166,7 +170,40 @@
       copyTimer=setTimeout(()=>{if(copiedId===id)copiedId=null;},1600);
     });
   }
-  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;const finished=chatState.running&&!s.running;chatState=s;if(s.reply)bindReplyToActiveProject(s.reply.requestId,s.reply.conversationId,{title:s.reply.prompt,model:s.reply.model,createdAt:s.reply.createdAt});if(s.reply?.conversationId&&(appeared||finished||loadedThreadConv!==s.reply.conversationId)){loadedThreadConv=null;void loadConversationThread(s.reply.conversationId);}if(appeared||finished)void refreshSidebarHistory();if(s.loaded)startupSession.markLoaded(s.reply!==null);settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){view='reply';}},{freshStart:startupSession.fresh});
+  const chat=new ChatController(chatPort,s=>{const appeared=!chatState.reply&&s.reply;const finished=chatState.running&&!s.running;chatState=s;if(s.reply){restoreArchiveForNewTurn(s.reply);bindReplyToActiveProject(s.reply.requestId,s.reply.conversationId,{title:s.reply.prompt,model:s.reply.model,createdAt:s.reply.createdAt});}if(s.reply?.conversationId&&(appeared||finished||loadedThreadConv!==s.reply.conversationId)){loadedThreadConv=null;void loadConversationThread(s.reply.conversationId);}if(appeared||finished)void refreshSidebarHistory();if(s.loaded)startupSession.markLoaded(s.reply!==null);settlePendingSend();actionOutput.observe(s.reply);if(appeared&&view==='ask'){view='reply';}},{freshStart:startupSession.fresh});
+  $effect(() => {
+    const days = getAutoArchiveDays();
+    if (!isDesktop || !days || !chatState.loaded) return;
+    let cancelled = false;
+    let sweeping = false;
+    async function sweep() {
+      if (sweeping || cancelled) return;
+      sweeping = true;
+      const now = Date.now();
+      const cutoff = Math.floor(autoArchiveCutoff(days, now) / 1000);
+      try {
+        let after = '';
+        while (!cancelled) {
+          const revision = archiveScanRevision;
+          const page = await getInactiveConversations(after, cutoff);
+          if (cancelled || days !== getAutoArchiveDays() || !page.length) break;
+          if (archiveScanRevision !== revision) continue;
+          const reply = chatState.reply;
+          const active = chatState.running || chatState.stopping || (reply && (view === 'reply' || !reply.saved || reply.createdAt > cutoff))
+            ? (chatState.conversationId ?? reply?.conversationId ?? null) : null;
+          applyAutoArchive(page, days, now, active);
+          after = page[page.length - 1].latest.conversationId;
+        }
+      } catch {
+        // A temporary read failure leaves existing archive state in place.
+      } finally {
+        sweeping = false;
+      }
+    }
+    const initial = setTimeout(() => void sweep(), 0);
+    const timer = setInterval(() => void sweep(), 3_600_000);
+    return () => { cancelled = true; clearTimeout(initial); clearInterval(timer); };
+  });
   const response=$derived(chatState.answer);
   const running=$derived(chatState.running);
   const replyStatus=$derived(chatState.reply?.retry?t('reply.retrying'):chatState.reply?({streaming:t('reply.streaming'),complete:t('reply.complete'),stopped:t('reply.stopped'),failed:t('reply.failed'),interrupted:t('reply.interrupted'),limited:t('reply.limited'),filtered:t('reply.filtered')}[chatState.reply.state]):chatState.running?t('reply.waiting'):'');
@@ -185,6 +222,17 @@
   // The input clears the moment a send is accepted. When the model starts
   // answering, the screenshots are consumed; a request that ends without a
   // single token (429, network…) puts the question back for a one-press retry.
+  let recentPaperTurn = $state<string | null>(null);
+  $effect(() => {
+    if (!isDesktop || view !== 'ask' || surface.mode !== 'full' || !generalPrefs.showHomeSuggestions) return;
+    let cancelled = false;
+    const revision = archiveScanRevision;
+    recentPaperTurn = null;
+    void paperPort.recentTurn().then(requestId => {
+      if (!cancelled && revision === archiveScanRevision) recentPaperTurn = requestId;
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  });
   function settlePendingSend(){sendDraft.reconcile(chatState);}
   async function send(){
     if(closing||chatState.running||chatState.stopping||actionBusy)return;
@@ -308,8 +356,8 @@
       notice=e instanceof Error?e.message:'对话读取失败';
     }
   }
-  function historyDeleted(ids:string[]){cleanupDeletedRecords(ids);if(ids.includes(chatState.reply?.requestId??'')&&chat.newConversation())quickSession.release();void refreshSidebarHistory();}
-  function historyCleared(){cleanupDeletedRecords(null);if(chat.newConversation())quickSession.release();sidebarHistory=[];}
+  function historyDeleted(ids:string[]){archiveScanRevision++;cleanupDeletedRecords(ids);if(ids.includes(chatState.reply?.requestId??'')&&chat.newConversation())quickSession.release();void refreshSidebarHistory();}
+  function historyCleared(){archiveScanRevision++;cleanupDeletedRecords(null);if(chat.newConversation())quickSession.release();sidebarHistory=[];}
   function continueHistory(reply:ChatReply){if(closing)return;if(chat.adopt(reply)){setActiveProjectId(getProjectIdFor(reply.requestId,reply.conversationId));loadedThreadConv=null;void loadConversationThread(reply.conversationId);quickSession.release();view='reply';notice='继续此会话将附带近期问答';}}
   let draggingPdf=$state(false);
   const paperDrop=createPaperDropHandler({
@@ -430,6 +478,7 @@
   let attachmentState=$state<AttachmentState>({items:[],pending:false,notice:'',loaded:false,max:3});
   const attachmentController=new AttachmentController(attachmentPort,s=>attachmentState=s);
   let knowledgeState=$state<KnowledgeState>({notes:[],query:'',current:null,busy:false,loaded:false,notice:'',topics:[],organizeMode:false,selected:{},confirming:false,organizeBusy:false,lastBatch:null,lastSummary:null,topicView:null,relations:[],auto:false});
+  let organizeResultNotice=$state<OrganizeResultNotice|null>(null);
   const knowledge=new KnowledgeController(knowledgePort,s=>knowledgeState=s);
   let cleared = $state<string|null>(null);
   let input = $state<HTMLTextAreaElement>();
@@ -447,6 +496,26 @@
     if(endQuick&&(actionBusy||selectionState.busy||(!quit&&attachmentState.pending))){notice='请等待选区处理完成，或先取消截图，再关闭胶囊';return;}
     closing=true;
     try {
+      if (generalPrefs.confirmRiskyClose && (quit || endQuick)) {
+        const active = await getActiveTasks();
+        const {stopsTask, discardsMaterials} = leaveConsequences({
+          quit, endQuick,
+          chatActive: active.chatActive || chatState.running || chatState.stopping,
+          organizeActive: active.organizeActive || knowledge.rounds?.active() === true || knowledgeState.organizeBusy,
+          unsentMaterials: !!controller.snapshot.text.trim() || attachmentState.items.length > 0,
+        });
+        const details = [];
+        if (stopsTask) details.push(t('window.leaveStopsTask'));
+        if (discardsMaterials) details.push(t('window.leaveDiscards'));
+        if (quit && (pendingPaper || paperDraftState.recoveryAvailable || paperDraftState.restoring)) {
+          details.push(t('window.leavePaperDraft'));
+        }
+        if (details.length) {
+          const accepted = await confirmAppLeave(t(quit ? 'window.leaveQuitTitle' : 'window.leaveQuickTitle'),
+            details.join(' '), t('window.leaveProceed'), t('history.cancel'));
+          if (!accepted) return;
+        }
+      }
       if(quit&&attachmentState.pending)await attachmentPort.cancel();
       await appearance.flush();
       if(endQuick){
@@ -474,7 +543,9 @@
     void updateAutostart();
     let disposed=false;const unlisteners:(()=>void)[]=[];
     document.documentElement.dataset.browserPreview=isDesktop?'false':'true';
-    const unwatchTheme=watchSystemTheme(()=>appearanceState);void appearance.start();void provider.load();void chat.load();void refreshSidebarHistory();if(isDesktop)void setAppLocale(getLocale());
+    const unwatchTheme=watchSystemTheme(()=>appearanceState);void appearance.start();void provider.load();void chat.load();void refreshSidebarHistory();
+    const localeMigration = pendingNativeLocaleMigration();
+    if (isDesktop && localeMigration) void setAppLocale(localeMigration).catch(() => {});
     if(isDesktop)void listen<{paperId:string}>('paper-open-failed',e=>{if(!disposed&&(pendingPaper?.id??paperScope?.source.id)===e.payload.paperId)notice='系统未能打开论文原件，请检查默认PDF阅读器后重试。';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop)void getCurrentWebview().onDragDropEvent(event=>{if(!disposed)void paperDrop(event.payload);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='拖放暂不可用，请点击论文阅读中的上传PDF';});
     if(isDesktop)void quickActionPort.load().then(c=>{if(disposed)return;quickConfig=c;quickConfigLoaded=true;void syncQuickActionsLocale(getLocale());}).catch(error=>{if(!disposed)notice=error instanceof Error?error.message:'快捷提示词读取失败';});
@@ -487,6 +558,29 @@
     if(isDesktop) void listen('selection-ready',()=>{if(!disposed)void selection.refresh();}).then(fn=>{if(disposed)fn();else{unlisteners.push(fn);void selection.refresh();}}).catch(()=>{if(!disposed)notice='选区事件暂不可用，可重新读取状态';});
     if(isDesktop) void listen<SurfaceInfo>('surface-changed',e=>{if(disposed)return;applySurface(e.payload,true);if(e.payload.mode==='full'&&response&&view==='ask')view='reply';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop) void listen<SurfaceInfo>('surface-presented',e=>{if(disposed)return;if(e.payload.generation>=surface.generation&&surfacePhase==='entering-ready')startSurfaceEnter(generalPrefs.motionSpeed==='off'?0:generalPrefs.motionSpeed==='snappy'?25:60);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
+    if(isDesktop)void listen<{kind:'paper';id:string}|({kind:'organize'}&OrganizeResultNotice)>('open-task-result',e=>{
+      if(disposed||closing)return;
+      const result=e.payload;
+      if(result.kind==='paper'){
+        if(chatState.reply?.requestId===result.id&&chatState.reply.saved===false){view='reply';return;}
+        traceToHistory(result.id);
+      }else{
+        view='knowledge';
+        organizeResultNotice=result;
+        const refresh=knowledge.refresh();
+        void knowledge.loadTopics();
+        void knowledge.loadRelations();
+        const rounds=knowledge.rounds;
+        if(rounds)void Promise.all([refresh,rounds.restore()]).then(()=>{
+          if(disposed||view!=='knowledge'||organizeResultNotice?.id!==result.id||rounds.state.view?.round.id!==result.id||knowledge.pendingEditorId())return;
+          if(knowledge.state.busy||!['complete','failed'].includes(rounds.state.view.status))return;
+          knowledge.close();
+          knowledge.enterOrganize();
+          rounds.revealResult(result.id);
+          organizeResultNotice=null;
+        });
+      }
+    }).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop)void listen('request-settings',()=>{if(!disposed)view='settings';}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);});
     if(isDesktop) for(const [event,quit] of [['request-hide',false],['request-quit',true]] as const) {
       void listen(event,()=>{if(!disposed)void leave(quit);}).then(fn=>{if(disposed)fn();else unlisteners.push(fn);}).catch(()=>{if(!disposed)notice='关闭事件暂不可用，请使用面板按钮';});
@@ -560,17 +654,38 @@
       {:else if view==='graph'}
         <KnowledgeGraph controller={knowledge} info={knowledgeState} onOpenNote={id=>void knowledge.open(id).then(()=>{view='knowledge';})} onOpenTopic={id=>{view='knowledge';void knowledge.openTopic(id);}}/>
       {:else if view==='knowledge'}
-        <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} modelLabel={settings.config?.model??t('model.unconfigured')}/>
+        <KnowledgePanel controller={knowledge} info={knowledgeState} onTrace={traceToHistory} onSaveEdit={saveNoteEdit} notificationResult={organizeResultNotice} onDismissResult={()=>organizeResultNotice=null} modelLabel={settings.config?.model??t('model.unconfigured')}/>
       {:else if view==='settings'}
-        <SettingsHub bind:category={settingsCategory}>
-          {#snippet generalPanel()}<GeneralSettings desktop={isDesktop} enabled={autostartEnabled} busy={autostartBusy} error={autostartError} prefs={generalPrefs} onToggle={enabled=>void updateAutostart(enabled)} onReload={()=>void updateAutostart()} onPrefsChange={updateGeneralPrefs} onResetAll={resetAllPreferences}/>{/snippet}
+        <SettingsHub desktop={isDesktop} hasReasoning={reasoningLevelsOf(settings).length > 0} bind:category={settingsCategory}>
+          {#snippet generalPanel()}<GeneralSettings desktop={isDesktop} enabled={autostartEnabled} busy={autostartBusy} error={autostartError} prefs={generalPrefs} onToggle={enabled=>void updateAutostart(enabled)} onReload={()=>void updateAutostart()} onPrefsChange={updateGeneralPrefs} onResetAll={resetAllPreferences}>
+            {#snippet desktopPanel()}<DesktopSettings config={quickConfigLoaded?quickConfig:null} onDirectoryChange={config=>{quickConfig=config;}}/>{/snippet}
+          </GeneralSettings>{/snippet}
           {#snippet appearancePanel()}<AppearanceSettings state={appearanceState} {palette} custom={customAppearance} onTheme={theme=>void appearance.update({theme})} onPalette={setPalette} onCustom={updateCustomAppearance} onResetCustom={resetCustomAppearance} onReload={()=>void appearance.start()}/>{/snippet}
           {#snippet providerPanel()}<ProviderSettings settings={settings} desktop={isDesktop} onEdit={(name,value)=>provider.edit(name,value)} onSave={()=>void provider.save().then(()=>knowledge.refresh())} onReload={()=>void provider.load()} onSaveSecret={value=>provider.saveSecret(value)} onClearSecret={()=>provider.clearSecret()}/>{/snippet}
-          {#snippet selectionPanel()}<SelectionSettings desktop={isDesktop} enabled={candidateEnabled} onToggle={onCandidateToggle}>{#if isDesktop}<QuickActionSettings port={quickActionPort} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{/if}</SelectionSettings>{/snippet}
+          {#snippet selectionPanel()}<SelectionSettings desktop={isDesktop} enabled={candidateEnabled} onToggle={onCandidateToggle}>{#if isDesktop}<QuickActionSettings port={quickActionPort} directoryConfig={quickConfig} onChanged={config=>{quickConfig=config;quickConfigLoaded=true;}}/>{/if}</SelectionSettings>{/snippet}
+          {#snippet shortcutsPanel()}<ShortcutSettings prefs={generalPrefs}/>{/snippet}
           {#snippet archivePanel()}<ArchiveSettings/>{/snippet}
         </SettingsHub>
       {:else if view==='ask'}
-        <div class="empty-conversation"><div class="welcome-scene">{#if generalPrefs.showWelcomeMark}<WelcomeMark/>{/if}<p>{t('welcome.prompt')}</p></div></div>
+        <div class="empty-conversation">
+          <div class="welcome-scene">
+            {#if generalPrefs.showWelcomeMark}<WelcomeMark/>{/if}
+            <div class="welcome-content">
+              <p>{t('welcome.prompt')}</p>
+              {#if generalPrefs.showHomeSuggestions && !draft.text.trim() && !paperDraftState.enabled && !attachmentState.pending && !attachmentState.items.length}
+                <div class="home-actions">
+                  {#if isDesktop}
+                    <button onclick={() => void uploadPaperFromMenu()}>{t('welcome.readPdf')}</button>
+                    {#if recentPaperTurn}
+                      <button onclick={() => void openSidebarConversation(recentPaperTurn!)}>{t('welcome.resumePaper')}</button>
+                    {/if}
+                  {/if}
+                  <button onclick={() => navigate('knowledge')}>{t('welcome.openKnowledge')}</button>
+                </div>
+              {/if}
+            </div>
+          </div>
+        </div>
       {:else}
         <section class="answer">
           {#each priorTurns as turn (turn.requestId)}

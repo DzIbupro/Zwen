@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-load-keep-awake"
+description = "Enables the load_keep_awake command without any pre-configured scope."
+commands.allow = ["load_keep_awake"]
+
+[[permission]]
+identifier = "deny-load-keep-awake"
+description = "Denies the load_keep_awake command without any pre-configured scope."
+commands.deny = ["load_keep_awake"]
